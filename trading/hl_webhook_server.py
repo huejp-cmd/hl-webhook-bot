@@ -8,6 +8,16 @@ Architecture :
   - Les deux positions peuvent coexister simultanément sans interférence
   - Pas de KYC, connexion par clé privée MetaMask/wallet
 
+Stratégie d'exécution des ordres :
+  1. Tente d'abord un ordre LIMITE agressif (maker fee 0.02%)
+     → Long  : limit = prix × (1 - LIMIT_OFFSET)  (légèrement sous le marché)
+     → Short : limit = prix × (1 + LIMIT_OFFSET)  (légèrement au-dessus)
+  2. Attend LIMIT_TIMEOUT secondes
+  3. Si non rempli → annule + bascule automatiquement en ordre MARKET (taker 0.05%)
+
+  Économie estimée : 0.06% × 2 sides = 0.12% de frais en moins par rapport
+  à du tout-market, soit +~10 000 USDC sur 2 ans sur SOL+ETH combinés.
+
 Installation:
     pip install flask hyperliquid-python-sdk eth-account
 
@@ -22,6 +32,7 @@ TradingView Alertes (une par chart) :
 import json
 import logging
 import math
+import time
 from datetime import datetime
 from flask import Flask, request, jsonify
 
@@ -45,6 +56,17 @@ MAINNET = False   # ← Mettre True seulement quand prêt pour le live
 # True  = calcule et log les ordres sans les envoyer
 # False = envoie les ordres réels sur Hyperliquid
 DRY_RUN = True
+
+# ═══════════════════════════════════════════════════════════════
+#  STRATÉGIE D'EXÉCUTION — Limite agressif → Market fallback
+# ═══════════════════════════════════════════════════════════════
+# Offset du prix pour l'ordre limite (en fraction du prix)
+# 0.0002 = 0.02% sous/au-dessus du marché → rempli comme maker
+# → fee 0.02%/side au lieu de 0.05%/side taker
+LIMIT_OFFSET  = 0.0002   # 0.02% — ajustable si trop souvent non rempli
+
+# Délai d'attente avant de basculer en market (secondes)
+LIMIT_TIMEOUT = 30       # 30s — ajustable (20-60s recommandé)
 
 # ═══════════════════════════════════════════════════════════════
 #  GESTION DU CAPITAL PAR SYMBOLE (Margin Isolé)
@@ -175,6 +197,103 @@ def close_position(coin: str, existing_szi: float):
 #  PLACEMENT D'ORDRE
 # ═══════════════════════════════════════════════════════════════
 
+def _entry_limit_or_market(coin: str, is_buy: bool,
+                            qty: float, ref_price: float) -> dict | None:
+    """
+    Stratégie d'exécution en deux temps :
+
+    1. Ordre LIMITE agressif (maker fee 0.02%/side)
+       → Long  : limit_px = ref_price × (1 - LIMIT_OFFSET)
+       → Short : limit_px = ref_price × (1 + LIMIT_OFFSET)
+       Le prix est légèrement défavorable → passe en maker, se remplit
+       dans les premières secondes sur un marché liquide (SOL/ETH).
+
+    2. Si non rempli après LIMIT_TIMEOUT secondes :
+       → Annule l'ordre limite
+       → Bascule en ordre MARKET (taker fee 0.05%/side)
+
+    Retourne le résultat de l'ordre exécuté, ou None si tout échoue.
+    """
+    # ── Calcul du prix limite ──────────────────────────────────
+    if is_buy:
+        limit_px = round(ref_price * (1 - LIMIT_OFFSET), 6)
+    else:
+        limit_px = round(ref_price * (1 + LIMIT_OFFSET), 6)
+
+    log.info(f"  📋 Tentative limite {'BUY' if is_buy else 'SELL'} @ {limit_px} "
+             f"(ref={ref_price}, offset={LIMIT_OFFSET*100:.3f}%)")
+
+    # ── Place l'ordre limite GTC ───────────────────────────────
+    try:
+        resp = exchange.order(
+            coin,
+            is_buy     = is_buy,
+            sz         = qty,
+            limit_px   = limit_px,
+            order_type = {"limit": {"tif": "Gtc"}},
+        )
+        # Extrait l'order ID
+        oid = None
+        if isinstance(resp, dict):
+            status = resp.get("response", {}).get("data", {}).get("statuses", [{}])[0]
+            oid = status.get("resting", {}).get("oid") or status.get("filled", {}).get("oid")
+
+        # Vérifie si déjà rempli immédiatement
+        if oid is None or _is_filled(resp):
+            log.info(f"  ✅ Limite remplie immédiatement (maker 0.02%)")
+            return resp
+
+        log.info(f"  ⏳ Ordre limite en attente (oid={oid}) — timeout {LIMIT_TIMEOUT}s...")
+
+    except Exception as e:
+        log.warning(f"  ⚠️  Ordre limite échoué : {e} → bascule market")
+        oid = None
+
+    # ── Attente + vérification du remplissage ─────────────────
+    if oid is not None:
+        deadline = time.time() + LIMIT_TIMEOUT
+        while time.time() < deadline:
+            time.sleep(3)
+            try:
+                open_orders = info.open_orders(account.address)
+                still_open  = any(o.get("oid") == oid for o in open_orders)
+                if not still_open:
+                    log.info(f"  ✅ Limite remplie avant timeout (maker 0.02%)")
+                    return {"status": "filled_limit", "oid": oid}
+            except Exception:
+                pass
+
+        # ── Timeout atteint : annule le limite ─────────────────
+        log.info(f"  ⏰ Timeout {LIMIT_TIMEOUT}s — annulation limite, bascule market")
+        try:
+            exchange.cancel(coin, oid)
+            log.info(f"  ✓ Ordre limite annulé (oid={oid})")
+        except Exception as e:
+            log.warning(f"  Annulation échouée (peut déjà être rempli) : {e}")
+
+    # ── Fallback : ordre MARKET ────────────────────────────────
+    try:
+        log.info(f"  🔄 Ordre MARKET {'BUY' if is_buy else 'SELL'} {qty} {coin} (taker 0.05%)")
+        result = exchange.market_open(coin, is_buy, qty)
+        log.info(f"  ✅ Entrée market : {result}")
+        return result
+    except Exception as e:
+        log.error(f"  ❌ Ordre market échoué : {e}")
+        return None
+
+
+def _is_filled(order_resp: dict) -> bool:
+    """Vérifie si la réponse d'ordre indique un remplissage immédiat."""
+    try:
+        statuses = order_resp.get("response", {}).get("data", {}).get("statuses", [])
+        for s in statuses:
+            if "filled" in s:
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def place_order(signal: dict) -> dict:
     """
     Exécute un trade complet sur Hyperliquid en isolated margin :
@@ -263,13 +382,10 @@ def place_order(signal: dict) -> dict:
         log.info(f"  Position inverse détectée ({existing}) — fermeture...")
         close_position(coin, existing)
 
-    # ─── Ordre market d'entrée ────────────────────────────────
-    try:
-        order = exchange.market_open(coin, is_buy, qty)
-        log.info(f"  ✅ Entrée market : {order}")
-    except Exception as e:
-        log.error(f"  ❌ Erreur entrée : {e}")
-        raise
+    # ─── Entrée : Limite agressif → Market fallback ───────────
+    order = _entry_limit_or_market(coin, is_buy, qty, entry_px)
+    if order is None:
+        raise RuntimeError(f"Échec entrée sur {coin} (limite + market ont échoué)")
 
     # ─── Stop Loss ────────────────────────────────────────────
     try:
@@ -298,6 +414,16 @@ def place_order(signal: dict) -> dict:
         log.info(f"  🎯 Take Profit @ {tp_price} : {tp_order}")
     except Exception as e:
         log.error(f"  ❌ Erreur TP   : {e}")
+
+    return {
+        "status": "ok",
+        "coin":   coin,
+        "side":   side,
+        "qty":    qty,
+        "entry":  entry_px,
+        "sl":     sl_price,
+        "tp":     tp_price,
+    }
 
     return {
         "status": "ok",
