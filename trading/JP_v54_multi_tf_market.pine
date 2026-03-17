@@ -22,7 +22,7 @@
 //    Header      : X-Webhook-Token: jp_bot_secret_2026
 // =============================================================================
 
-strategy("JP v5.4 - Multi-TF 30M+1H - Market Orders",
+strategy("JP v5.4 MultiTF Market Orders",
  overlay          = true,
  default_qty_type = strategy.cash,
  commission_type  = strategy.commission.percent,
