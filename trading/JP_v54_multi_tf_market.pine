@@ -1,0 +1,460 @@
+//@version=5
+// ══════════════════════════════════════════════════════════════════════════════
+//  JP v5.4 — Multi-Symbol Multi-TF (30M + 1H) — Ordres Marché
+//  Base : JP v5.3 Multi-Symbol Hyperliquid
+//  Exchange : Hyperliquid Perpetuals (commission 0.07 % round-trip)
+//
+//  ✦ NOUVEAUTÉS vs v5.3 :
+//    • Ordres MARCHÉ : entrée market + SL stop-market + TP close market
+//      (plus de limit orders fixes — exécution au prix du marché)
+//    • Dual timeframe 30M + 1H : signaux indépendants par TF
+//      Mode OR  → l'un OU l'autre suffit
+//      Mode AND → les deux TF doivent confirmer (signal plus sélectif)
+//    • Pas de pyramidage entre 30M et 1H (pyramiding=0)
+//      Si le 30M est déjà en position, le 1H ne rajoute PAS de position
+//    • Partition capital : SOL = 600 USDC / ETH = 400 USDC
+//    • Bonus TP x1.2 quand 30M + 1H sont alignés simultanément
+//    • Tableau enrichi : régime, ADX 1H, source TF, TP actif
+//
+//  SETUP :
+//    Chart 1 → SOL-PERP  30M → capital = 600  → alerte webhook
+//    Chart 2 → ETH-PERP  30M → capital = 400  → alerte webhook
+//    ⚠️ Positions isolées et indépendantes par symbole
+//    Webhook URL : http://TON_IP:5000/webhook
+//    Header      : X-Webhook-Token: jp_bot_secret_2026
+// ══════════════════════════════════════════════════════════════════════════════
+
+strategy("JP v5.4 — Multi-TF 30M+1H — Market Orders",
+ overlay          = true,
+ default_qty_type = strategy.cash,
+ commission_type  = strategy.commission.percent,
+ commission_value = 0.07,
+ pyramiding       = 0,           // ← AUCUN pyramidage, ni intra- ni inter-TF
+ initial_capital  = 600)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PARAMÈTRES
+// ─────────────────────────────────────────────────────────────────────────────
+useFixedRange  = input.bool  (false, "Plage Fixe (sinon 1xATR)",                    group="Range Bars")
+fixedRangeSize = input.float (1.2,   "Plage Fixe ($)",                              group="Range Bars", step=0.1, minval=0.1)
+atrLength      = input.int   (10,    "ATR Length",                                  group="Indicateurs")
+adxLength      = input.int   (14,    "ADX Length",                                  group="Indicateurs")
+bbLength       = input.int   (20,    "BB Length",                                   group="Indicateurs")
+bbMult         = input.float (2.0,   "BB Mult",                                     group="Indicateurs")
+rsiLength      = input.int   (100,   "RSI Length",                                  group="Indicateurs")
+volFilter      = input.bool  (true,  "Volume Filter",                               group="Indicateurs")
+volMult        = input.float (1.4,   "Volume Threshold (x SMA)",                   group="Indicateurs", step=0.1)
+vpK            = input.float (0.75,  "VAH/VAL offset (xATR)",                      group="Indicateurs", step=0.05)
+riskPerc       = input.float (2.0,   "Risk par trade (%)",                          group="Capital/Risque", step=0.1) / 100
+slCapPct       = input.float (5.0,   "SL max (% du capital)",                      group="Capital/Risque", minval=1.0, maxval=20.0, step=0.5) / 100
+maxDD          = input.float (13.0,  "Max Drawdown alerte (%)",                    group="Capital/Risque") / 100
+leverage       = input.float (2.0,   "Levier",                                     group="Capital/Risque", minval=1.0, step=0.5)
+startCapital   = input.float (600.0, "Capital alloué ($)  ← SOL:600  /  ETH:400", group="Capital/Risque", minval=100, step=100)
+tfMode         = input.string("OR",  "Fusion TF  —  OR = l'un ou l'autre / AND = les deux confirmés", group="Multi-TF", options=["OR","AND"])
+showStats      = input.bool  (true,  "Afficher tableau",                            group="Affichage")
+
+stepCapital = startCapital
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  FONCTION HMA (Hull Moving Average)
+// ─────────────────────────────────────────────────────────────────────────────
+hullMa(src, len) =>
+    n2 = math.floor(len / 2)
+    sq = math.floor(math.sqrt(len))
+    ta.wma(2.0 * ta.wma(src, n2) - ta.wma(src, len), sq)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  RANGE BARS (timeframe 30M)
+// ─────────────────────────────────────────────────────────────────────────────
+var float rangeOpen  = na
+var float rangeHigh  = na
+var float rangeLow   = na
+
+if na(rangeOpen)
+    rangeOpen := open
+    rangeHigh := high
+    rangeLow  := low
+
+rangeHigh := math.max(rangeHigh, high)
+rangeLow  := math.min(rangeLow,  low)
+
+rangeSize = useFixedRange ? fixedRangeSize : ta.atr(atrLength)
+isNewBar  = math.abs(close - rangeOpen) >= rangeSize
+
+if isNewBar
+    rangeOpen := close
+    rangeHigh := high
+    rangeLow  := low
+
+// Variables range bar (notation courte)
+o = rangeOpen
+h = rangeHigh
+l = rangeLow
+c = close   // rangeClose = close courant
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  INDICATEURS 30M
+// ─────────────────────────────────────────────────────────────────────────────
+atr30    = ta.atr(atrLength)
+rsi30    = ta.rsi(c, rsiLength)
+volSma   = ta.sma(volume, 20)
+volumeUp = volume > volSma * volMult
+ma20_30  = hullMa(c, 20)
+ma50_30  = hullMa(c, 50)
+
+// VWAP / VP
+cumVol = ta.cum(volume)
+cumPV  = ta.cum(((h + l + c) / 3.0) * volume)
+vwap30 = cumPV / nz(cumVol, 1)
+vah30  = ta.highest(vwap30 + vpK * atr30, 24)
+val30  = ta.lowest (vwap30 - vpK * atr30, 24)
+
+// DMI / ADX 30M (sur range bars h/l)
+up30      = math.max(ta.change(h), 0.0)
+dn30      = math.max(-ta.change(l), 0.0)
+pDM30     = (up30 > dn30 and up30 > 0.0) ? up30 : 0.0
+mDM30     = (dn30 > up30 and dn30 > 0.0) ? dn30 : 0.0
+trRaw30   = math.max(math.max(h - l, math.abs(h - nz(c[1], c))), math.abs(l - nz(c[1], c)))
+sTrur30   = ta.rma(trRaw30, adxLength)
+diplus30  = sTrur30 != 0 ? 100.0 * ta.rma(pDM30, adxLength) / sTrur30 : 0.0
+diminus30 = sTrur30 != 0 ? 100.0 * ta.rma(mDM30, adxLength) / sTrur30 : 0.0
+dx30      = (diplus30 + diminus30) != 0 ? 100.0 * math.abs(diplus30 - diminus30) / (diplus30 + diminus30) : 0.0
+adx30     = ta.rma(dx30, adxLength)
+
+// Régimes 30M
+basis30       = ta.sma(c, bbLength)
+dev30         = bbMult * ta.stdev(c, bbLength)
+upperBB30     = basis30 + dev30
+lowerBB30     = basis30 - dev30
+trending30    = adx30 > 25
+ranging30     = adx30 < 20 and h <= upperBB30 and l >= lowerBB30
+volHigh30     = atr30 > ta.sma(atr30, 20) * 1.5
+explosive30   = volHigh30 and (rsi30 > 75 or rsi30 < 25) and (not volFilter or volumeUp)
+isTrending30  = trending30  and not explosive30
+isRanging30   = ranging30   and not (trending30 or explosive30)
+isExplosive30 = explosive30 and not trending30
+
+// Filtre inRange 30M
+var float[] volWin = array.new_float()
+curVol = ta.stdev(math.log(high / low), 100)
+array.push(volWin, curVol)
+if array.size(volWin) > 100
+    array.shift(volWin)
+sortedV  = array.copy(volWin)
+array.sort(sortedV, order.ascending)
+idx25    = math.min(math.round((array.size(sortedV) - 1) * 0.25), array.size(sortedV) - 1)
+vol25pct = array.get(sortedV, idx25)
+
+btcH1h   = request.security("BINANCE:BTCUSDT", "60", high)
+btcL1h   = request.security("BINANCE:BTCUSDT", "60", low)
+btcC1h   = request.security("BINANCE:BTCUSDT", "60", close[1])
+btcR1h   = (btcH1h - btcL1h) / btcC1h
+inRange30 = (adx30 < 20) and (curVol < vol25pct) and (btcR1h < 0.01)
+
+// Conditions entrée 30M — LONG
+bullTrend30    = diplus30 > diminus30 and c > ma50_30
+pbLong30       = l <= ma20_30 and c > ma20_30 and rsi30 > 40 and rsi30 < 65
+brkUp30        = c > vah30 and volHigh30 and (c - nz(c[1], c)) > atr30 * 0.8 and (not volFilter or volumeUp)
+entryLong30m   = (isTrending30 and bullTrend30 and pbLong30) or (isExplosive30 and brkUp30)
+
+// Conditions entrée 30M — SHORT
+bearTrend30    = diminus30 > diplus30 and c < ma50_30
+pbShort30      = h >= ma20_30 and c < ma20_30 and rsi30 > 35 and rsi30 < 60
+brkDown30      = c < val30 and volHigh30 and (c - nz(c[1], c)) < -atr30 * 0.8 and (not volFilter or volumeUp)
+entryShort30m  = (isTrending30 and bearTrend30 and pbShort30) or (isExplosive30 and brkDown30)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  SIGNAUX 1H — tout calculé dans request.security pour cohérence des séries
+// ─────────────────────────────────────────────────────────────────────────────
+get1hSignals() =>
+    // Indicateurs sur barres 1H
+    a_    = ta.atr(atrLength)
+    r_    = ta.rsi(close, rsiLength)
+    m20_  = hullMa(close, 20)
+    m50_  = hullMa(close, 50)
+
+    // DMI/ADX 1H (utilise high/low natifs 1H)
+    up_   = math.max(ta.change(high), 0.0)
+    dn_   = math.max(-ta.change(low),  0.0)
+    pDM_  = (up_ > dn_ and up_ > 0.0) ? up_ : 0.0
+    mDM_  = (dn_ > up_ and dn_ > 0.0) ? dn_ : 0.0
+    tr_   = ta.tr(true)
+    sT_   = ta.rma(tr_, adxLength)
+    dip_  = sT_ != 0 ? 100.0 * ta.rma(pDM_, adxLength) / sT_ : 0.0
+    dim_  = sT_ != 0 ? 100.0 * ta.rma(mDM_, adxLength) / sT_ : 0.0
+    dx_   = (dip_ + dim_) != 0 ? 100.0 * math.abs(dip_ - dim_) / (dip_ + dim_) : 0.0
+    adx_  = ta.rma(dx_, adxLength)
+
+    // Régimes 1H
+    b_    = ta.sma(close, bbLength)
+    dev_  = bbMult * ta.stdev(close, bbLength)
+    uBB_  = b_ + dev_
+    lBB_  = b_ - dev_
+    tr1h_ = adx_ > 25
+    rng1h = adx_ < 20 and high <= uBB_ and low >= lBB_
+    vH_   = a_ > ta.sma(a_, 20) * 1.5
+    expl_ = vH_ and (r_ > 75 or r_ < 25)
+    isTr_ = tr1h_ and not expl_
+    isEx_ = expl_  and not tr1h_
+
+    // VWAP / VP 1H
+    cV_   = ta.cum(volume)
+    cPV_  = ta.cum(((high + low + close) / 3.0) * volume)
+    vw_   = cPV_ / nz(cV_, 1)
+    vah_  = ta.highest(vw_ + vpK * a_, 24)
+    val_  = ta.lowest (vw_ - vpK * a_, 24)
+
+    // Breakouts 1H
+    bUp_  = close > vah_ and vH_ and (close - nz(close[1], close)) > a_ * 0.8
+    bDn_  = close < val_ and vH_ and (close - nz(close[1], close)) < -a_ * 0.8
+
+    // Signaux LONG 1H
+    lLong_  = (isTr_ and dip_ > dim_ and close > m50_ and low  <= m20_ and close > m20_ and r_ > 40 and r_ < 65) or
+              (isEx_ and bUp_)
+
+    // Signaux SHORT 1H
+    lShort_ = (isTr_ and dim_ > dip_ and close < m50_ and high >= m20_ and close < m20_ and r_ > 35 and r_ < 60) or
+              (isEx_ and bDn_)
+
+    [lLong_, lShort_, adx_, isTr_]
+
+[entryLong1h, entryShort1h, adx1h, isTrending1h] =
+     request.security(syminfo.tickerid, "60", get1hSignals())
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  FUSION SIGNAUX — sans pyramidage entre TF
+// ─────────────────────────────────────────────────────────────────────────────
+notInPos    = strategy.position_size == 0
+strongBull  = adx30 > 30 and diplus30  > diminus30 * 1.5
+strongBear  = adx30 > 30 and diminus30 > diplus30  * 1.5
+
+// Fusion selon mode OR / AND
+triggerLong  = tfMode == "AND" ? (entryLong30m  and entryLong1h)  : (entryLong30m  or entryLong1h)
+triggerShort = tfMode == "AND" ? (entryShort30m and entryShort1h) : (entryShort30m or entryShort1h)
+
+// Confirmation duale (les deux TF s'accordent → TP boosté)
+dualLong  = entryLong30m  and entryLong1h
+dualShort = entryShort30m and entryShort1h
+dualConf  = dualLong or dualShort
+
+// Source TF (pour webhook + tableau)
+var string lastTfSrc = "—"
+tfSrc = entryLong30m or entryShort30m ?
+         (entryLong1h or entryShort1h ? "30m+1h" : "30m") : "1h"
+
+// Conditions finales (pyramiding=0 garanti par la stratégie + notInPos)
+validLong  = triggerLong  and not strongBear and not inRange30 and notInPos
+validShort = triggerShort and not strongBull  and not inRange30 and notInPos
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  CALCUL QUANTITÉ
+// ─────────────────────────────────────────────────────────────────────────────
+calcQty(ep, sl) =>
+    d = math.abs(ep - sl)
+    d := d == 0.0 ? 1e-12 : d
+    (stepCapital * riskPerc) / d
+
+capQty(qr, ep, sl) =>
+    d = math.abs(ep - sl)
+    d := d == 0.0 ? 1e-12 : d
+    math.min(qr,
+     math.min((stepCapital * leverage) / ep,
+              (stepCapital * slCapPct)  / d))
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  SUIVI TP EN COURS (pour exit marché)
+// ─────────────────────────────────────────────────────────────────────────────
+var float tpLong  = na
+var float tpShort = na
+
+// Réinitialiser quand plus de position
+if notInPos
+    tpLong  := na
+    tpShort := na
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  LONG — ENTRÉE MARCHÉ + SL STOP-MARKET + TP CLOSE MARCHÉ
+// ─────────────────────────────────────────────────────────────────────────────
+if validLong
+    strategy.cancel_all()
+    slBase = isRanging30 ? val30 * 0.995 : ta.lowest(l, 15) * 0.995
+    sl     = math.max(slBase, c * 0.985)
+    tpMult = isTrending30 ? 4.0 : (isRanging30 ? 2.5 : 3.3)
+    tpMult := dualLong ? tpMult * 1.2 : tpMult   // ★ bonus double confirmation
+    tp     = c + (c - sl) * tpMult
+    qr     = calcQty(c, sl) * leverage
+    qr    := nz(qr, 0.0)
+    qr    := qr <= 0.0 ? stepCapital * 0.001 : qr
+    qty    = capQty(qr, c, sl)
+
+    tpLong    := tp
+    lastTfSrc := tfSrc
+
+    // ── Ordre d'entrée MARCHÉ ─────────────────────────────────────────────
+    strategy.entry("Long", strategy.long, qty=qty)
+    // ── SL stop-market (déclenche un ordre market sur breakage) ───────────
+    strategy.exit("SL Long", from_entry="Long", stop=sl)
+
+    regime  = isTrending30 ? "trend" : (isExplosive30 ? "explosive" : "range")
+    tfLabel = tfSrc
+    alert(
+     '{"action":"open"'
+     + ',"side":"buy"'
+     + ',"order_type":"market"'
+     + ',"symbol":"{{ticker}}"'
+     + ',"regime":"'  + regime                           + '"'
+     + ',"tf":"'      + tfLabel                          + '"'
+     + ',"dual_tf":'  + (dualLong ? "true" : "false")
+     + ',"price":'    + str.tostring(math.round(c,    4))
+     + ',"sl":'       + str.tostring(math.round(sl,   4))
+     + ',"tp":'       + str.tostring(math.round(tp,   4))
+     + ',"qty":'      + str.tostring(math.round(qty,  4))
+     + ',"leverage":' + str.tostring(int(leverage))
+     + ',"capital":'  + str.tostring(stepCapital)
+     + ',"risk_pct":' + str.tostring(riskPerc * 100)
+     + '}',
+     alert.freq_once_per_bar_close)
+
+// ── TP Long : close au marché quand le prix touche l'objectif ─────────────
+if strategy.position_size > 0 and not na(tpLong) and high >= tpLong
+    strategy.close("Long", comment="TP Market")
+    alert(
+     '{"action":"close"'
+     + ',"side":"buy"'
+     + ',"order_type":"market"'
+     + ',"symbol":"{{ticker}}"'
+     + ',"reason":"tp"'
+     + ',"price":' + str.tostring(math.round(close, 4))
+     + '}',
+     alert.freq_once_per_bar_close)
+    tpLong := na
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  SHORT — ENTRÉE MARCHÉ + SL STOP-MARKET + TP CLOSE MARCHÉ
+// ─────────────────────────────────────────────────────────────────────────────
+if validShort
+    strategy.cancel_all()
+    slBase = isRanging30 ? vah30 * 1.005 : ta.highest(h, 15) * 1.005
+    sl     = math.min(slBase, c * 1.015)
+    tpMult = isTrending30 ? 4.0 : (isRanging30 ? 2.5 : 3.3)
+    tpMult := dualShort ? tpMult * 1.2 : tpMult   // ★ bonus double confirmation
+    tp     = c - (sl - c) * tpMult
+    qr     = calcQty(c, sl) * leverage
+    qr    := nz(qr, 0.0)
+    qr    := qr <= 0.0 ? stepCapital * 0.001 : qr
+    qty    = capQty(qr, c, sl)
+
+    tpShort   := tp
+    lastTfSrc := tfSrc
+
+    strategy.entry("Short", strategy.short, qty=qty)
+    strategy.exit("SL Short", from_entry="Short", stop=sl)
+
+    regime  = isTrending30 ? "trend" : (isExplosive30 ? "explosive" : "range")
+    tfLabel = tfSrc
+    alert(
+     '{"action":"open"'
+     + ',"side":"sell"'
+     + ',"order_type":"market"'
+     + ',"symbol":"{{ticker}}"'
+     + ',"regime":"'  + regime                            + '"'
+     + ',"tf":"'      + tfLabel                           + '"'
+     + ',"dual_tf":'  + (dualShort ? "true" : "false")
+     + ',"price":'    + str.tostring(math.round(c,    4))
+     + ',"sl":'       + str.tostring(math.round(sl,   4))
+     + ',"tp":'       + str.tostring(math.round(tp,   4))
+     + ',"qty":'      + str.tostring(math.round(qty,  4))
+     + ',"leverage":' + str.tostring(int(leverage))
+     + ',"capital":'  + str.tostring(stepCapital)
+     + ',"risk_pct":' + str.tostring(riskPerc * 100)
+     + '}',
+     alert.freq_once_per_bar_close)
+
+// ── TP Short : close au marché ────────────────────────────────────────────
+if strategy.position_size < 0 and not na(tpShort) and low <= tpShort
+    strategy.close("Short", comment="TP Market")
+    alert(
+     '{"action":"close"'
+     + ',"side":"sell"'
+     + ',"order_type":"market"'
+     + ',"symbol":"{{ticker}}"'
+     + ',"reason":"tp"'
+     + ',"price":' + str.tostring(math.round(close, 4))
+     + '}',
+     alert.freq_once_per_bar_close)
+    tpShort := na
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  VISUALISATION
+// ─────────────────────────────────────────────────────────────────────────────
+bgcolor(inRange30 ? color.new(color.orange, 90) : na,  title="InRange Filter")
+bgcolor(isNewBar  ? color.new(color.blue,   95) : na,  title="New Range Bar")
+
+plot(vwap30,  "VWAP/POC", color=color.fuchsia,                linewidth=2)
+plot(vah30,   "VAH",      color=color.blue,   style=plot.style_circles)
+plot(val30,   "VAL",      color=color.blue,   style=plot.style_circles)
+plot(ma20_30, "HMA20",    color=color.yellow,                 linewidth=2)
+plot(ma50_30, "HMA50",    color=color.red,                    linewidth=2)
+
+// Signaux filtrés finaux
+plotshape(validLong,  "▲ Long",  location=location.belowbar, color=color.green, style=shape.triangleup,   size=size.normal)
+plotshape(validShort, "▼ Short", location=location.abovebar, color=color.red,   style=shape.triangledown, size=size.normal)
+
+// Détail par TF (aide au diagnostic)
+plotshape(entryLong30m  and not entryLong1h,  "◆ Long 30m",    location=location.belowbar, color=color.new(color.green,  50), style=shape.diamond, size=size.tiny)
+plotshape(entryLong1h   and not entryLong30m, "◆ Long 1H",     location=location.belowbar, color=color.new(color.lime,   20), style=shape.diamond, size=size.small)
+plotshape(entryShort30m and not entryShort1h, "◆ Short 30m",   location=location.abovebar, color=color.new(color.red,    50), style=shape.diamond, size=size.tiny)
+plotshape(entryShort1h  and not entryShort30m,"◆ Short 1H",    location=location.abovebar, color=color.new(color.orange, 20), style=shape.diamond, size=size.small)
+plotshape(dualConf,                           "★ Dual TF",     location=location.belowbar, color=color.new(color.gold,   0),  style=shape.star,    size=size.small)
+
+// Niveau TP actif tracé sur le chart
+plot(strategy.position_size > 0  and not na(tpLong)  ? tpLong  : na,
+     "TP Long actif",  color=color.new(color.green, 20), style=plot.style_linebr, linewidth=1)
+plot(strategy.position_size < 0  and not na(tpShort) ? tpShort : na,
+     "TP Short actif", color=color.new(color.red,   20), style=plot.style_linebr, linewidth=1)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  TABLEAU DE BORD
+// ─────────────────────────────────────────────────────────────────────────────
+var float peakEq = startCapital
+var float maxDDv = 0.0
+curEq = strategy.equity
+if curEq > peakEq
+    peakEq := curEq
+curDD = (peakEq - curEq) / peakEq
+if curDD > maxDDv
+    maxDDv := curDD
+
+regime30Label = isTrending30 ? "Trend" : (isExplosive30 ? "Explo" : (isRanging30 ? "Range" : "—"))
+regime30Color = isTrending30 ? color.lime : (isExplosive30 ? color.orange : color.gray)
+
+if showStats
+    var table t = table.new(position.top_right, 2, 10,
+         border_color=color.new(color.white, 60), border_width=1)
+    table.cell(t, 0, 0, "JP v5.4",          text_color=color.white,  bgcolor=color.new(color.navy,20), text_size=size.small)
+    table.cell(t, 1, 0, syminfo.ticker,      text_color=color.yellow, bgcolor=color.new(color.navy,20), text_size=size.small)
+    table.cell(t, 0, 1, "Équity",            text_color=color.gray,   bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 1, 1, str.tostring(curEq,       "#.##") + " $", text_color=color.lime,   bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 0, 2, "Capital alloué",    text_color=color.gray,   bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 1, 2, str.tostring(startCapital,"#")    + " $", text_color=color.white,  bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 0, 3, "Perte max/trade",   text_color=color.gray,   bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 1, 3, str.tostring(curEq * slCapPct, "#.##") + " $", text_color=color.orange, bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 0, 4, "DD Courant",        text_color=color.gray,   bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 1, 4, str.tostring(curDD * 100, "#.##") + "%",  text_color=curDD > maxDD * 0.8 ? color.red : color.white, bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 0, 5, "Max DD",            text_color=color.gray,   bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 1, 5, str.tostring(maxDDv * 100, "#.##") + "%", text_color=color.yellow, bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 0, 6, "Régime 30M",        text_color=color.gray,   bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 1, 6, regime30Label,        text_color=regime30Color, bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 0, 7, "ADX 1H",            text_color=color.gray,   bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 1, 7, str.tostring(adx1h, "#.#") + (isTrending1h ? " ▲" : ""), text_color=adx1h > 25 ? color.lime : color.gray, bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 0, 8, "Mode TF",           text_color=color.gray,   bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 1, 8, tfMode,              text_color=color.aqua,   bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 0, 9, "Dernier signal",    text_color=color.gray,   bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 1, 9, lastTfSrc,          text_color=lastTfSrc == "30m+1h" ? color.gold : color.white, bgcolor=color.black, text_size=size.tiny)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ALERTE MAX DRAWDOWN
+// ─────────────────────────────────────────────────────────────────────────────
+if maxDDv >= maxDD
+    alert("⚠️ " + syminfo.ticker + " — Max Drawdown ≥ " + str.tostring(maxDD * 100, "#.##") + "%",
+     alert.freq_once_per_bar)
