@@ -1,15 +1,15 @@
 //@version=5
-// ══════════════════════════════════════════════════════════════════════════════
-//  JP v5.3 — Multi-Symbol Hyperliquid 29M
+//
+//  JP v5.3 - Multi-Symbol Hyperliquid 29M
 //  Range Bars 1xATR + calculs sur barres du chart (29M)
 //  Exchange : Hyperliquid Perpetuals (commission 0.07% round-trip)
 //
 //  UTILISATION :
-//    Chart 1 : SOLUSDT.P 29M  — creer une alerte webhook
-//    Chart 2 : ETHUSDT.P 29M  — creer une alerte webhook
+//    Chart 1 : SOLUSDT.P 29M  - creer une alerte webhook
+//    Chart 2 : ETHUSDT.P 29M  - creer une alerte webhook
 //    Message alerte : {{alert.message}}
 //    Webhook URL    : http://TON_IP:8080/webhook?token=jp_bot_secret_2026
-// ══════════════════════════════════════════════════════════════════════════════
+//
 strategy("JP v5.3 - Multi-Symbol Hyperliquid 29M",
  overlay=true,
  default_qty_type=strategy.contracts,
@@ -19,7 +19,7 @@ strategy("JP v5.3 - Multi-Symbol Hyperliquid 29M",
  initial_capital=500,
  calc_on_every_tick=false)
 
-// ——————— PARAMETRES ———————
+// ------- PARAMETRES -------
 useFixedRange  = input.bool(false,  "Plage Fixe (sinon 1xATR)")
 fixedRangeSize = input.float(1.2,   "Plage Fixe ($)", step=0.1, minval=0.1)
 atrLength      = input.int(10,      "ATR Length")
@@ -40,9 +40,9 @@ slCapPct       = input.float(5.0,   "SL max (% du capital)", minval=1.0, maxval=
 
 stepCapital = startCapital
 
-// ══════════════════════════════════════════════════════════════════════════════
+//
 //  FONCTIONS GLOBALES
-// ══════════════════════════════════════════════════════════════════════════════
+//
 hullMa(src, length) =>
     n2      = math.floor(length / 2)
     sqrtLen = math.floor(math.sqrt(length))
@@ -50,9 +50,9 @@ hullMa(src, length) =>
     wma2    = ta.wma(src, length)
     ta.wma(2 * wma1 - wma2, sqrtLen)
 
-// ══════════════════════════════════════════════════════════════════════════════
+//
 //  CALCULS PRINCIPAUX
-// ══════════════════════════════════════════════════════════════════════════════
+//
 
 // --- ATR ---
 atr = ta.atr(atrLength)
@@ -173,9 +173,9 @@ qtyS    = capQty_(rawQtyS, rClose, slS)
 
 regStr = isTrending ? "trend" : (isRanging ? "range" : "explosive")
 
-// ══════════════════════════════════════════════════════════════════════════════
+//
 //  STRATEGY ENTRIES
-// ══════════════════════════════════════════════════════════════════════════════
+//
 if (entryLT or entryLE) and validL and not inRng
     strategy.cancel_all()
     trailPtsL = rClose - slL
@@ -226,9 +226,9 @@ if (entryST or entrySE) and validS and not inRng
      + '}',
      alert.freq_once_per_bar_close)
 
-// ══════════════════════════════════════════════════════════════════════════════
+//
 //  DETECTION CLOTURE + ALERTE CLOSE
-// ══════════════════════════════════════════════════════════════════════════════
+//
 var float entryPx  = na
 var string entrySd = ""
 
@@ -267,9 +267,9 @@ if prevPos != 0.0 and currPos == 0.0 and not na(entryPx)
      + '}',
      alert.freq_once_per_bar_close)
 
-// ══════════════════════════════════════════════════════════════════════════════
+//
 //  VISUALISATION
-// ══════════════════════════════════════════════════════════════════════════════
+//
 plot(poc,  "POC",   color=color.fuchsia, linewidth=2)
 plot(vah,  "VAH",   color=color.blue,    style=plot.style_circles)
 plot(val,  "VAL",   color=color.blue,    style=plot.style_circles)
@@ -279,9 +279,9 @@ plotshape(entryLT or entryLE, title="Long",  location=location.belowbar, color=c
 plotshape(entryST or entrySE, title="Short", location=location.abovebar, color=color.red,   style=shape.triangledown)
 bgcolor(inRng ? color.new(color.orange, 90) : na)
 
-// ══════════════════════════════════════════════════════════════════════════════
+//
 //  DRAWDOWN + TABLEAU PERFS (fond blanc)
-// ══════════════════════════════════════════════════════════════════════════════
+//
 var float peakEq   = startCapital
 var float maxDDVal = 0.0
 curEq = strategy.equity
@@ -307,10 +307,10 @@ if showStats
     table.cell(stats, 0, 4, "Max DD",              text_color=color.gray,                 bgcolor=color.rgb(255, 255, 255),                text_size=size.tiny)
     table.cell(stats, 1, 4, str.tostring(maxDDVal * 100, "#.##") + "%",                  text_color=color.orange,            bgcolor=color.rgb(255, 255, 255),  text_size=size.tiny)
 
-// ══════════════════════════════════════════════════════════════════════════════
+//
 //  TABLEAU CONDITIONS (bas-gauche, fond blanc)
-// ══════════════════════════════════════════════════════════════════════════════
-dot(ok) => ok ? "●" : "●"
+//
+dot(ok) => ok ? "o" : "o"
 dotColor(ok) => ok ? color.new(color.green, 0) : color.red
 
 // Conditions communes
@@ -398,7 +398,7 @@ if showParams
     table.cell(cond, 1, 11, cLongAll  ? "LONG"  : "-", text_color=cLongAll  ? color.new(color.green, 0) : color.gray, bgcolor=sigLongBg,  text_size=size.small)
     table.cell(cond, 2, 11, cShortAll ? "SHORT" : "-", text_color=cShortAll ? color.red                : color.gray, bgcolor=sigShortBg, text_size=size.small)
 
-// ——————— ALERTE MAX DD ———————
+// ------- ALERTE MAX DD -------
 if maxDDVal >= maxDD
     alert("Attention " + syminfo.ticker + " Max Drawdown >= " + str.tostring(maxDD * 100, "#.##") + "%",
      alert.freq_once_per_bar_close)
