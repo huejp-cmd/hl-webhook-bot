@@ -12,7 +12,7 @@
 // ══════════════════════════════════════════════════════════════════════════════
 strategy("JP v5.3 - Multi-Symbol Hyperliquid 29M",
  overlay=true,
- default_qty_type=strategy.cash,
+ default_qty_type=strategy.contracts,
  commission_type=strategy.commission.percent,
  commission_value=0.07,
  pyramiding=1,
