@@ -49,16 +49,16 @@ from eth_account import Account
 # =============================================================================
 #  CONFIGURATION
 # =============================================================================
-PRIVATE_KEY   = "REMPLACE_PAR_TA_CLE_PRIVEE_METAMASK"
+PRIVATE_KEY   = "0x9fcf4d1bae9622fe7aba5b4218842d1b022a29dd4488c3118e0ba412ad98d7b4"
 WEBHOOK_TOKEN = "jp_bot_secret_2026"
 
 # True  = Mainnet Hyperliquid (argent reel)
 # False = Testnet (test sans risque)
-MAINNET = False
+MAINNET = True
 
 # True  = simule sans envoyer d'ordre reel
 # False = ordres reels sur Hyperliquid
-DRY_RUN = True
+DRY_RUN = False
 
 # =============================================================================
 #  TIMEOUTS LIMIT -> MARKET
@@ -102,11 +102,32 @@ log = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# --- Init Hyperliquid ---
+# --- Init Hyperliquid (lazy) ---
 account  = Account.from_key(PRIVATE_KEY)
 base_url = constants.MAINNET_API_URL if MAINNET else constants.TESTNET_API_URL
-info     = Info(base_url, skip_ws=True)
-exchange = Exchange(account, base_url)
+
+_info     = None
+_exchange = None
+
+def get_info():
+    global _info
+    if _info is None:
+        _info = Info(base_url, skip_ws=True)
+    return _info
+
+def get_exchange():
+    global _exchange
+    if _exchange is None:
+        _exchange = Exchange(account, base_url)
+    return _exchange
+
+# Alias pour compatibilite
+info     = type('LazyInfo', (), {
+    '__getattr__': lambda self, name: getattr(get_info(), name)
+})()
+exchange = type('LazyExchange', (), {
+    '__getattr__': lambda self, name: getattr(get_exchange(), name)
+})()
 
 log.info(f"Wallet  : {account.address}")
 log.info(f"Reseau  : {'MAINNET' if MAINNET else 'TESTNET'} Hyperliquid")
@@ -117,9 +138,30 @@ log.info(f"Mode    : {'DRY_RUN (simulation)' if DRY_RUN else 'LIVE (ordres reels
 #  UTILITAIRES
 # =============================================================================
 
-def normalize_coin(ticker: str) -> str:
-    """SOLUSDT.P / BINANCE:SOLUSDT.P -> SOL"""
+def round_price(x: float) -> float:
+    """Arrondit un prix à 5 chiffres significatifs (exigence Hyperliquid)."""
+    if x == 0:
+        return 0.0
+    d = math.ceil(math.log10(abs(x)))
+    factor = 10 ** (5 - d)
+    return round(x * factor) / factor
+
+
+def normalize_coin(ticker: str, price: float = None) -> str:
+    """SOLUSDT.P / BINANCE:SOLUSDT.P -> SOL
+    Fallback sur le prix si ticker non résolu (ex: {{ticker}} Pine Script)"""
     s = ticker.upper().strip()
+    # Placeholder non résolu par TradingView → fallback sur le prix
+    if "{" in s or "}" in s:
+        if price is not None:
+            if price > 500:
+                log.warning(f"Ticker non résolu '{ticker}' → ETH (prix={price})")
+                return "ETH"
+            else:
+                log.warning(f"Ticker non résolu '{ticker}' → SOL (prix={price})")
+                return "SOL"
+        log.error(f"Ticker non résolu '{ticker}' et pas de prix — impossible de déterminer le coin")
+        return "UNKNOWN"
     if ":" in s:
         s = s.split(":")[1]
     s = s.replace(".P", "").replace("PERP", "").replace("-PERP", "")
@@ -131,9 +173,21 @@ def normalize_coin(ticker: str) -> str:
 
 
 def get_account_value() -> float:
+    """Retourne l'equity du compte (perps + spot USDC pour compte unifie)."""
     try:
+        # Perps equity (positions ouvertes + margin utilisee)
         state = info.user_state(account.address)
-        return float(state.get("marginSummary", {}).get("accountValue", 0))
+        perp_val = float(state.get("marginSummary", {}).get("accountValue", 0))
+
+        # Spot USDC (compte unifie Hyperliquid : le capital disponible est en spot)
+        spot_state = info.spot_user_state(account.address)
+        spot_usdc = next(
+            (float(b["total"]) for b in spot_state.get("balances", []) if b["coin"] == "USDC"),
+            0.0,
+        )
+
+        total = perp_val + spot_usdc
+        return total if total > 0 else perp_val
     except Exception as e:
         log.error(f"get_account_value: {e}")
         return 0.0
@@ -269,70 +323,41 @@ def _entry_limit_or_market(coin: str, is_buy: bool,
 #  TAKE PROFIT : LIMITE -> 30s -> MARKET  (thread background)
 # =============================================================================
 
-def _tp_limit_or_market_bg(coin: str, is_buy_tp: bool,
-                            qty: float, tp_price: float):
+def place_tp_trigger(coin: str, is_buy_tp: bool, qty: float, tp_price: float):
     """
-    Lance en background (thread) :
-    1. Place un ordre limite au prix TP
-    2. Attend TP_LIMIT_TIMEOUT secondes
-    3. Si non rempli -> annule + market_close
+    Place un ordre Take Profit trigger natif Hyperliquid (tpsl='tp').
+    Géré côté exchange → reste ouvert jusqu'au prix cible, sans timer.
 
-    is_buy_tp : True si la position est SHORT (on achete pour fermer)
-                False si la position est LONG  (on vend pour fermer)
+    is_buy_tp : True si SHORT (on achète pour fermer)
+                False si LONG  (on vend pour fermer)
     """
-    log.info(f"  [TP thread] Limite {'BUY' if is_buy_tp else 'SELL'} @ {tp_price} "
-             f"(timeout {TP_LIMIT_TIMEOUT}s)")
-
-    # Offset : on ameliore legerement le prix du TP pour etre maker
-    # Long  -> on vend un peu AU-DESSUS du TP (meilleur prix)
-    # Short -> on achete un peu EN-DESSOUS du TP
+    # limit_px = prix worst-case avec 5% slippage (garantit execution)
     if is_buy_tp:
-        limit_px = round(tp_price * (1 - TP_LIMIT_OFFSET), 6)
+        limit_px = round_price(tp_price * 0.95)   # SHORT TP : on achète, limit en dessous
     else:
-        limit_px = round(tp_price * (1 + TP_LIMIT_OFFSET), 6)
+        limit_px = round_price(tp_price * 1.05)   # LONG TP  : on vend, limit au dessus
 
-    oid = None
+    log.info(f"  TP trigger {'BUY' if is_buy_tp else 'SELL'} @ {tp_price} (limit_px={limit_px})")
     try:
         resp = exchange.order(
             coin,
             is_buy      = is_buy_tp,
             sz          = qty,
             limit_px    = limit_px,
-            order_type  = {"limit": {"tif": "Gtc"}},
+            order_type  = {"trigger": {"triggerPx": tp_price,
+                                       "isMarket": True, "tpsl": "tp"}},
             reduce_only = True,
         )
-        if _is_filled(resp):
-            log.info("  [TP thread] Limite TP remplie immediatement")
-            return
-        oid = _extract_oid(resp)
-        log.info(f"  [TP thread] Ordre TP limite en attente (oid={oid})")
+        log.info(f"  TP trigger placé : {resp}")
+        return resp
     except Exception as e:
-        log.warning(f"  [TP thread] Ordre TP limite echoue : {e} -> market_close")
-
-    # -- Attente --
-    if oid is not None:
-        deadline = time.time() + TP_LIMIT_TIMEOUT
-        while time.time() < deadline:
-            time.sleep(3)
-            if not _is_order_still_open(oid):
-                log.info("  [TP thread] Limite TP remplie avant timeout")
-                return
-        log.info(f"  [TP thread] Timeout {TP_LIMIT_TIMEOUT}s -- annulation TP limite, market_close")
-        _cancel_order(coin, oid)
-
-    # -- Fallback market_close --
-    try:
-        log.info(f"  [TP thread] market_close {coin}")
-        result = exchange.market_close(coin)
-        log.info(f"  [TP thread] market_close resultat : {result}")
-    except Exception as e:
-        log.error(f"  [TP thread] market_close echoue : {e}")
+        log.error(f"  Erreur TP trigger : {e}")
 
 
 def place_tp_async(coin: str, is_buy_tp: bool, qty: float, tp_price: float):
-    """Lance le suivi TP dans un thread daemon (non bloquant)."""
+    """Place le TP trigger natif Hyperliquid (non bloquant)."""
     t = threading.Thread(
-        target=_tp_limit_or_market_bg,
+        target=place_tp_trigger,
         args=(coin, is_buy_tp, qty, tp_price),
         daemon=True,
         name=f"tp-{coin}"
@@ -385,11 +410,12 @@ def place_order(signal: dict) -> dict:
     5. TP : limite->30s->market en thread background
     """
     raw_ticker   = signal["symbol"]
-    coin         = normalize_coin(raw_ticker)
+    entry_px_raw = float(signal.get("price", 0))
+    coin         = normalize_coin(raw_ticker, price=entry_px_raw)
     side         = signal["side"].lower()
-    sl_price     = float(signal["sl"])
-    tp_price     = float(signal["tp"])
-    entry_px     = float(signal["price"])
+    sl_price     = round_price(float(signal["sl"]))
+    tp_price     = round_price(float(signal["tp"]))
+    entry_px     = round_price(float(signal["price"]))
     lev          = int(float(signal.get("leverage",  DEFAULT_LEV)))
     risk_pct     = float(signal.get("risk_pct", DEFAULT_RISK_PCT * 100)) / 100
     regime       = signal.get("regime", "?")
@@ -416,7 +442,8 @@ def place_order(signal: dict) -> dict:
         capital = get_account_value()
         log.info(f"  Capital (compte) : {capital:.2f} USDC")
 
-    # -- Quantite --
+    # -- Quantite (v5.3 : risk-based, comme le backtest TradingView) --
+    # qty = (capital × risk_pct × levier) / prix → risque fixe 2% du capital
     risk_amt      = capital * risk_pct
     qty_from_risk = (risk_amt * lev) / entry_px
     qty_cap_expo  = (capital * lev) / entry_px
@@ -424,7 +451,7 @@ def place_order(signal: dict) -> dict:
     qty           = round_qty(qty_raw, coin)
 
     log.info(f"  Risque  : {risk_amt:.2f} USDC ({risk_pct*100:.0f}%)  "
-             f"Quantite : {qty} {coin}")
+             f"Quantite : {qty} {coin}  (cap notionnel : {round(qty_cap_expo, 4)})")
 
     if qty <= 0:
         msg = f"Quantite nulle pour {coin} -- ordre annule"
@@ -459,14 +486,39 @@ def place_order(signal: dict) -> dict:
     except Exception as e:
         log.warning(f"  Levier warning ({coin}): {e}")
 
-    # -- Ferme position inverse --
+    # -- Vérifie position existante --
     existing = get_open_position(coin)
+    same_direction = (existing > 0 and is_buy) or (existing < 0 and not is_buy)
+    if same_direction:
+        msg = f"Position {coin} déjà ouverte dans le même sens ({existing}) — signal ignoré"
+        log.warning(f"  {msg}")
+        return {"status": "skipped", "reason": msg, "existing_position": existing}
+
+    # -- Ferme position inverse --
     if (existing > 0 and not is_buy) or (existing < 0 and is_buy):
         log.info(f"  Position inverse ({existing}) -> fermeture...")
         try:
             exchange.market_close(coin)
         except Exception as e:
             log.error(f"  Fermeture inverse echouee : {e}")
+
+    # -- Log entrée réelle (comparaison avec déclenchement intrabar théorique) --
+    real_ts   = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    real_side = "long" if is_buy else "short"
+    _log_real_entry(coin, real_side, entry_px, real_ts)
+    # Calculer et logger l'écart si on avait un déclenchement intrabar
+    key = f"{coin}_{real_side}"
+    if key in _intrabar_first:
+        ib    = _intrabar_first.pop(key)
+        delta = entry_px - ib["price"]
+        pct   = (delta / ib["price"]) * 100 if ib["price"] else 0
+        direction = "plus cher" if (is_buy and delta > 0) or (not is_buy and delta < 0) else "moins cher"
+        log.info(f"  [COMPARAISON] {coin} {real_side.upper()}")
+        log.info(f"    Intrabar : {ib['price']} @ {ib['time']}")
+        log.info(f"    Réel     : {entry_px}    @ {real_ts}")
+        log.info(f"    Écart    : {delta:+.4f} ({pct:+.3f}%) — entrée réelle {direction}")
+        with open(INTRABAR_LOG, "a") as f:
+            f.write(f"comparison,{coin},{real_side},{ib['price']},{entry_px},{delta:.4f},{pct:.3f},{ib['time']},{real_ts}\n")
 
     # -- Entree --
     order = _entry_limit_or_market(coin, is_buy, qty, entry_px,
@@ -475,17 +527,21 @@ def place_order(signal: dict) -> dict:
         raise RuntimeError(f"Echec entree sur {coin}")
 
     # -- Stop Loss (trigger market) --
+    # limit_px = prix worst-case avec 10% slippage pour garantir l'execution
+    sl_is_buy = not is_buy
+    sl_limit_px = round_price(sl_price * 1.10 if sl_is_buy else sl_price * 0.90)
+    sl_price    = round_price(sl_price)
     try:
         sl_order = exchange.order(
             coin,
-            is_buy      = not is_buy,
+            is_buy      = sl_is_buy,
             sz          = qty,
-            limit_px    = sl_price,
+            limit_px    = sl_limit_px,
             order_type  = {"trigger": {"triggerPx": sl_price,
                                        "isMarket": True, "tpsl": "sl"}},
             reduce_only = True,
         )
-        log.info(f"  SL trigger market @ {sl_price} : {sl_order}")
+        log.info(f"  SL trigger market @ {sl_price} (limit_px={sl_limit_px}) : {sl_order}")
     except Exception as e:
         log.error(f"  Erreur SL : {e}")
 
@@ -520,10 +576,13 @@ def webhook():
         return jsonify({"error": "unauthorized"}), 401
 
     try:
-        data = request.get_json(force=True)
+        raw = request.get_data(as_text=True)
+        log.info(f"Body brut recu : {raw[:500]!r}")
+        data = json.loads(raw)
     except Exception as e:
-        log.error(f"JSON invalide : {e}")
-        return jsonify({"error": "invalid json"}), 400
+        # Texte brut (ex: alerte Max Drawdown) — ignorer proprement
+        log.warning(f"Body non-JSON ignore : {raw[:200]!r}")
+        return jsonify({"status": "ignored", "reason": "not json"}), 200
 
     log.info(f"\n{'='*60}")
     log.info(f"Signal recu :\n{json.dumps(data, indent=2)}")
@@ -539,23 +598,41 @@ def webhook():
             if field not in data:
                 log.error(f"Champ manquant : {field}")
                 return jsonify({"error": f"missing field: {field}"}), 400
-        try:
-            result = place_order(data)
-            return jsonify(result), 200
-        except Exception as e:
-            log.error(f"Erreur place_order : {e}", exc_info=True)
-            return jsonify({"error": str(e)}), 500
+        # Répondre immédiatement à TradingView pour éviter le timeout
+        # L'ordre est traité en arrière-plan
+        def _process():
+            try:
+                place_order(data)
+            except Exception as e:
+                log.error(f"Erreur place_order (bg) : {e}", exc_info=True)
+        threading.Thread(target=_process, daemon=True).start()
+        return jsonify({"status": "received"}), 200
 
     # ----------------------------------------------------------------
     #  ACTION "close" -- fermeture marche (TP atteint cote Pine v5.4)
     # ----------------------------------------------------------------
     elif action == "close":
-        if "symbol" not in data:
-            return jsonify({"error": "missing field: symbol"}), 400
-        coin = normalize_coin(data["symbol"])
-        log.info(f"Action close recue pour {coin} (raison: {data.get('reason','?')})")
+        if "coin" not in data and "symbol" not in data:
+            return jsonify({"error": "missing field: coin or symbol"}), 400
+        coin = data.get("coin") or normalize_coin(data["symbol"])
+        msg  = data.get("msg", "")
+        pnl  = data.get("pnl_pct", "?")
+        entry = data.get("entry", "?")
+        exit_ = data.get("exit", "?")
+        equity = data.get("equity", "?")
+        log.info(f"")
+        log.info(f"{'='*60}")
+        log.info(f"CLOTURE {coin} | {data.get('side','?').upper()}")
+        log.info(f"  Entree : {entry}")
+        log.info(f"  Sortie : {exit_}")
+        log.info(f"  PnL    : {pnl}%")
+        log.info(f"  Equity : {equity} USDC")
+        if msg:
+            log.info(f"  >>> {msg}")
         try:
             result = close_position_market(coin)
+            result["pnl_pct"] = pnl
+            result["msg"] = msg
             return jsonify(result), 200
         except Exception as e:
             log.error(f"Erreur close : {e}", exc_info=True)
@@ -567,6 +644,364 @@ def webhook():
     else:
         log.info(f"Action ignoree : {action!r}")
         return jsonify({"status": "ignored", "action": action}), 200
+
+
+# =============================================================================
+#  CONDITIONS DASHBOARD
+# =============================================================================
+
+# Stockage en mémoire : dernières conditions reçues par symbole
+_conditions: dict = {}
+
+# Log CSV des déclenchements théoriques intrabar vs réels
+INTRABAR_LOG = "intrabar_vs_real.csv"
+
+# Suivi du premier déclenchement intrabar par symbole (réinitialisé à chaque signal réel)
+_intrabar_first: dict = {}  # symbol -> {"time": ..., "price": ..., "side": ...}
+
+def _log_intrabar(symbol: str, side: str, price: float, ts: str):
+    """Enregistre le premier moment où toutes les conditions sont vertes (intrabar)."""
+    import os
+    write_header = not os.path.exists(INTRABAR_LOG)
+    with open(INTRABAR_LOG, "a") as f:
+        if write_header:
+            f.write("type,symbol,side,price,timestamp\n")
+        f.write(f"intrabar,{symbol},{side},{price},{ts}\n")
+    log.info(f"  [INTRABAR] Premier déclenchement théorique {side} {symbol} @ {price} ({ts})")
+
+def _log_real_entry(symbol: str, side: str, price: float, ts: str):
+    """Enregistre l'entrée réelle (candle close) pour comparaison."""
+    with open(INTRABAR_LOG, "a") as f:
+        f.write(f"real_entry,{symbol},{side},{price},{ts}\n")
+    log.info(f"  [REAL] Entrée réelle {side} {symbol} @ {price} ({ts})")
+
+@app.route("/conditions", methods=["POST"])
+def receive_conditions():
+    """Reçoit l'état des conditions depuis TradingView (Pine alertcondition)."""
+    token = request.headers.get("X-Webhook-Token") or request.args.get("token")
+    if token != WEBHOOK_TOKEN:
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        data = json.loads(request.get_data(as_text=True))
+    except Exception as e:
+        return jsonify({"error": f"invalid json: {e}"}), 400
+
+    symbol = normalize_coin(data.get("symbol", "UNKNOWN"))
+    ts     = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    data["symbol"]     = symbol
+    data["updated_at"] = datetime.utcnow().strftime("%H:%M:%S UTC")
+
+    prev = _conditions.get(symbol, {})
+    _conditions[symbol] = data
+
+    # --- Détection premier déclenchement intrabar ---
+    # Si valid_long ou valid_short passe à True pour la première fois depuis
+    # le dernier signal réel → on enregistre l'heure et le prix
+    side = None
+    if data.get("valid_long")  and not prev.get("valid_long"):
+        side = "long"
+    elif data.get("valid_short") and not prev.get("valid_short"):
+        side = "short"
+
+    if side:
+        # Ne logger qu'une fois par signal (jusqu'à la prochaine entrée réelle)
+        key = f"{symbol}_{side}"
+        if key not in _intrabar_first:
+            price = float(data.get("price", 0))
+            _intrabar_first[key] = {"time": ts, "price": price, "side": side}
+            _log_intrabar(symbol, side, price, ts)
+
+    log.info(f"Conditions reçues pour {symbol} | long={data.get('valid_long')} short={data.get('valid_short')}")
+    return jsonify({"status": "ok", "symbol": symbol}), 200
+
+
+@app.route("/dashboard", methods=["GET"])
+def dashboard():
+    """Dashboard HTML temps réel — SOL et ETH côte à côte."""
+    return DASHBOARD_HTML, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+
+DASHBOARD_HTML = """<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>JP Trading Dashboard</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0d0d1a;
+    color: #e0e0e0;
+    font-family: 'Courier New', monospace;
+    padding: 16px;
+  }
+  h1 {
+    text-align: center;
+    color: #7eb8f7;
+    font-size: 1.1rem;
+    margin-bottom: 4px;
+    letter-spacing: 2px;
+  }
+  #updated {
+    text-align: center;
+    color: #555;
+    font-size: 0.72rem;
+    margin-bottom: 14px;
+  }
+  .grid {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .card {
+    background: #13132a;
+    border: 1px solid #2a2a4a;
+    border-radius: 10px;
+    padding: 14px;
+    min-width: 310px;
+    flex: 1;
+    max-width: 460px;
+  }
+  .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #2a2a4a;
+  }
+  .symbol {
+    font-size: 1.3rem;
+    font-weight: bold;
+    color: #f0c040;
+  }
+  .price { color: #aaa; font-size: 0.85rem; }
+  .signal-badge {
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: bold;
+  }
+  .sig-long  { background: #0e3b1e; color: #3ddc84; border: 1px solid #3ddc84; }
+  .sig-short { background: #3b0e0e; color: #ff5c5c; border: 1px solid #ff5c5c; }
+  .sig-none  { background: #1a1a2e; color: #555;    border: 1px solid #333; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+  thead th {
+    color: #7eb8f7;
+    text-align: center;
+    padding: 4px 6px;
+    border-bottom: 1px solid #2a2a4a;
+    font-size: 0.75rem;
+  }
+  thead th:first-child { text-align: left; }
+  tbody tr:hover { background: #1a1a30; }
+  td {
+    padding: 4px 6px;
+    border-bottom: 1px solid #1a1a30;
+    vertical-align: middle;
+  }
+  td:first-child { color: #aaa; }
+  td.ok    { color: #3ddc84; text-align: center; }
+  td.nok   { color: #ff5c5c; text-align: center; }
+  td.val   { color: #e0e0e0; text-align: center; }
+  td.warn  { color: #f0c040; text-align: center; }
+
+  .regime {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    font-weight: bold;
+  }
+  .regime-TREND  { background: #0e3b1e; color: #3ddc84; }
+  .regime-EXPLO  { background: #3b2a0e; color: #f0a040; }
+  .regime-RANGE  { background: #3b3b0e; color: #f0e040; }
+  .regime-NEUTRE { background: #1a1a2e; color: #666; }
+
+  .separator td { border-bottom: 1px solid #2a2a4a; padding: 2px 0; }
+  .no-data { color: #444; text-align: center; padding: 30px; font-size: 0.85rem; }
+
+  .dot-ok  { color: #3ddc84; }
+  .dot-nok { color: #ff5c5c; }
+  .dot-warn { color: #f0c040; }
+
+  .footer {
+    text-align: center;
+    color: #333;
+    font-size: 0.68rem;
+    margin-top: 14px;
+  }
+  .refresh-bar {
+    height: 2px;
+    background: #2a2a4a;
+    border-radius: 1px;
+    margin-bottom: 12px;
+    overflow: hidden;
+  }
+  .refresh-progress {
+    height: 100%;
+    background: #7eb8f7;
+    width: 100%;
+    animation: shrink 15s linear infinite;
+  }
+  @keyframes shrink { from { width: 100%; } to { width: 0%; } }
+</style>
+</head>
+<body>
+<h1>⚡ JP TRADING — CONDITIONS TEMPS RÉEL</h1>
+<div id="updated">Chargement...</div>
+<div class="refresh-bar"><div class="refresh-progress" id="progress"></div></div>
+<div class="grid" id="grid">
+  <div class="no-data">En attente des données TradingView...<br><br>
+  Ajoute JP_conditions_webhook.pine sur tes charts SOL et ETH<br>
+  et configure les alertes vers ce serveur.</div>
+</div>
+<div class="footer">Refresh auto toutes les 15s — données: TradingView Pine alertcondition</div>
+
+<script>
+const SYMBOLS = ['SOL','ETH'];
+
+function dot(v)  { return v ? '<span class="dot-ok">●</span>' : '<span class="dot-nok">○</span>'; }
+function ok(v)   { return '<td class="' + (v ? 'ok' : 'nok') + '">' + dot(v) + ' ' + (v ? 'OUI' : 'NON') + '</td>'; }
+function val(v)  { return '<td class="val">' + v + '</td>'; }
+
+function regimeBadge(r) {
+  return '<span class="regime regime-' + r + '">' + r + '</span>';
+}
+
+function signalBadge(d) {
+  if (d.valid_long)  return '<span class="signal-badge sig-long">⭐ LONG</span>';
+  if (d.valid_short) return '<span class="signal-badge sig-short">⭐ SHORT</span>';
+  return '<span class="signal-badge sig-none">— Pas de signal</span>';
+}
+
+function renderCard(sym, d) {
+  if (!d) return `<div class="card">
+    <div class="card-header">
+      <span class="symbol">${sym}</span>
+      <span class="signal-badge sig-none">En attente...</span>
+    </div>
+    <div class="no-data">Aucune donnée reçue</div>
+  </div>`;
+
+  const rows = [
+    ['Régime 29M',
+      `<td colspan="2" style="text-align:center">${regimeBadge(d.regime)}</td>`],
+    ['ADX 29M',
+      `<td class="${d.trending ? 'ok':'nok'}">${dot(d.trending)} ${parseFloat(d.adx).toFixed(1)}</td>`,
+      `<td class="${d.trending ? 'ok':'nok'}">${dot(d.trending)} ${parseFloat(d.adx).toFixed(1)}</td>`],
+    ['ADX 1H',
+      `<td class="${d.adx1h > 25 ? 'ok':'nok'}">${dot(d.adx1h > 25)} ${parseFloat(d.adx1h).toFixed(1)}</td>`,
+      `<td class="${d.adx1h > 25 ? 'ok':'nok'}">${dot(d.adx1h > 25)} ${parseFloat(d.adx1h).toFixed(1)}</td>`],
+    ['DI direction',
+      `<td class="${d.bull_trend ? 'ok':'nok'}">${dot(d.bull_trend)} DI+ ${parseFloat(d.di_plus).toFixed(1)} > DI- ${parseFloat(d.di_minus).toFixed(1)}</td>`,
+      `<td class="${d.bear_trend ? 'ok':'nok'}">${dot(d.bear_trend)} DI- ${parseFloat(d.di_minus).toFixed(1)} > DI+ ${parseFloat(d.di_plus).toFixed(1)}</td>`],
+    ['Prix / HMA50',
+      ok(d.bull_trend),
+      ok(d.bear_trend)],
+    ['Pullback HMA20',
+      ok(d.pb_long),
+      ok(d.pb_short)],
+    ['RSI ' + parseFloat(d.rsi).toFixed(1),
+      ok(parseFloat(d.rsi) > 40 && parseFloat(d.rsi) < 65),
+      ok(parseFloat(d.rsi) > 35 && parseFloat(d.rsi) < 60)],
+    ['Volume',
+      ok(!d.vol_up === false || true),  // volFilter ignoré côté dashboard
+      ok(!d.vol_up === false || true)],
+    null, // séparateur
+    ['Signal 29M',
+      ok(d.sig29_long),
+      ok(d.sig29_short)],
+    ['Confirm. 1H',
+      ok(d.sig1h_long),
+      ok(d.sig1h_short)],
+    ['Filtre Range',
+      ok(!d.in_range),
+      ok(!d.in_range)],
+    ['Anti-fort',
+      ok(!d.strong_bear),
+      ok(!d.strong_bull)],
+  ];
+
+  let tbody = '';
+  for (const r of rows) {
+    if (!r) {
+      tbody += '<tr class="separator"><td colspan="3"></td></tr>';
+      continue;
+    }
+    const [label, tdL, tdR] = r;
+    if (r.length === 2) {
+      tbody += `<tr><td>${label}</td>${tdL}</tr>`;
+    } else {
+      tbody += `<tr><td>${label}</td>${tdL}${tdR}</tr>`;
+    }
+  }
+
+  return `<div class="card">
+    <div class="card-header">
+      <div>
+        <span class="symbol">${sym}</span>
+        <span class="price"> @ ${parseFloat(d.price).toFixed(2)}</span>
+      </div>
+      ${signalBadge(d)}
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Condition</th>
+          <th>▲ LONG</th>
+          <th>▼ SHORT</th>
+        </tr>
+      </thead>
+      <tbody>${tbody}</tbody>
+    </table>
+    <div style="font-size:0.68rem;color:#444;margin-top:6px;text-align:right">
+      Mis à jour: ${d.updated_at || '—'}
+    </div>
+  </div>`;
+}
+
+async function refresh() {
+  try {
+    const resp = await fetch('/conditions/data');
+    const data = await resp.json();
+    const grid = document.getElementById('grid');
+    const cards = SYMBOLS.map(s => renderCard(s, data[s] || null));
+    // Ajouter autres symboles non listés
+    for (const [sym, d] of Object.entries(data)) {
+      if (!SYMBOLS.includes(sym)) cards.push(renderCard(sym, d));
+    }
+    if (cards.length === 0) {
+      grid.innerHTML = '<div class="no-data">En attente des données...</div>';
+    } else {
+      grid.innerHTML = cards.join('');
+    }
+    document.getElementById('updated').textContent =
+      'Dernière MAJ: ' + new Date().toLocaleTimeString('fr-FR');
+    // Restart animation
+    const p = document.getElementById('progress');
+    p.style.animation = 'none';
+    p.offsetHeight;
+    p.style.animation = '';
+  } catch(e) {
+    document.getElementById('updated').textContent = 'Erreur de connexion...';
+  }
+}
+
+refresh();
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>
+"""
+
+
+@app.route("/conditions/data", methods=["GET"])
+def conditions_data():
+    """Retourne les dernières conditions en JSON (utilisé par le dashboard JS)."""
+    return jsonify(_conditions), 200
 
 
 @app.route("/status", methods=["GET"])
@@ -635,4 +1070,4 @@ if __name__ == "__main__":
     log.info(f"DRY_RUN={DRY_RUN}  MAINNET={MAINNET}")
     log.info(f"Entry timeout   : {ENTRY_LIMIT_TIMEOUT}s")
     log.info(f"TP timeout      : {TP_LIMIT_TIMEOUT}s")
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    app.run(host="0.0.0.0", port=8080, debug=False)
