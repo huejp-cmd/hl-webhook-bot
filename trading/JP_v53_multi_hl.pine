@@ -1,16 +1,16 @@
 //@version=5
 // ══════════════════════════════════════════════════════════════════════════════
-//  JP v5.3 — Multi-Symbol Hyperliquid 30M
-//  Calculs directs sur les barres du chart (30M)
+//  JP v5.3 — Multi-Symbol Hyperliquid 29M
+//  Range Bars 1xATR + calculs sur barres du chart (29M)
 //  Exchange : Hyperliquid Perpetuals (commission 0.07% round-trip)
 //
 //  UTILISATION :
-//    Chart 1 : SOLUSDT.P 30M  — creer une alerte webhook
-//    Chart 2 : ETHUSDT.P 30M  — creer une alerte webhook
+//    Chart 1 : SOLUSDT.P 29M  — creer une alerte webhook
+//    Chart 2 : ETHUSDT.P 29M  — creer une alerte webhook
 //    Message alerte : {{alert.message}}
 //    Webhook URL    : http://TON_IP:8080/webhook?token=jp_bot_secret_2026
 // ══════════════════════════════════════════════════════════════════════════════
-strategy("JP v5.3 - Multi-Symbol Hyperliquid 30M",
+strategy("JP v5.3 - Multi-Symbol Hyperliquid 29M",
  overlay=true,
  default_qty_type=strategy.cash,
  commission_type=strategy.commission.percent,
@@ -51,11 +51,31 @@ hullMa(src, length) =>
     ta.wma(2 * wma1 - wma2, sqrtLen)
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  CALCULS PRINCIPAUX (sur barres du chart)
+//  CALCULS PRINCIPAUX
 // ══════════════════════════════════════════════════════════════════════════════
 
 // --- ATR ---
 atr = ta.atr(atrLength)
+
+// --- Range Bars (1xATR ou taille fixe) ---
+rSize = useFixedRange ? fixedRangeSize : atr
+
+var float rOpen  = na
+var float rHigh  = na
+var float rLow   = na
+var float rClose = na
+
+newBar = na(rOpen) or math.abs(close - rOpen) >= rSize
+
+if newBar
+    rOpen  := nz(close[1], open)
+    rHigh  := nz(close[1], open)
+    rLow   := nz(close[1], open)
+    rClose := close
+else
+    rClose := close
+    rHigh  := math.max(rHigh, close)
+    rLow   := math.min(rLow, close)
 
 // --- RSI / Volume ---
 rsi    = ta.rsi(close, rsiLength)
@@ -103,20 +123,20 @@ lowerBB     = basis - dev
 volHigh     = atr > ta.sma(atr, 20) * 1.5
 explosive   = volHigh and (rsi > 75 or rsi < 25) and (not volFilter or volUp)
 isTrending  = adx > 25 and not explosive
-isRanging   = adx < 20 and high <= upperBB and low >= lowerBB and not (adx > 25 or explosive)
+isRanging   = adx < 20 and rHigh <= upperBB and rLow >= lowerBB and not (adx > 25 or explosive)
 isExplosive = explosive and not (adx > 25 or isRanging)
 
-// --- Conditions entree ---
-bullTrend          = diplus > diminus and close > ma50
-pullbackLong       = low <= ma20 and close > ma20 and rsi > 40 and rsi < 65
+// --- Conditions entree (sur Range Bars) ---
+bullTrend          = diplus > diminus and rClose > ma50
+pullbackLong       = rLow <= ma20 and rClose > ma20 and rsi > 40 and rsi < 65
 entryLT            = isTrending  and bullTrend and pullbackLong
-breakoutUp         = close > vah and volHigh and (close - nz(close[1], close)) > atr * 0.8 and (not volFilter or volUp)
+breakoutUp         = rClose > vah and volHigh and (rClose - nz(rClose[1], rClose)) > atr * 0.8 and (not volFilter or volUp)
 entryLE            = isExplosive and breakoutUp
 
-bearTrend          = diminus > diplus and close < ma50
-pullbackShort      = high >= ma20 and close < ma20 and rsi > 35 and rsi < 60
+bearTrend          = diminus > diplus and rClose < ma50
+pullbackShort      = rHigh >= ma20 and rClose < ma20 and rsi > 35 and rsi < 60
 entryST            = isTrending  and bearTrend and pullbackShort
-breakoutDown       = close < val and volHigh and (close - nz(close[1], close)) < -atr * 0.8 and (not volFilter or volUp)
+breakoutDown       = rClose < val and volHigh and (rClose - nz(rClose[1], rClose)) < -atr * 0.8 and (not volFilter or volUp)
 entrySE            = isExplosive and breakoutDown
 
 strongBull = adx > 30 and diplus  > diminus * 1.5
@@ -136,20 +156,20 @@ capQty_(qty_raw, ep, sp) =>
     math.min(qty_raw, math.min((stepCapital * leverage) / ep, (stepCapital * slCapPct) / dist))
 
 // Long
-slBaseL = isRanging ? val * 0.995 : ta.lowest(low, 15) * 0.995
-slL     = math.max(slBaseL, close * 0.985)
+slBaseL = isRanging ? val * 0.995 : ta.lowest(rLow, 15) * 0.995
+slL     = math.max(slBaseL, rClose * 0.985)
 tpMultL = isTrending ? 4.0 : (isRanging ? 2.5 : 3.3)
-tpL     = close + (close - slL) * tpMultL
-rawQtyL = math.max(calcQty(close, slL) * leverage, stepCapital * 0.001)
-qtyL    = capQty_(rawQtyL, close, slL)
+tpL     = rClose + (rClose - slL) * tpMultL
+rawQtyL = math.max(calcQty(rClose, slL) * leverage, stepCapital * 0.001)
+qtyL    = capQty_(rawQtyL, rClose, slL)
 
 // Short
-slBaseS = isRanging ? vah * 1.005 : ta.highest(high, 15) * 1.005
-slS     = math.min(slBaseS, close * 1.015)
+slBaseS = isRanging ? vah * 1.005 : ta.highest(rHigh, 15) * 1.005
+slS     = math.min(slBaseS, rClose * 1.015)
 tpMultS = isTrending ? 4.0 : (isRanging ? 2.5 : 3.3)
-tpS     = close - (slS - close) * tpMultS
-rawQtyS = math.max(calcQty(close, slS) * leverage, stepCapital * 0.001)
-qtyS    = capQty_(rawQtyS, close, slS)
+tpS     = rClose - (slS - rClose) * tpMultS
+rawQtyS = math.max(calcQty(rClose, slS) * leverage, stepCapital * 0.001)
+qtyS    = capQty_(rawQtyS, rClose, slS)
 
 regStr = isTrending ? "trend" : (isRanging ? "range" : "explosive")
 
@@ -158,7 +178,7 @@ regStr = isTrending ? "trend" : (isRanging ? "range" : "explosive")
 // ══════════════════════════════════════════════════════════════════════════════
 if (entryLT or entryLE) and validL and not inRng
     strategy.cancel_all()
-    trailPtsL = close - slL
+    trailPtsL = rClose - slL
     strategy.entry("Long", strategy.long, qty=qtyL)
     if trailPtsL > 0
         strategy.exit("Exit Long", from_entry="Long", stop=slL, limit=tpL,
@@ -171,10 +191,10 @@ if (entryLT or entryLE) and validL and not inRng
      + ',"side":"buy"'
      + ',"symbol":"' + syminfo.ticker + '"'
      + ',"regime":"' + regStr + '"'
-     + ',"price":'    + str.tostring(math.round(close, 4))
-     + ',"sl":'       + str.tostring(math.round(slL,   4))
-     + ',"tp":'       + str.tostring(math.round(tpL,   4))
-     + ',"qty":'      + str.tostring(math.round(qtyL,  4))
+     + ',"price":'    + str.tostring(math.round(rClose, 4))
+     + ',"sl":'       + str.tostring(math.round(slL,    4))
+     + ',"tp":'       + str.tostring(math.round(tpL,    4))
+     + ',"qty":'      + str.tostring(math.round(qtyL,   4))
      + ',"leverage":' + str.tostring(int(leverage))
      + ',"capital":'  + str.tostring(stepCapital)
      + ',"risk_pct":' + str.tostring(riskPerc * 100)
@@ -183,7 +203,7 @@ if (entryLT or entryLE) and validL and not inRng
 
 if (entryST or entrySE) and validS and not inRng
     strategy.cancel_all()
-    trailPtsS = slS - close
+    trailPtsS = slS - rClose
     strategy.entry("Short", strategy.short, qty=qtyS)
     if trailPtsS > 0
         strategy.exit("Exit Short", from_entry="Short", stop=slS, limit=tpS,
@@ -196,10 +216,10 @@ if (entryST or entrySE) and validS and not inRng
      + ',"side":"sell"'
      + ',"symbol":"' + syminfo.ticker + '"'
      + ',"regime":"' + regStr + '"'
-     + ',"price":'    + str.tostring(math.round(close, 4))
-     + ',"sl":'       + str.tostring(math.round(slS,   4))
-     + ',"tp":'       + str.tostring(math.round(tpS,   4))
-     + ',"qty":'      + str.tostring(math.round(qtyS,  4))
+     + ',"price":'    + str.tostring(math.round(rClose, 4))
+     + ',"sl":'       + str.tostring(math.round(slS,    4))
+     + ',"tp":'       + str.tostring(math.round(tpS,    4))
+     + ',"qty":'      + str.tostring(math.round(qtyS,   4))
      + ',"leverage":' + str.tostring(int(leverage))
      + ',"capital":'  + str.tostring(stepCapital)
      + ',"risk_pct":' + str.tostring(riskPerc * 100)
@@ -213,11 +233,11 @@ var float entryPx  = na
 var string entrySd = ""
 
 if (entryLT or entryLE) and validL and not inRng
-    entryPx := close
+    entryPx := rClose
     entrySd := "buy"
 
 if (entryST or entrySE) and validS and not inRng
-    entryPx := close
+    entryPx := rClose
     entrySd := "sell"
 
 prevPos = strategy.position_size[1]
@@ -260,7 +280,7 @@ plotshape(entryST or entrySE, title="Short", location=location.abovebar, color=c
 bgcolor(inRng ? color.new(color.orange, 90) : na)
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  DRAWDOWN + TABLEAU
+//  DRAWDOWN + TABLEAU PERFS (fond blanc)
 // ══════════════════════════════════════════════════════════════════════════════
 var float peakEq   = startCapital
 var float maxDDVal = 0.0
@@ -275,25 +295,23 @@ if curDD > maxDDVal
 
 if showStats
     var table stats = table.new(position.top_right, 2, 5,
-         border_color=color.new(color.white, 60), border_width=1)
-    table.cell(stats, 0, 0, "JP v5.3 30M",       text_color=color.white,  bgcolor=color.new(color.navy, 20), text_size=size.small)
-    table.cell(stats, 1, 0, syminfo.ticker,       text_color=color.yellow, bgcolor=color.new(color.navy, 20), text_size=size.small)
-    table.cell(stats, 0, 1, "Capital actuel",     text_color=color.gray,   bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(stats, 1, 1, str.tostring(curEq,  "#.##") + " $",          text_color=color.lime,   bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(stats, 0, 2, "Perte max/trade",    text_color=color.gray,   bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(stats, 1, 2, str.tostring(curEq * slCapPct, "#.##") + " $", text_color=color.orange, bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(stats, 0, 3, "DD Courant",         text_color=color.gray,   bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(stats, 1, 3, str.tostring(curDD  * 100, "#.##") + "%",     text_color=curDD > maxDD * 0.8 ? color.red : color.white, bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(stats, 0, 4, "Max DD",             text_color=color.gray,   bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(stats, 1, 4, str.tostring(maxDDVal * 100, "#.##") + "%",   text_color=color.yellow, bgcolor=color.new(color.black, 0), text_size=size.tiny)
+         border_color=color.new(color.gray, 50), border_width=1)
+    table.cell(stats, 0, 0, "JP v5.3 29M",        text_color=color.black,                bgcolor=color.new(color.blue, 80),  text_size=size.small)
+    table.cell(stats, 1, 0, syminfo.ticker,        text_color=color.new(color.blue, 0),   bgcolor=color.new(color.blue, 80),  text_size=size.small)
+    table.cell(stats, 0, 1, "Capital actuel",      text_color=color.gray,                 bgcolor=color.white,                text_size=size.tiny)
+    table.cell(stats, 1, 1, str.tostring(curEq,  "#.##") + " $",                          text_color=color.new(color.green, 0), bgcolor=color.white, text_size=size.tiny)
+    table.cell(stats, 0, 2, "Perte max/trade",     text_color=color.gray,                 bgcolor=color.white,                text_size=size.tiny)
+    table.cell(stats, 1, 2, str.tostring(curEq * slCapPct, "#.##") + " $",               text_color=color.orange,            bgcolor=color.white,  text_size=size.tiny)
+    table.cell(stats, 0, 3, "DD Courant",          text_color=color.gray,                 bgcolor=color.white,                text_size=size.tiny)
+    table.cell(stats, 1, 3, str.tostring(curDD * 100, "#.##") + "%",                      text_color=curDD > maxDD * 0.8 ? color.red : color.black, bgcolor=color.white, text_size=size.tiny)
+    table.cell(stats, 0, 4, "Max DD",              text_color=color.gray,                 bgcolor=color.white,                text_size=size.tiny)
+    table.cell(stats, 1, 4, str.tostring(maxDDVal * 100, "#.##") + "%",                  text_color=color.orange,            bgcolor=color.white,  text_size=size.tiny)
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  TABLEAU CONDITIONS (coin bas-gauche)
-//  Colonne 1 = nom du parametre
-//  Colonne 2 = rond vert (OK) ou rouge (NOK)
+//  TABLEAU CONDITIONS (bas-gauche, fond blanc)
 // ══════════════════════════════════════════════════════════════════════════════
 dot(ok) => ok ? "●" : "●"
-dotColor(ok) => ok ? color.lime : color.red
+dotColor(ok) => ok ? color.new(color.green, 0) : color.red
 
 // Conditions communes
 cAdx      = adx > 25
@@ -302,83 +320,83 @@ cVol      = not volFilter or volUp
 
 // Conditions LONG
 cLongTrend   = diplus > diminus
-cLongMa50    = close > ma50
-cLongPullbk  = low <= ma20 and close > ma20
+cLongMa50    = rClose > ma50
+cLongPullbk  = rLow <= ma20 and rClose > ma20
 cLongRsi     = rsi > 40 and rsi < 65
 cLongAll     = cAdx and cNotRange and cVol and cLongTrend and cLongMa50 and cLongPullbk and cLongRsi
 
 // Conditions SHORT
 cShortTrend  = diminus > diplus
-cShortMa50   = close < ma50
-cShortPullbk = high >= ma20 and close < ma20
+cShortMa50   = rClose < ma50
+cShortPullbk = rHigh >= ma20 and rClose < ma20
 cShortRsi    = rsi > 35 and rsi < 60
 cShortAll    = cAdx and cNotRange and cVol and cShortTrend and cShortMa50 and cShortPullbk and cShortRsi
 
 if showParams
     var table cond = table.new(position.bottom_left, 3, 12,
-         border_color=color.new(color.white, 70), border_width=1)
+         border_color=color.new(color.gray, 50), border_width=1)
 
     // En-tete
-    table.cell(cond, 0, 0, "CONDITION",     text_color=color.white,  bgcolor=color.new(color.navy, 10), text_size=size.tiny)
-    table.cell(cond, 1, 0, "LONG",          text_color=color.lime,   bgcolor=color.new(color.navy, 10), text_size=size.tiny)
-    table.cell(cond, 2, 0, "SHORT",         text_color=color.red,    bgcolor=color.new(color.navy, 10), text_size=size.tiny)
+    table.cell(cond, 0, 0, "CONDITION",      text_color=color.black,              bgcolor=color.new(color.blue, 80), text_size=size.tiny)
+    table.cell(cond, 1, 0, "LONG",           text_color=color.new(color.green, 0), bgcolor=color.new(color.blue, 80), text_size=size.tiny)
+    table.cell(cond, 2, 0, "SHORT",          text_color=color.red,                bgcolor=color.new(color.blue, 80), text_size=size.tiny)
 
-    // ADX > 25 (tendance)
-    table.cell(cond, 0, 1, "ADX>25 tendance",  text_color=color.gray, bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(cond, 1, 1, dot(cAdx),          text_color=dotColor(cAdx), bgcolor=color.new(color.black, 0), text_size=size.normal)
-    table.cell(cond, 2, 1, dot(cAdx),          text_color=dotColor(cAdx), bgcolor=color.new(color.black, 0), text_size=size.normal)
+    // ADX > 25
+    table.cell(cond, 0, 1, "ADX>25 tendance", text_color=color.gray, bgcolor=color.white, text_size=size.tiny)
+    table.cell(cond, 1, 1, dot(cAdx),          text_color=dotColor(cAdx), bgcolor=color.white, text_size=size.normal)
+    table.cell(cond, 2, 1, dot(cAdx),          text_color=dotColor(cAdx), bgcolor=color.white, text_size=size.normal)
 
     // DI direction
-    table.cell(cond, 0, 2, "DI direction",     text_color=color.gray, bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(cond, 1, 2, dot(cLongTrend),    text_color=dotColor(cLongTrend),  bgcolor=color.new(color.black, 0), text_size=size.normal)
-    table.cell(cond, 2, 2, dot(cShortTrend),   text_color=dotColor(cShortTrend), bgcolor=color.new(color.black, 0), text_size=size.normal)
+    table.cell(cond, 0, 2, "DI direction",     text_color=color.gray, bgcolor=color.white, text_size=size.tiny)
+    table.cell(cond, 1, 2, dot(cLongTrend),    text_color=dotColor(cLongTrend),  bgcolor=color.white, text_size=size.normal)
+    table.cell(cond, 2, 2, dot(cShortTrend),   text_color=dotColor(cShortTrend), bgcolor=color.white, text_size=size.normal)
 
     // Prix vs MA50
-    table.cell(cond, 0, 3, "Prix vs MA50",     text_color=color.gray, bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(cond, 1, 3, dot(cLongMa50),     text_color=dotColor(cLongMa50),   bgcolor=color.new(color.black, 0), text_size=size.normal)
-    table.cell(cond, 2, 3, dot(cShortMa50),    text_color=dotColor(cShortMa50),  bgcolor=color.new(color.black, 0), text_size=size.normal)
+    table.cell(cond, 0, 3, "Prix vs MA50",     text_color=color.gray, bgcolor=color.white, text_size=size.tiny)
+    table.cell(cond, 1, 3, dot(cLongMa50),     text_color=dotColor(cLongMa50),   bgcolor=color.white, text_size=size.normal)
+    table.cell(cond, 2, 3, dot(cShortMa50),    text_color=dotColor(cShortMa50),  bgcolor=color.white, text_size=size.normal)
 
     // Pullback MA20
-    table.cell(cond, 0, 4, "Pullback MA20",    text_color=color.gray, bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(cond, 1, 4, dot(cLongPullbk),   text_color=dotColor(cLongPullbk),  bgcolor=color.new(color.black, 0), text_size=size.normal)
-    table.cell(cond, 2, 4, dot(cShortPullbk),  text_color=dotColor(cShortPullbk), bgcolor=color.new(color.black, 0), text_size=size.normal)
+    table.cell(cond, 0, 4, "Pullback MA20",    text_color=color.gray, bgcolor=color.white, text_size=size.tiny)
+    table.cell(cond, 1, 4, dot(cLongPullbk),   text_color=dotColor(cLongPullbk),  bgcolor=color.white, text_size=size.normal)
+    table.cell(cond, 2, 4, dot(cShortPullbk),  text_color=dotColor(cShortPullbk), bgcolor=color.white, text_size=size.normal)
 
     // RSI
-    table.cell(cond, 0, 5, "RSI zone",         text_color=color.gray, bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(cond, 1, 5, dot(cLongRsi),      text_color=dotColor(cLongRsi),   bgcolor=color.new(color.black, 0), text_size=size.normal)
-    table.cell(cond, 2, 5, dot(cShortRsi),     text_color=dotColor(cShortRsi),  bgcolor=color.new(color.black, 0), text_size=size.normal)
+    table.cell(cond, 0, 5, "RSI zone",         text_color=color.gray, bgcolor=color.white, text_size=size.tiny)
+    table.cell(cond, 1, 5, dot(cLongRsi),      text_color=dotColor(cLongRsi),   bgcolor=color.white, text_size=size.normal)
+    table.cell(cond, 2, 5, dot(cShortRsi),     text_color=dotColor(cShortRsi),  bgcolor=color.white, text_size=size.normal)
 
     // Volume
-    table.cell(cond, 0, 6, "Volume",           text_color=color.gray, bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(cond, 1, 6, dot(cVol),          text_color=dotColor(cVol), bgcolor=color.new(color.black, 0), text_size=size.normal)
-    table.cell(cond, 2, 6, dot(cVol),          text_color=dotColor(cVol), bgcolor=color.new(color.black, 0), text_size=size.normal)
+    table.cell(cond, 0, 6, "Volume",            text_color=color.gray, bgcolor=color.white, text_size=size.tiny)
+    table.cell(cond, 1, 6, dot(cVol),           text_color=dotColor(cVol), bgcolor=color.white, text_size=size.normal)
+    table.cell(cond, 2, 6, dot(cVol),           text_color=dotColor(cVol), bgcolor=color.white, text_size=size.normal)
 
     // Hors range
-    table.cell(cond, 0, 7, "Hors range",       text_color=color.gray, bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(cond, 1, 7, dot(cNotRange),     text_color=dotColor(cNotRange), bgcolor=color.new(color.black, 0), text_size=size.normal)
-    table.cell(cond, 2, 7, dot(cNotRange),     text_color=dotColor(cNotRange), bgcolor=color.new(color.black, 0), text_size=size.normal)
+    table.cell(cond, 0, 7, "Hors range",        text_color=color.gray, bgcolor=color.white, text_size=size.tiny)
+    table.cell(cond, 1, 7, dot(cNotRange),      text_color=dotColor(cNotRange), bgcolor=color.white, text_size=size.normal)
+    table.cell(cond, 2, 7, dot(cNotRange),      text_color=dotColor(cNotRange), bgcolor=color.white, text_size=size.normal)
 
     // Valeurs actuelles
-    table.cell(cond, 0, 8, "ADX / RSI",        text_color=color.gray, bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(cond, 1, 8, str.tostring(math.round(adx, 1)), text_color=color.white, bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(cond, 2, 8, str.tostring(math.round(rsi, 1)), text_color=color.white, bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(cond, 0, 8, "ADX / RSI",         text_color=color.gray, bgcolor=color.white, text_size=size.tiny)
+    table.cell(cond, 1, 8, str.tostring(math.round(adx, 1)), text_color=color.black, bgcolor=color.white, text_size=size.tiny)
+    table.cell(cond, 2, 8, str.tostring(math.round(rsi, 1)), text_color=color.black, bgcolor=color.white, text_size=size.tiny)
 
     // Regime
-    table.cell(cond, 0, 9, "Regime",           text_color=color.gray, bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(cond, 1, 9, regStr,             text_color=isTrending ? color.lime : (isRanging ? color.orange : color.fuchsia), bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(cond, 2, 9, regStr,             text_color=isTrending ? color.lime : (isRanging ? color.orange : color.fuchsia), bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(cond, 0, 9, "Regime",             text_color=color.gray, bgcolor=color.white, text_size=size.tiny)
+    table.cell(cond, 1, 9, regStr,               text_color=isTrending ? color.new(color.green, 0) : (isRanging ? color.orange : color.fuchsia), bgcolor=color.white, text_size=size.tiny)
+    table.cell(cond, 2, 9, regStr,               text_color=isTrending ? color.new(color.green, 0) : (isRanging ? color.orange : color.fuchsia), bgcolor=color.white, text_size=size.tiny)
 
     // Separateur
-    table.cell(cond, 0, 10, "",                text_color=color.gray, bgcolor=color.new(color.navy, 50), text_size=size.tiny)
-    table.cell(cond, 1, 10, "",                text_color=color.gray, bgcolor=color.new(color.navy, 50), text_size=size.tiny)
-    table.cell(cond, 2, 10, "",                text_color=color.gray, bgcolor=color.new(color.navy, 50), text_size=size.tiny)
+    table.cell(cond, 0, 10, "",                  text_color=color.gray, bgcolor=color.new(color.blue, 85), text_size=size.tiny)
+    table.cell(cond, 1, 10, "",                  text_color=color.gray, bgcolor=color.new(color.blue, 85), text_size=size.tiny)
+    table.cell(cond, 2, 10, "",                  text_color=color.gray, bgcolor=color.new(color.blue, 85), text_size=size.tiny)
 
     // SIGNAL GLOBAL
-    sigLongBg  = cLongAll  ? color.new(color.green, 30) : color.new(color.black, 0)
-    sigShortBg = cShortAll ? color.new(color.green, 30) : color.new(color.black, 0)
-    table.cell(cond, 0, 11, "SIGNAL",          text_color=color.white, bgcolor=color.new(color.navy, 10), text_size=size.small)
-    table.cell(cond, 1, 11, cLongAll  ? "LONG"  : "-", text_color=cLongAll  ? color.lime  : color.gray, bgcolor=sigLongBg,  text_size=size.small)
-    table.cell(cond, 2, 11, cShortAll ? "SHORT" : "-", text_color=cShortAll ? color.red   : color.gray, bgcolor=sigShortBg, text_size=size.small)
+    sigLongBg  = cLongAll  ? color.new(color.green, 75) : color.white
+    sigShortBg = cShortAll ? color.new(color.green, 75) : color.white
+    table.cell(cond, 0, 11, "SIGNAL",            text_color=color.black,                                bgcolor=color.new(color.blue, 80), text_size=size.small)
+    table.cell(cond, 1, 11, cLongAll  ? "LONG"  : "-", text_color=cLongAll  ? color.new(color.green, 0) : color.gray, bgcolor=sigLongBg,  text_size=size.small)
+    table.cell(cond, 2, 11, cShortAll ? "SHORT" : "-", text_color=cShortAll ? color.red                : color.gray, bgcolor=sigShortBg, text_size=size.small)
 
 // ——————— ALERTE MAX DD ———————
 if maxDDVal >= maxDD
