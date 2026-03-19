@@ -288,27 +288,97 @@ if showStats
     table.cell(stats, 1, 4, str.tostring(maxDDVal * 100, "#.##") + "%",   text_color=color.yellow, bgcolor=color.new(color.black, 0), text_size=size.tiny)
 
 // ══════════════════════════════════════════════════════════════════════════════
-//  TABLEAU PARAMETRES (coin gauche)
+//  TABLEAU CONDITIONS (coin bas-gauche)
+//  Colonne 1 = nom du parametre
+//  Colonne 2 = rond vert (OK) ou rouge (NOK)
 // ══════════════════════════════════════════════════════════════════════════════
+dot(ok) => ok ? "●" : "●"
+dotColor(ok) => ok ? color.lime : color.red
+
+// Conditions communes
+cAdx      = adx > 25
+cNotRange = not inRng
+cVol      = not volFilter or volUp
+
+// Conditions LONG
+cLongTrend   = diplus > diminus
+cLongMa50    = close > ma50
+cLongPullbk  = low <= ma20 and close > ma20
+cLongRsi     = rsi > 40 and rsi < 65
+cLongAll     = cAdx and cNotRange and cVol and cLongTrend and cLongMa50 and cLongPullbk and cLongRsi
+
+// Conditions SHORT
+cShortTrend  = diminus > diplus
+cShortMa50   = close < ma50
+cShortPullbk = high >= ma20 and close < ma20
+cShortRsi    = rsi > 35 and rsi < 60
+cShortAll    = cAdx and cNotRange and cVol and cShortTrend and cShortMa50 and cShortPullbk and cShortRsi
+
 if showParams
-    var table params = table.new(position.bottom_left, 2, 8,
+    var table cond = table.new(position.bottom_left, 3, 12,
          border_color=color.new(color.white, 70), border_width=1)
-    table.cell(params, 0, 0, "PARAMETRES",         text_color=color.white,  bgcolor=color.new(color.navy, 10), text_size=size.small)
-    table.cell(params, 1, 0, syminfo.ticker,        text_color=color.yellow, bgcolor=color.new(color.navy, 10), text_size=size.small)
-    table.cell(params, 0, 1, "Capital",             text_color=color.gray,   bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(params, 1, 1, str.tostring(startCapital, "#") + " $",         text_color=color.lime,   bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(params, 0, 2, "Risque/trade",        text_color=color.gray,   bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(params, 1, 2, str.tostring(riskPerc * 100, "#.#") + "% = " + str.tostring(startCapital * riskPerc, "#.##") + " $", text_color=color.orange, bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(params, 0, 3, "Leverage",            text_color=color.gray,   bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(params, 1, 3, str.tostring(int(leverage)) + "x ISOLATED",     text_color=color.aqua,   bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(params, 0, 4, "SL max cap",          text_color=color.gray,   bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(params, 1, 4, str.tostring(slCapPct * 100, "#.#") + "% = " + str.tostring(startCapital * slCapPct, "#.##") + " $", text_color=color.red,    bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(params, 0, 5, "ATR / ADX",          text_color=color.gray,   bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(params, 1, 5, str.tostring(atrLength) + " / " + str.tostring(adxLength), text_color=color.white, bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(params, 0, 6, "RSI",                 text_color=color.gray,   bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(params, 1, 6, str.tostring(rsiLength),                        text_color=color.white,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(params, 0, 7, "Regime actuel",       text_color=color.gray,   bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(params, 1, 7, regStr,                text_color=isTrending ? color.green : (isRanging ? color.orange : color.fuchsia), bgcolor=color.new(color.black, 0), text_size=size.tiny)
+
+    // En-tete
+    table.cell(cond, 0, 0, "CONDITION",     text_color=color.white,  bgcolor=color.new(color.navy, 10), text_size=size.tiny)
+    table.cell(cond, 1, 0, "LONG",          text_color=color.lime,   bgcolor=color.new(color.navy, 10), text_size=size.tiny)
+    table.cell(cond, 2, 0, "SHORT",         text_color=color.red,    bgcolor=color.new(color.navy, 10), text_size=size.tiny)
+
+    // ADX > 25 (tendance)
+    table.cell(cond, 0, 1, "ADX>25 tendance",  text_color=color.gray, bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(cond, 1, 1, dot(cAdx),          text_color=dotColor(cAdx), bgcolor=color.new(color.black, 0), text_size=size.normal)
+    table.cell(cond, 2, 1, dot(cAdx),          text_color=dotColor(cAdx), bgcolor=color.new(color.black, 0), text_size=size.normal)
+
+    // DI direction
+    table.cell(cond, 0, 2, "DI direction",     text_color=color.gray, bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(cond, 1, 2, dot(cLongTrend),    text_color=dotColor(cLongTrend),  bgcolor=color.new(color.black, 0), text_size=size.normal)
+    table.cell(cond, 2, 2, dot(cShortTrend),   text_color=dotColor(cShortTrend), bgcolor=color.new(color.black, 0), text_size=size.normal)
+
+    // Prix vs MA50
+    table.cell(cond, 0, 3, "Prix vs MA50",     text_color=color.gray, bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(cond, 1, 3, dot(cLongMa50),     text_color=dotColor(cLongMa50),   bgcolor=color.new(color.black, 0), text_size=size.normal)
+    table.cell(cond, 2, 3, dot(cShortMa50),    text_color=dotColor(cShortMa50),  bgcolor=color.new(color.black, 0), text_size=size.normal)
+
+    // Pullback MA20
+    table.cell(cond, 0, 4, "Pullback MA20",    text_color=color.gray, bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(cond, 1, 4, dot(cLongPullbk),   text_color=dotColor(cLongPullbk),  bgcolor=color.new(color.black, 0), text_size=size.normal)
+    table.cell(cond, 2, 4, dot(cShortPullbk),  text_color=dotColor(cShortPullbk), bgcolor=color.new(color.black, 0), text_size=size.normal)
+
+    // RSI
+    table.cell(cond, 0, 5, "RSI zone",         text_color=color.gray, bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(cond, 1, 5, dot(cLongRsi),      text_color=dotColor(cLongRsi),   bgcolor=color.new(color.black, 0), text_size=size.normal)
+    table.cell(cond, 2, 5, dot(cShortRsi),     text_color=dotColor(cShortRsi),  bgcolor=color.new(color.black, 0), text_size=size.normal)
+
+    // Volume
+    table.cell(cond, 0, 6, "Volume",           text_color=color.gray, bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(cond, 1, 6, dot(cVol),          text_color=dotColor(cVol), bgcolor=color.new(color.black, 0), text_size=size.normal)
+    table.cell(cond, 2, 6, dot(cVol),          text_color=dotColor(cVol), bgcolor=color.new(color.black, 0), text_size=size.normal)
+
+    // Hors range
+    table.cell(cond, 0, 7, "Hors range",       text_color=color.gray, bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(cond, 1, 7, dot(cNotRange),     text_color=dotColor(cNotRange), bgcolor=color.new(color.black, 0), text_size=size.normal)
+    table.cell(cond, 2, 7, dot(cNotRange),     text_color=dotColor(cNotRange), bgcolor=color.new(color.black, 0), text_size=size.normal)
+
+    // Valeurs actuelles
+    table.cell(cond, 0, 8, "ADX / RSI",        text_color=color.gray, bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(cond, 1, 8, str.tostring(math.round(adx, 1)), text_color=color.white, bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(cond, 2, 8, str.tostring(math.round(rsi, 1)), text_color=color.white, bgcolor=color.new(color.black, 0), text_size=size.tiny)
+
+    // Regime
+    table.cell(cond, 0, 9, "Regime",           text_color=color.gray, bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(cond, 1, 9, regStr,             text_color=isTrending ? color.lime : (isRanging ? color.orange : color.fuchsia), bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(cond, 2, 9, regStr,             text_color=isTrending ? color.lime : (isRanging ? color.orange : color.fuchsia), bgcolor=color.new(color.black, 0), text_size=size.tiny)
+
+    // Separateur
+    table.cell(cond, 0, 10, "",                text_color=color.gray, bgcolor=color.new(color.navy, 50), text_size=size.tiny)
+    table.cell(cond, 1, 10, "",                text_color=color.gray, bgcolor=color.new(color.navy, 50), text_size=size.tiny)
+    table.cell(cond, 2, 10, "",                text_color=color.gray, bgcolor=color.new(color.navy, 50), text_size=size.tiny)
+
+    // SIGNAL GLOBAL
+    sigLongBg  = cLongAll  ? color.new(color.green, 30) : color.new(color.black, 0)
+    sigShortBg = cShortAll ? color.new(color.green, 30) : color.new(color.black, 0)
+    table.cell(cond, 0, 11, "SIGNAL",          text_color=color.white, bgcolor=color.new(color.navy, 10), text_size=size.small)
+    table.cell(cond, 1, 11, cLongAll  ? "LONG"  : "-", text_color=cLongAll  ? color.lime  : color.gray, bgcolor=sigLongBg,  text_size=size.small)
+    table.cell(cond, 2, 11, cShortAll ? "SHORT" : "-", text_color=cShortAll ? color.red   : color.gray, bgcolor=sigShortBg, text_size=size.small)
 
 // ——————— ALERTE MAX DD ———————
 if maxDDVal >= maxDD
