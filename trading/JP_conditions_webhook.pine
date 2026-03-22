@@ -1,0 +1,196 @@
+//@version=5
+// =============================================================================
+//  JP - Conditions Webhook Sender
+//  Envoie l'état de toutes les conditions à chaque clôture de barre
+//  vers le serveur webhook -> visible sur /dashboard
+//
+//  SETUP :
+//    1. Ajouter cet indicateur sur le chart SOL (29M)
+//    2. Créer une alerte : "Conditions Update" -> toutes les barres
+//       URL : http://TON_VPS:8080/webhook
+//       Header : X-Webhook-Token: jp_bot_secret_2026
+//       Message : {{strategy.order.comment}} (Pine remplace par le JSON)
+//    3. Répéter pour ETH sur un second chart
+//
+//  Note : utilise alertcondition() -> déclenche à chaque clôture de barre
+// =============================================================================
+indicator("JP - Conditions Sender", overlay=false, max_labels_count=0)
+
+// -----------------------------------------------------------------------------
+//  PARAMETRES
+// -----------------------------------------------------------------------------
+adxLength = input.int  (14,    "ADX Length")
+rsiLength = input.int  (100,   "RSI Length")
+bbLength  = input.int  (20,    "BB Length")
+bbMult    = input.float(2.0,   "BB Mult")
+atrLength = input.int  (14,    "ATR Length")
+vpK       = input.float(1.5,   "VP K")
+volFilter = input.bool (true,  "Volume Filter")
+tfMode    = input.string("OR", "Mode TF", options=["AND","OR"])
+
+// -----------------------------------------------------------------------------
+//  CALCULS (identiques à JP v5.4)
+// -----------------------------------------------------------------------------
+h = high
+l = low
+c = close
+
+hullMa(src, len) =>
+    wma1 = ta.wma(src, len / 2)
+    wma2 = ta.wma(src, len)
+    ta.wma(2 * wma1 - wma2, math.round(math.sqrt(len)))
+
+volumeUp = volume > ta.sma(volume, 20) * 1.2
+var array<float> volWin = array.new_float(0)
+array.push(volWin, volume)
+if array.size(volWin) > 100
+    array.shift(volWin)
+sortedV  = array.copy(volWin)
+array.sort(sortedV)
+idx25    = math.min(math.round((array.size(sortedV) - 1) * 0.25), array.size(sortedV) - 1)
+vol25pct = array.get(sortedV, idx25)
+curVol   = volume
+
+atr30    = ta.atr(atrLength)
+rsi30    = ta.rsi(c, rsiLength)
+ma20_30  = hullMa(c, 20)
+ma50_30  = hullMa(c, 50)
+
+var float cumPV = 0.0
+var float cumVol = 0.0
+if ta.change(time("D")) != 0
+    cumPV  := 0.0
+    cumVol := 0.0
+cumPV  += (h + l + c) / 3 * volume
+cumVol += volume
+vwap30 = cumPV / nz(cumVol, 1)
+vah30  = ta.highest(vwap30 + vpK * atr30, 24)
+val30  = ta.lowest (vwap30 - vpK * atr30, 24)
+
+basis30   = ta.sma(c, bbLength)
+dev30     = bbMult * ta.stdev(c, bbLength)
+upperBB30 = basis30 + dev30
+lowerBB30 = basis30 - dev30
+
+up30      = math.max(ta.change(h), 0.0)
+dn30      = math.max(-ta.change(l), 0.0)
+pDM30     = (up30 > dn30 and up30 > 0.0) ? up30 : 0.0
+mDM30     = (dn30 > up30 and dn30 > 0.0) ? dn30 : 0.0
+trRaw30   = math.max(math.max(h-l, math.abs(h-nz(c[1],c))), math.abs(l-nz(c[1],c)))
+sTrur30   = ta.rma(trRaw30, adxLength)
+diplus30  = sTrur30 != 0 ? 100.0 * ta.rma(pDM30,  adxLength) / sTrur30 : 0.0
+diminus30 = sTrur30 != 0 ? 100.0 * ta.rma(mDM30,  adxLength) / sTrur30 : 0.0
+dx30      = (diplus30 + diminus30) != 0 ? 100.0 * math.abs(diplus30 - diminus30) / (diplus30 + diminus30) : 0.0
+adx30     = ta.rma(dx30, adxLength)
+
+volHigh30    = atr30 > ta.sma(atr30, 20) * 1.5
+trending30   = adx30 > 25
+ranging30    = adx30 < 20 and h <= upperBB30 and l >= lowerBB30
+explosive30  = volHigh30 and (rsi30 > 75 or rsi30 < 25) and (not volFilter or volumeUp)
+isTrending30  = trending30  and not explosive30
+isRanging30   = ranging30   and not (trending30 or explosive30)
+isExplosive30 = explosive30 and not trending30
+
+btcH1h = request.security("BINANCE:BTCUSDT", "60", high)
+btcL1h = request.security("BINANCE:BTCUSDT", "60", low)
+btcC1h = request.security("BINANCE:BTCUSDT", "60", close[1])
+btcR1h = (btcH1h - btcL1h) / btcC1h
+inRange30 = (adx30 < 20) and (curVol < vol25pct) and (btcR1h < 0.01)
+
+get1hSignals() =>
+    h_  = high
+    l_  = low
+    c_  = close
+    r_  = ta.rsi(close, rsiLength)
+    m20_ = hullMa(close, 20)
+    m50_ = hullMa(close, 50)
+    up_  = math.max(ta.change(h_), 0.0)
+    dn_  = math.max(-ta.change(l_), 0.0)
+    pDM_ = (up_ > dn_ and up_ > 0.0) ? up_ : 0.0
+    mDM_ = (dn_ > up_ and dn_ > 0.0) ? dn_ : 0.0
+    tr_  = math.max(math.max(h_-l_, math.abs(h_-nz(c_[1],c_))), math.abs(l_-nz(c_[1],c_)))
+    sT_  = ta.rma(tr_, adxLength)
+    dip_ = sT_ != 0 ? 100.0 * ta.rma(pDM_, adxLength) / sT_ : 0.0
+    dim_ = sT_ != 0 ? 100.0 * ta.rma(mDM_, adxLength) / sT_ : 0.0
+    dx_  = (dip_ + dim_) != 0 ? 100.0 * math.abs(dip_ - dim_) / (dip_ + dim_) : 0.0
+    adx_ = ta.rma(dx_, adxLength)
+    tr1h_ = adx_ > 25
+    bT_  = dip_ > dim_ and c_ > m50_
+    pb_L = l_ <= m20_ and c_ > m20_ and r_ > 40 and r_ < 65
+    bT2_ = dim_ > dip_ and c_ < m50_
+    pb_S = h_ >= m20_ and c_ < m20_ and r_ > 35 and r_ < 60
+    lLong_  = tr1h_ and bT_ and pb_L
+    lShort_ = tr1h_ and bT2_ and pb_S
+    [lLong_, lShort_, adx_, tr1h_]
+
+[entryLong1h, entryShort1h, adx1h, isTrending1h] =
+     request.security(syminfo.tickerid, "60", get1hSignals())
+
+bullTrend30   = diplus30 > diminus30 and c > ma50_30
+pbLong30      = l <= ma20_30 and c > ma20_30 and rsi30 > 40 and rsi30 < 65
+brkUp30       = c > vah30 and volHigh30 and (c - nz(c[1], c)) > atr30 * 0.8 and (not volFilter or volumeUp)
+entryLong30m  = (isTrending30 and bullTrend30 and pbLong30) or (isExplosive30 and brkUp30)
+
+bearTrend30   = diminus30 > diplus30 and c < ma50_30
+pbShort30     = h >= ma20_30 and c < ma20_30 and rsi30 > 35 and rsi30 < 60
+brkDown30     = c < val30 and volHigh30 and (c - nz(c[1], c)) < -atr30 * 0.8 and (not volFilter or volumeUp)
+entryShort30m = (isTrending30 and bearTrend30 and pbShort30) or (isExplosive30 and brkDown30)
+
+strongBull = adx30 > 30 and diplus30  > diminus30 * 1.5
+strongBear = adx30 > 30 and diminus30 > diplus30  * 1.5
+
+triggerLong  = tfMode == "AND" ? (entryLong30m  and entryLong1h)  : (entryLong30m  or entryLong1h)
+triggerShort = tfMode == "AND" ? (entryShort30m and entryShort1h) : (entryShort30m or entryShort1h)
+
+validLong  = triggerLong  and not strongBear and not inRange30
+validShort = triggerShort and not strongBull  and not inRange30
+
+// -----------------------------------------------------------------------------
+//  PAYLOAD JSON -> alerte webhook
+// -----------------------------------------------------------------------------
+b(v) => v ? "true" : "false"
+n1(v) => str.tostring(v, "#.#")
+n3(v) => str.tostring(v, "#.###")
+
+regime = isTrending30 ? "TREND" : (isExplosive30 ? "EXPLO" : (isRanging30 ? "RANGE" : "NEUTRE"))
+
+payload =
+     '{"action":"conditions"'
+   + ',"symbol":"'    + syminfo.ticker + '"'
+   + ',"price":'      + n3(c)
+   + ',"regime":"'    + regime + '"'
+   + ',"adx":'        + n1(adx30)
+   + ',"adx1h":'      + n1(adx1h)
+   + ',"di_plus":'    + n1(diplus30)
+   + ',"di_minus":'   + n1(diminus30)
+   + ',"rsi":'        + n1(rsi30)
+   + ',"hma20":'      + n3(ma20_30)
+   + ',"hma50":'      + n3(ma50_30)
+   + ',"atr":'        + n3(atr30)
+   + ',"vah":'        + n3(vah30)
+   + ',"val":'        + n3(val30)
+   + ',"trending":'   + b(isTrending30)
+   + ',"explosive":'  + b(isExplosive30)
+   + ',"ranging":'    + b(isRanging30)
+   + ',"bull_trend":' + b(bullTrend30)
+   + ',"bear_trend":' + b(bearTrend30)
+   + ',"pb_long":'    + b(pbLong30)
+   + ',"pb_short":'   + b(pbShort30)
+   + ',"vol_high":'   + b(volHigh30)
+   + ',"vol_up":'     + b(volumeUp)
+   + ',"sig29_long":' + b(entryLong30m)
+   + ',"sig29_short":'+ b(entryShort30m)
+   + ',"sig1h_long":' + b(entryLong1h)
+   + ',"sig1h_short":'+ b(entryShort1h)
+   + ',"strong_bull":'+ b(strongBull)
+   + ',"strong_bear":'+ b(strongBear)
+   + ',"in_range":'   + b(inRange30)
+   + ',"valid_long":' + b(validLong)
+   + ',"valid_short":'+ b(validShort)
+   + '}'
+
+alertcondition(true, title="Conditions Update", message=payload)
+
+// Indicateur minimal (juste pour confirmer que le script tourne)
+plot(adx30, "ADX", color=adx30 > 25 ? color.lime : color.gray)
+hline(25, "ADX 25", color=color.gray, linestyle=hline.style_dashed)

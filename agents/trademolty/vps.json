@@ -1,0 +1,7 @@
+{
+  "provider": "Hetzner",
+  "account_id": "K1267357225",
+  "login_email": "hue.jp@hotmail.fr",
+  "connection_string": "hetzner:Sebastienhue1@-key:ER%86trKM_dkUh7i",
+  "notes": "VPS ouvert mais non configuré — à régler quand nécessaire (bot trading)"
+}

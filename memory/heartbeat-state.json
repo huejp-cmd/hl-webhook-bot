@@ -1,0 +1,17 @@
+{
+  "lastChecks": {
+    "trademolty_bot": 1742661207,
+    "moltbook": 1742661207,
+    "email": null,
+    "calendar": null,
+    "weather": null
+  },
+  "lastUpdate": "2026-03-22T16:33:27Z",
+  "botStatus": {
+    "status": "online",
+    "mode": "LIVE",
+    "network": "MAINNET",
+    "account_value": "1023.02 USDC",
+    "open_positions": []
+  }
+}

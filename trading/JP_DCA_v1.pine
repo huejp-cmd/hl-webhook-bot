@@ -1,0 +1,165 @@
+//@version=5
+// ══════════════════════════════════════════════════════════════════
+//  JP DCA v1.0 — EMA/RSI/MACD + DCA 3 niveaux
+//  Adapté de la stratégie Python par TradeMolty
+//  Timeframe recommandé : 1H
+//  Exchange : Hyperliquid (SOLUSDT.P / ETHUSDT.P)
+// ══════════════════════════════════════════════════════════════════
+strategy("JP DCA v1 — EMA/RSI/MACD",
+     shorttitle        = "JP-DCA-v1",
+     overlay           = true,
+     pyramiding        = 4,
+     default_qty_type  = strategy.percent_of_equity,
+     default_qty_value = 10,         // 2% risk × 5x levier = 10% equity par entrée
+     initial_capital   = 1000,       // Capital initial USDC
+     currency          = currency.USD,
+     commission_type   = strategy.commission.percent,
+     commission_value  = 0.05,       // Frais Hyperliquid taker 0.05%
+     slippage          = 2,
+     calc_on_every_tick = false,
+     process_orders_on_close = false)
+
+// ══════════════════════════════════════════
+// PÉRIODE DE BACKTEST
+// ══════════════════════════════════════════
+g_bt = "Période backtest"
+start_date = input.time(timestamp("2024-03-20"), "Date début", group=g_bt)
+end_date   = input.time(timestamp("2025-03-20"), "Date fin",   group=g_bt)
+in_range   = time >= start_date and time <= end_date
+
+// ══════════════════════════════════════════
+// PARAMÈTRES
+// ══════════════════════════════════════════
+g_signal = "Signaux"
+ema_fast   = input.int(50,  "EMA rapide",  group=g_signal)
+ema_slow   = input.int(200, "EMA lente",   group=g_signal)
+rsi_len    = input.int(14,  "RSI période", group=g_signal)
+rsi_mid    = input.int(50,  "RSI seuil",   group=g_signal)
+macd_fast  = input.int(12,  "MACD rapide", group=g_signal)
+macd_slow  = input.int(26,  "MACD lente",  group=g_signal)
+macd_sig   = input.int(9,   "MACD signal", group=g_signal)
+
+g_risk = "Gestion du risque"
+leverage    = input.int(5,    "Levier",          group=g_risk)
+sl_pct      = input.float(3.0,"Stop Loss %",     group=g_risk, step=0.5)
+dca_dist    = input.float(1.5,"DCA distance %",  group=g_risk, step=0.5)
+max_dca     = input.int(3,    "DCA max niveaux", group=g_risk, minval=1, maxval=3)
+
+// ══════════════════════════════════════════
+// INDICATEURS
+// ══════════════════════════════════════════
+ema50  = ta.ema(close, ema_fast)
+ema200 = ta.ema(close, ema_slow)
+rsi    = ta.rsi(close, rsi_len)
+
+[macd_line, signal_line, _] = ta.macd(close, macd_fast, macd_slow, macd_sig)
+macd_cross_up   = ta.crossover(macd_line, signal_line)
+macd_cross_down = ta.crossunder(macd_line, signal_line)
+
+// ══════════════════════════════════════════
+// CONDITIONS D'ENTRÉE
+// ══════════════════════════════════════════
+trend_long  = ema50 > ema200
+trend_short = ema50 < ema200
+
+long_signal  = trend_long  and rsi > rsi_mid and macd_cross_up
+short_signal = trend_short and rsi < rsi_mid and macd_cross_down
+
+// ══════════════════════════════════════════
+// DCA — ENTRÉES SUPPLÉMENTAIRES
+// ══════════════════════════════════════════
+in_long  = strategy.position_size > 0
+in_short = strategy.position_size < 0
+avg_px   = strategy.position_avg_price
+
+// DCA LONG : prix baisse de dca_dist% depuis l'entrée précédente
+dca_long_1 = in_long and close < avg_px * (1 - dca_dist / 100) and strategy.opentrades <= 1
+dca_long_2 = in_long and close < avg_px * (1 - dca_dist / 100) and strategy.opentrades == 2 and max_dca >= 2
+dca_long_3 = in_long and close < avg_px * (1 - dca_dist / 100) and strategy.opentrades == 3 and max_dca >= 3
+
+// DCA SHORT : prix monte de dca_dist% depuis l'entrée précédente
+dca_short_1 = in_short and close > avg_px * (1 + dca_dist / 100) and strategy.opentrades <= 1
+dca_short_2 = in_short and close > avg_px * (1 + dca_dist / 100) and strategy.opentrades == 2 and max_dca >= 2
+dca_short_3 = in_short and close > avg_px * (1 + dca_dist / 100) and strategy.opentrades == 3 and max_dca >= 3
+
+// ══════════════════════════════════════════
+// STOP LOSS & SORTIE
+// ══════════════════════════════════════════
+sl_long_px  = avg_px * (1 - sl_pct / 100)
+sl_short_px = avg_px * (1 + sl_pct / 100)
+
+exit_long  = in_long  and (close < sl_long_px  or short_signal)
+exit_short = in_short and (close > sl_short_px or long_signal)
+
+// ══════════════════════════════════════════
+// ORDRES
+// ══════════════════════════════════════════
+// Entrées initiales (uniquement dans la période)
+if in_range
+    if long_signal and not in_long
+        strategy.entry("L1", strategy.long,  comment="LONG entrée")
+    if short_signal and not in_short
+        strategy.entry("S1", strategy.short, comment="SHORT entrée")
+
+    // DCA LONG
+    if dca_long_1
+        strategy.entry("L-DCA1", strategy.long,  comment="DCA 1")
+    if dca_long_2
+        strategy.entry("L-DCA2", strategy.long,  comment="DCA 2")
+    if dca_long_3
+        strategy.entry("L-DCA3", strategy.long,  comment="DCA 3")
+
+    // DCA SHORT
+    if dca_short_1
+        strategy.entry("S-DCA1", strategy.short, comment="DCA 1")
+    if dca_short_2
+        strategy.entry("S-DCA2", strategy.short, comment="DCA 2")
+    if dca_short_3
+        strategy.entry("S-DCA3", strategy.short, comment="DCA 3")
+
+// Sorties (toujours actives même hors période pour clore les positions)
+if exit_long
+    strategy.close_all(comment="SL/Inverse LONG")
+if exit_short
+    strategy.close_all(comment="SL/Inverse SHORT")
+
+// Fermeture forcée fin de période
+if time > end_date and strategy.position_size != 0
+    strategy.close_all(comment="Fin backtest")
+
+// ══════════════════════════════════════════
+// AFFICHAGE
+// ══════════════════════════════════════════
+plot(ema50,  "EMA 50",  color=color.new(color.blue, 0),   linewidth=1)
+plot(ema200, "EMA 200", color=color.new(color.orange, 0), linewidth=2)
+
+// Zones EMA
+ema_bull = ema50 > ema200
+bgcolor(ema_bull ? color.new(color.green, 95) : color.new(color.red, 95), title="Tendance fond")
+
+// Signaux
+plotshape(long_signal,  "LONG",  shape.triangleup,   location.belowbar, color.green, size=size.small)
+plotshape(short_signal, "SHORT", shape.triangledown, location.abovebar, color.red,   size=size.small)
+
+// Stop Loss dynamique
+sl_line = in_long ? sl_long_px : in_short ? sl_short_px : na
+plot(sl_line, "Stop Loss", color=color.new(color.red, 30), style=plot.style_linebr, linewidth=1)
+
+// Prix moyen position
+avg_line = strategy.position_size != 0 ? avg_px : na
+plot(avg_line, "Prix moyen", color=color.new(color.yellow, 20), style=plot.style_linebr, linewidth=2)
+
+// Table info
+var table info_tbl = table.new(position.top_right, 2, 5, border_width=1)
+if barstate.islast
+    table.cell(info_tbl, 0, 0, "Stratégie",    text_color=color.white, bgcolor=color.navy)
+    table.cell(info_tbl, 1, 0, "JP DCA v1",    text_color=color.white, bgcolor=color.navy)
+    table.cell(info_tbl, 0, 1, "EMA",          text_color=color.gray)
+    table.cell(info_tbl, 1, 1, str.tostring(ema50, "#.##") + " / " + str.tostring(ema200, "#.##"), text_color=color.gray)
+    table.cell(info_tbl, 0, 2, "RSI",          text_color=color.gray)
+    table.cell(info_tbl, 1, 2, str.tostring(rsi, "#.#"),  text_color=rsi > 50 ? color.green : color.red)
+    table.cell(info_tbl, 0, 3, "MACD",         text_color=color.gray)
+    table.cell(info_tbl, 1, 3, str.tostring(macd_line, "#.##"), text_color=macd_line > signal_line ? color.green : color.red)
+    table.cell(info_tbl, 0, 4, "Position",     text_color=color.gray)
+    table.cell(info_tbl, 1, 4, strategy.position_size > 0 ? "LONG" : strategy.position_size < 0 ? "SHORT" : "—",
+         text_color=strategy.position_size > 0 ? color.green : strategy.position_size < 0 ? color.red : color.gray)

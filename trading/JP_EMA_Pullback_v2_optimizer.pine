@@ -1,0 +1,226 @@
+// ══════════════════════════════════════════════════════════════════════════════
+// JP — EMA Pullback Strategy v2.0 — OPTIMISEUR INTÉGRÉ
+// ──────────────────────────────────────────────────────────────────────────────
+// 📖 COMMENT UTILISER L'OPTIMISEUR TRADINGVIEW :
+//
+//   1. Ajoute ce script au graphique (ETH/USDT 1H recommandé)
+//   2. Ouvre l'onglet "Strategy Tester" en bas
+//   3. Clique sur l'onglet "Optimisation" (icône curseurs ⚙️)
+//   4. Coche les paramètres marqués [OPT] ci-dessous
+//   5. Choisis le critère : "Net Profit" ou "Profit Factor"
+//   6. Lance — TradingView teste toutes les combinaisons automatiquement
+//   7. Filtre les résultats : Win Rate > 65% ET Max DD < 13%
+//   8. Copie les paramètres gagnants dans la section INPUTS
+//
+// ⚠️  L'optimiseur nécessite un abonnement TradingView Premium ou supérieur.
+// ══════════════════════════════════════════════════════════════════════════════
+
+//@version=5
+strategy("JP — EMA Pullback v2 [Optimiseur]",
+     shorttitle              = "JP-EPS v2 OPT",
+     overlay                 = true,
+     initial_capital         = 10000,
+     currency                = currency.USD,
+     default_qty_type        = strategy.cash,
+     default_qty_value       = 100,
+     commission_type         = strategy.commission.percent,
+     commission_value        = 0.1,
+     slippage                = 2,
+     pyramiding              = 0,
+     calc_on_order_fills     = false,
+     process_orders_on_close = false)
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  INPUTS — Paramètres optimisables [OPT] et fixes
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ─ Gestion du risque ─────────────────────────────────────────────────────────
+var GRP_RISK = "💰 Gestion du Risque"
+i_risk_pct  = input.float(1.0, "Risque par trade (%)", 0.5, 2.0, 0.5, group=GRP_RISK)
+i_tp1_pct   = input.int(50,    "% fermé au TP1",        25,  75,  25,  group=GRP_RISK)
+
+// ─ EMAs [OPT] ────────────────────────────────────────────────────────────────
+// [OPT] EMA Rapide — plage : 13 à 34, pas : 3
+// Logique : plus court = plus de trades mais plus de faux signaux
+var GRP_EMA = "📈 EMAs [OPT]"
+i_ema_fast = input.int(21, "EMA Rapide [OPT: 13→34 pas3]",   13,  34, 3, group=GRP_EMA)
+i_ema_mid  = input.int(50, "EMA Médiane [OPT: 40→70 pas5]",  40,  70, 5, group=GRP_EMA)
+i_ema_slow = input.int(200,"EMA Lente — ne pas optimiser",   100, 200, 10, group=GRP_EMA)
+
+// ─ RSI [OPT] ─────────────────────────────────────────────────────────────────
+// [OPT] Zone neutre RSI — plage min : 35→45, max : 55→65
+// Logique : zone plus large = plus de trades, plus étroite = plus sélectif
+var GRP_RSI = "📊 RSI [OPT]"
+i_rsi_len = input.int(14, "Longueur RSI",              group=GRP_RSI)
+i_rsi_min = input.int(40, "RSI min [OPT: 35→45 pas5]", 35, 45, 5, group=GRP_RSI)
+i_rsi_max = input.int(60, "RSI max [OPT: 55→65 pas5]", 55, 65, 5, group=GRP_RSI)
+
+// ─ ATR Stop [OPT] ─────────────────────────────────────────────────────────────
+// [OPT] Mult ATR — plage : 0.8 à 2.0, pas : 0.2
+// Logique : trop serré = stop-hunt | trop large = risque/trade élevé
+var GRP_ATR = "⚙️ ATR Stop [OPT]"
+i_atr_len  = input.int(14,   "Longueur ATR",                    group=GRP_ATR)
+i_atr_mult = input.float(1.2,"Mult. ATR Stop [OPT: 0.8→2 p0.2]", 0.8, 2.0, 0.2, group=GRP_ATR)
+
+// ─ R:R Take Profits [OPT] ─────────────────────────────────────────────────────
+// [OPT] TP1 : 1.2 → 2.0, pas 0.2  |  TP2 : 2.0 → 3.5, pas 0.25
+// Logique : TP1 trop loin = moins de hits | TP2 trop près = laisse du profit
+var GRP_TP = "🎯 Take Profits [OPT]"
+i_rr_tp1 = input.float(1.5, "R:R TP1 [OPT: 1.2→2.0 p0.2]", 1.2, 2.0, 0.2, group=GRP_TP)
+i_rr_tp2 = input.float(2.5, "R:R TP2 [OPT: 2.0→3.5 p0.25]", 2.0, 3.5, 0.25, group=GRP_TP)
+
+// ─ Volume [OPT] ───────────────────────────────────────────────────────────────
+// [OPT] MA Volume — plage : 10 → 30, pas : 5
+var GRP_VOL = "📊 Volume [OPT]"
+i_vol_len = input.int(20, "Longueur MA Volume [OPT: 10→30 p5]", 10, 30, 5, group=GRP_VOL)
+
+// ─ Multi-Timeframe (fixe) ─────────────────────────────────────────────────────
+var GRP_TF = "🗺️ Multi-Timeframe"
+i_tf_trend = input.timeframe("240", "TF Tendance (4H)", group=GRP_TF)
+
+// ─ LuxAlgo (optionnel) ───────────────────────────────────────────────────────
+var GRP_LUX = "🔮 LuxAlgo (optionnel)"
+i_use_lux    = input.bool(false,  "Activer filtre LuxAlgo", group=GRP_LUX)
+i_lux_src    = input.source(close,"Source LuxAlgo",         group=GRP_LUX)
+i_lux_thresh = input.float(0.0,   "Seuil Long/Short",       group=GRP_LUX)
+
+// ─ Affichage ─────────────────────────────────────────────────────────────────
+var GRP_DISP = "🎨 Affichage"
+i_show_bg   = input.bool(true, "Fond tendance 4H",  group=GRP_DISP)
+i_show_emas = input.bool(true, "Afficher EMAs",     group=GRP_DISP)
+i_show_sl   = input.bool(true, "Labels SL/TP",      group=GRP_DISP)
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  INDICATEURS
+// ══════════════════════════════════════════════════════════════════════════════
+ema21  = ta.ema(close, i_ema_fast)
+ema50  = ta.ema(close, i_ema_mid)
+ema200 = ta.ema(close, i_ema_slow)
+rsi    = ta.rsi(close, i_rsi_len)
+atr    = ta.atr(i_atr_len)
+vol_ma = ta.sma(volume, i_vol_len)
+
+// Tendance 4H
+[c_htf, ema50_htf, ema200_htf] = request.security(
+     syminfo.tickerid, i_tf_trend,
+     [close, ta.ema(close, i_ema_mid), ta.ema(close, i_ema_slow)],
+     lookahead=barmerge.lookahead_off)
+
+bull_4h = c_htf > ema200_htf and ema50_htf > ema200_htf
+bear_4h = c_htf < ema200_htf and ema50_htf < ema200_htf
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  CONDITIONS
+// ══════════════════════════════════════════════════════════════════════════════
+ema_bull_local = ema21 > ema50
+ema_bear_local = ema21 < ema50
+
+pullback_long  = low  <= ema21 * 1.003 and close > ema21 and close >= open
+pullback_short = high >= ema21 * 0.997 and close < ema21 and close <= open
+
+rsi_ok = rsi >= i_rsi_min and rsi <= i_rsi_max
+vol_ok = volume > vol_ma
+flat   = strategy.position_size == 0
+
+lux_long  = not i_use_lux or i_lux_src >  i_lux_thresh
+lux_short = not i_use_lux or i_lux_src < -i_lux_thresh
+
+long_signal  = bull_4h and ema_bull_local and pullback_long  and rsi_ok and vol_ok and lux_long  and flat
+short_signal = bear_4h and ema_bear_local and pullback_short and rsi_ok and vol_ok and lux_short and flat
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  SL / TP
+// ══════════════════════════════════════════════════════════════════════════════
+var float sl_p  = na
+var float tp1_p = na
+var float tp2_p = na
+
+if long_signal
+    sl_p  := math.min(low, ema21) - atr * i_atr_mult
+    float r = close - sl_p
+    tp1_p := close + r * i_rr_tp1
+    tp2_p := close + r * i_rr_tp2
+
+if short_signal
+    sl_p  := math.max(high, ema21) + atr * i_atr_mult
+    float r = sl_p - close
+    tp1_p := close - r * i_rr_tp1
+    tp2_p := close - r * i_rr_tp2
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  POSITION SIZING — Risque % fixe
+// ══════════════════════════════════════════════════════════════════════════════
+float sl_dist = long_signal  ? math.abs(close - (math.min(low,  ema21) - atr * i_atr_mult))
+              : short_signal ? math.abs((math.max(high, ema21) + atr * i_atr_mult) - close)
+              : na
+float qty     = (sl_dist > 0 and not na(sl_dist))
+              ? (strategy.equity * i_risk_pct / 100.0) / sl_dist
+              : na
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  ORDRES
+// ══════════════════════════════════════════════════════════════════════════════
+if long_signal and not na(qty)
+    strategy.entry("Long", strategy.long, qty=qty)
+    strategy.exit("TP1 L", "Long", qty_percent=i_tp1_pct, limit=tp1_p, stop=sl_p)
+    strategy.exit("TP2 L", "Long", qty_percent=100,        limit=tp2_p, stop=sl_p)
+
+if short_signal and not na(qty)
+    strategy.entry("Short", strategy.short, qty=qty)
+    strategy.exit("TP1 S", "Short", qty_percent=i_tp1_pct, limit=tp1_p, stop=sl_p)
+    strategy.exit("TP2 S", "Short", qty_percent=100,        limit=tp2_p, stop=sl_p)
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  VISUALISATION
+// ══════════════════════════════════════════════════════════════════════════════
+bgcolor(i_show_bg and bull_4h ? color.new(color.green, 94) :
+        i_show_bg and bear_4h ? color.new(color.red,   94) : na,
+        title="Fond tendance 4H")
+
+plot(i_show_emas ? ema21  : na, "EMA 21",  color.new(color.lime,   0), 1)
+plot(i_show_emas ? ema50  : na, "EMA 50",  color.new(color.orange, 0), 1)
+plot(i_show_emas ? ema200 : na, "EMA 200", color.new(color.red,    0), 2)
+
+plotshape(long_signal,  "🟢 LONG",  shape.triangleup,   location.belowbar, color.new(color.lime, 0), size=size.normal)
+plotshape(short_signal, "🔴 SHORT", shape.triangledown, location.abovebar, color.new(color.red,  0), size=size.normal)
+
+if (long_signal or short_signal) and i_show_sl
+    label.new(bar_index, sl_p,  "🛑 " + str.tostring(sl_p,  format.mintick), color=color.new(color.red,   80), textcolor=color.white, style=label.style_label_right, size=size.tiny)
+    label.new(bar_index, tp1_p, "🎯 " + str.tostring(tp1_p, format.mintick), color=color.new(color.green, 80), textcolor=color.white, style=label.style_label_right, size=size.tiny)
+    label.new(bar_index, tp2_p, "🚀 " + str.tostring(tp2_p, format.mintick), color=color.new(color.blue,  80), textcolor=color.white, style=label.style_label_right, size=size.tiny)
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  TABLE D'INFO
+// ══════════════════════════════════════════════════════════════════════════════
+var table t = table.new(position.bottom_right, 2, 6,
+     bgcolor=color.new(color.black, 70), border_color=color.new(color.gray, 60), border_width=1)
+
+if barstate.islast
+    table.cell(t, 0, 0, "JP-EPS v2 OPT",  text_color=color.white,  text_size=size.small, bgcolor=color.new(color.navy, 40))
+    table.cell(t, 1, 0, syminfo.ticker,    text_color=color.yellow, text_size=size.small, bgcolor=color.new(color.navy, 40))
+
+    table.cell(t, 0, 1, "Tendance 4H", text_color=color.gray, text_size=size.tiny)
+    table.cell(t, 1, 1, bull_4h ? "🟢 BULL" : bear_4h ? "🔴 BEAR" : "⚪ FLAT",
+         text_color=bull_4h ? color.lime : bear_4h ? color.red : color.gray, text_size=size.tiny)
+
+    table.cell(t, 0, 2, "RSI", text_color=color.gray, text_size=size.tiny)
+    table.cell(t, 1, 2, str.tostring(math.round(rsi, 1)),
+         text_color=rsi_ok ? color.green : color.orange, text_size=size.tiny)
+
+    table.cell(t, 0, 3, "Volume", text_color=color.gray, text_size=size.tiny)
+    table.cell(t, 1, 3, vol_ok ? "✅ OK" : "⚠️ Faible",
+         text_color=vol_ok ? color.green : color.orange, text_size=size.tiny)
+
+    table.cell(t, 0, 4, "EMA fast/mid", text_color=color.gray, text_size=size.tiny)
+    table.cell(t, 1, 4, str.tostring(i_ema_fast) + " / " + str.tostring(i_ema_mid),
+         text_color=color.white, text_size=size.tiny)
+
+    table.cell(t, 0, 5, "ATR mult", text_color=color.gray, text_size=size.tiny)
+    table.cell(t, 1, 5, str.tostring(i_atr_mult),
+         text_color=color.white, text_size=size.tiny)
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  ALERTES
+// ══════════════════════════════════════════════════════════════════════════════
+alertcondition(long_signal,  "🟢 JP LONG",  "{{ticker}} {{interval}} | LONG | Close: {{close}}")
+alertcondition(short_signal, "🔴 JP SHORT", "{{ticker}} {{interval}} | SHORT | Close: {{close}}")

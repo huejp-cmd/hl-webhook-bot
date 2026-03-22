@@ -566,12 +566,15 @@ def place_order(signal: dict) -> dict:
 #  ENDPOINTS FLASK
 # =============================================================================
 
+@app.route("/webhook/jp_bot_secret_2026", methods=["POST"])
 @app.route("/webhook", methods=["POST"])
 def webhook():
     """Endpoint principal -- reçoit les alertes TradingView"""
 
+    # Route /webhook/jp_bot_secret_2026 = token dans le chemin (pour TradingView)
+    token_in_path = request.path == "/webhook/jp_bot_secret_2026"
     token = request.headers.get("X-Webhook-Token") or request.args.get("token")
-    if token != WEBHOOK_TOKEN:
+    if not token_in_path and token != WEBHOOK_TOKEN:
         log.warning(f"Token invalide : {token!r}")
         return jsonify({"error": "unauthorized"}), 401
 
@@ -1070,4 +1073,4 @@ if __name__ == "__main__":
     log.info(f"DRY_RUN={DRY_RUN}  MAINNET={MAINNET}")
     log.info(f"Entry timeout   : {ENTRY_LIMIT_TIMEOUT}s")
     log.info(f"TP timeout      : {TP_LIMIT_TIMEOUT}s")
-    app.run(host="0.0.0.0", port=8080, debug=False)
+    app.run(host="0.0.0.0", port=80, debug=False)

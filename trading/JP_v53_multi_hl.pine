@@ -12,7 +12,7 @@
 //
 strategy("JP v5.3 - Multi-Symbol Hyperliquid 29M",
  overlay=true,
- default_qty_type=strategy.contracts,
+ default_qty_type=strategy.fixed,
  commission_type=strategy.commission.percent,
  commission_value=0.07,
  pyramiding=1,

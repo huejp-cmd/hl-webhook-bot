@@ -392,28 +392,144 @@ if curDD > maxDDv
 regime30Lbl = isTrending30 ? "Trend" : (isExplosive30 ? "Explo" : (isRanging30 ? "Range" : "-"))
 regime30Col = isTrending30 ? color.lime : (isExplosive30 ? color.orange : color.gray)
 
+// Helpers tableau conditions
+_dot(v) => v ? "● " : "○ "
+_clr(v) => v ? color.new(color.lime, 0) : color.new(color.red, 30)
+_bg(v)  => v ? color.new(color.green, 75) : color.new(color.black, 0)
+
+// Conditions détaillées LONG
+rsiLongOk  = rsi30 > 40 and rsi30 < 65
+rsiShortOk = rsi30 > 35 and rsi30 < 60
+volOk      = not volFilter or volumeUp
+
 if showStats
-    var table t = table.new(position.top_right, 2, 10, border_color=color.new(color.white, 60), border_width=1)
-    table.cell(t, 0, 0, "JP v5.4",         text_color=color.white,  bgcolor=color.new(color.navy, 20), text_size=size.small)
-    table.cell(t, 1, 0, syminfo.ticker,     text_color=color.yellow, bgcolor=color.new(color.navy, 20), text_size=size.small)
-    table.cell(t, 0, 1, "Equity",           text_color=color.gray,   bgcolor=color.black, text_size=size.tiny)
-    table.cell(t, 1, 1, str.tostring(curEq, "#.##") + " $",                    text_color=color.lime,   bgcolor=color.black, text_size=size.tiny)
-    table.cell(t, 0, 2, "Capital alloue",   text_color=color.gray,   bgcolor=color.black, text_size=size.tiny)
-    table.cell(t, 1, 2, str.tostring(startCapital, "#") + " $",                text_color=color.white,  bgcolor=color.black, text_size=size.tiny)
-    table.cell(t, 0, 3, "Perte max/trade",  text_color=color.gray,   bgcolor=color.black, text_size=size.tiny)
-    table.cell(t, 1, 3, str.tostring(curEq * slCapPct, "#.##") + " $",         text_color=color.orange, bgcolor=color.black, text_size=size.tiny)
-    table.cell(t, 0, 4, "DD Courant",       text_color=color.gray,   bgcolor=color.black, text_size=size.tiny)
-    table.cell(t, 1, 4, str.tostring(curDD * 100, "#.##") + "%",               text_color=curDD > maxDD * 0.8 ? color.red : color.white, bgcolor=color.black, text_size=size.tiny)
-    table.cell(t, 0, 5, "Max DD",           text_color=color.gray,   bgcolor=color.black, text_size=size.tiny)
-    table.cell(t, 1, 5, str.tostring(maxDDv * 100, "#.##") + "%",              text_color=color.yellow, bgcolor=color.black, text_size=size.tiny)
-    table.cell(t, 0, 6, "Regime 30M",       text_color=color.gray,   bgcolor=color.black, text_size=size.tiny)
-    table.cell(t, 1, 6, regime30Lbl,                                            text_color=regime30Col,  bgcolor=color.black, text_size=size.tiny)
-    table.cell(t, 0, 7, "ADX 1H",           text_color=color.gray,   bgcolor=color.black, text_size=size.tiny)
-    table.cell(t, 1, 7, str.tostring(adx1h, "#.#") + (isTrending1h ? " ^" : ""), text_color=adx1h > 25 ? color.lime : color.gray, bgcolor=color.black, text_size=size.tiny)
-    table.cell(t, 0, 8, "Mode TF",          text_color=color.gray,   bgcolor=color.black, text_size=size.tiny)
-    table.cell(t, 1, 8, tfMode,                                                 text_color=color.aqua,   bgcolor=color.black, text_size=size.tiny)
-    table.cell(t, 0, 9, "Dernier signal",   text_color=color.gray,   bgcolor=color.black, text_size=size.tiny)
-    table.cell(t, 1, 9, lastTfSrc,                                              text_color=lastTfSrc == "30m+1h" ? color.yellow : color.white, bgcolor=color.black, text_size=size.tiny)
+    // 3 colonnes : label | LONG | SHORT    — 18 lignes
+    var table t = table.new(position.top_right, 3, 18,
+         border_color = color.new(color.white, 70),
+         border_width  = 1,
+         frame_color   = color.new(color.white, 50),
+         frame_width   = 1)
+
+    // ── Entête ──
+    table.cell(t, 0, 0, "JP v5.4  " + syminfo.ticker,
+         text_color=color.yellow, bgcolor=color.new(color.navy,10),
+         text_size=size.small, tooltip="Conditions d'ouverture de position")
+    table.cell(t, 1, 0, "▲ ACHAT",
+         text_color=color.lime,   bgcolor=color.new(color.navy,10), text_size=size.small)
+    table.cell(t, 2, 0, "▼ VENTE",
+         text_color=color.red,    bgcolor=color.new(color.navy,10), text_size=size.small)
+
+    // ── Régime ──
+    table.cell(t, 0, 1, "Régime",      text_color=color.gray, bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 1, 1, regime30Lbl,   text_color=regime30Col, bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 2, 1, regime30Lbl,   text_color=regime30Col, bgcolor=color.black, text_size=size.tiny)
+
+    // ── ADX > 25 ──
+    table.cell(t, 0, 2, "ADX > 25",    text_color=color.gray, bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 1, 2, _dot(trending30) + str.tostring(adx30,"#.#"),
+         text_color=_clr(trending30), bgcolor=_bg(trending30), text_size=size.tiny)
+    table.cell(t, 2, 2, _dot(trending30) + str.tostring(adx30,"#.#"),
+         text_color=_clr(trending30), bgcolor=_bg(trending30), text_size=size.tiny)
+
+    // ── DI direction ──
+    table.cell(t, 0, 3, "DI direction", text_color=color.gray, bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 1, 3, _dot(bullTrend30) + "DI+ " + str.tostring(diplus30,"#.#"),
+         text_color=_clr(bullTrend30), bgcolor=_bg(bullTrend30), text_size=size.tiny)
+    table.cell(t, 2, 3, _dot(bearTrend30) + "DI- " + str.tostring(diminus30,"#.#"),
+         text_color=_clr(bearTrend30), bgcolor=_bg(bearTrend30), text_size=size.tiny)
+
+    // ── Prix / HMA50 ──
+    table.cell(t, 0, 4, "Prix/HMA50",  text_color=color.gray, bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 1, 4, _dot(c > ma50_30) + (c > ma50_30 ? "Dessus" : "Dessous"),
+         text_color=_clr(c > ma50_30), bgcolor=_bg(c > ma50_30), text_size=size.tiny)
+    table.cell(t, 2, 4, _dot(c < ma50_30) + (c < ma50_30 ? "Dessous" : "Dessus"),
+         text_color=_clr(c < ma50_30), bgcolor=_bg(c < ma50_30), text_size=size.tiny)
+
+    // ── Pullback HMA20 ──
+    table.cell(t, 0, 5, "Pullback HMA20", text_color=color.gray, bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 1, 5, _dot(pbLong30)  + (pbLong30  ? "OK" : "Non"),
+         text_color=_clr(pbLong30),  bgcolor=_bg(pbLong30),  text_size=size.tiny)
+    table.cell(t, 2, 5, _dot(pbShort30) + (pbShort30 ? "OK" : "Non"),
+         text_color=_clr(pbShort30), bgcolor=_bg(pbShort30), text_size=size.tiny)
+
+    // ── RSI ──
+    table.cell(t, 0, 6, "RSI " + str.tostring(rsi30,"#.#"), text_color=color.gray, bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 1, 6, _dot(rsiLongOk)  + "40-65",
+         text_color=_clr(rsiLongOk),  bgcolor=_bg(rsiLongOk),  text_size=size.tiny)
+    table.cell(t, 2, 6, _dot(rsiShortOk) + "35-60",
+         text_color=_clr(rsiShortOk), bgcolor=_bg(rsiShortOk), text_size=size.tiny)
+
+    // ── Volume ──
+    table.cell(t, 0, 7, "Volume",       text_color=color.gray, bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 1, 7, _dot(volOk) + (volumeUp ? "Élevé" : "Normal"),
+         text_color=_clr(volOk), bgcolor=_bg(volOk), text_size=size.tiny)
+    table.cell(t, 2, 7, _dot(volOk) + (volumeUp ? "Élevé" : "Normal"),
+         text_color=_clr(volOk), bgcolor=_bg(volOk), text_size=size.tiny)
+
+    // ── Signal 29M ──
+    table.cell(t, 0, 8, "Signal 29M",   text_color=color.gray, bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 1, 8, _dot(entryLong30m)  + (entryLong30m  ? "OK" : "Non"),
+         text_color=_clr(entryLong30m),  bgcolor=_bg(entryLong30m),  text_size=size.tiny)
+    table.cell(t, 2, 8, _dot(entryShort30m) + (entryShort30m ? "OK" : "Non"),
+         text_color=_clr(entryShort30m), bgcolor=_bg(entryShort30m), text_size=size.tiny)
+
+    // ── Confirmation 1H ──
+    table.cell(t, 0, 9, "Confirm. 1H",  text_color=color.gray, bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 1, 9, _dot(entryLong1h)  + (entryLong1h  ? "OK" : "Non") + " (" + str.tostring(adx1h,"#.#") + ")",
+         text_color=_clr(entryLong1h),  bgcolor=_bg(entryLong1h),  text_size=size.tiny)
+    table.cell(t, 2, 9, _dot(entryShort1h) + (entryShort1h ? "OK" : "Non") + " (" + str.tostring(adx1h,"#.#") + ")",
+         text_color=_clr(entryShort1h), bgcolor=_bg(entryShort1h), text_size=size.tiny)
+
+    // ── Filtre Range ──
+    table.cell(t, 0, 10, "Filtre Range", text_color=color.gray, bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 1, 10, _dot(not inRange30) + (inRange30 ? "BLOQUÉ" : "Libre"),
+         text_color=_clr(not inRange30), bgcolor=_bg(not inRange30), text_size=size.tiny)
+    table.cell(t, 2, 10, _dot(not inRange30) + (inRange30 ? "BLOQUÉ" : "Libre"),
+         text_color=_clr(not inRange30), bgcolor=_bg(not inRange30), text_size=size.tiny)
+
+    // ── Anti-fort ──
+    table.cell(t, 0, 11, "Anti-fort",   text_color=color.gray, bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 1, 11, _dot(not strongBear) + (strongBear ? "BLOQUÉ" : "OK"),
+         text_color=_clr(not strongBear), bgcolor=_bg(not strongBear), text_size=size.tiny)
+    table.cell(t, 2, 11, _dot(not strongBull) + (strongBull ? "BLOQUÉ" : "OK"),
+         text_color=_clr(not strongBull), bgcolor=_bg(not strongBull), text_size=size.tiny)
+
+    // ── Séparateur ──
+    table.cell(t, 0, 12, "", bgcolor=color.new(color.navy,60), text_size=size.tiny)
+    table.cell(t, 1, 12, "", bgcolor=color.new(color.navy,60), text_size=size.tiny)
+    table.cell(t, 2, 12, "", bgcolor=color.new(color.navy,60), text_size=size.tiny)
+
+    // ── Signal final ──
+    sigBgL = validLong  ? color.new(color.green, 20) : color.new(color.black, 0)
+    sigBgS = validShort ? color.new(color.red,   20) : color.new(color.black, 0)
+    table.cell(t, 0, 13, "★ SIGNAL",    text_color=color.white, bgcolor=color.new(color.navy,30), text_size=size.small)
+    table.cell(t, 1, 13, validLong  ? "⭐ OUVERTURE" : "─",
+         text_color=validLong  ? color.lime : color.gray, bgcolor=sigBgL, text_size=size.small)
+    table.cell(t, 2, 13, validShort ? "⭐ OUVERTURE" : "─",
+         text_color=validShort ? color.red  : color.gray, bgcolor=sigBgS, text_size=size.small)
+
+    // ── Séparateur ──
+    table.cell(t, 0, 14, "", bgcolor=color.new(color.navy,60), text_size=size.tiny)
+    table.cell(t, 1, 14, "", bgcolor=color.new(color.navy,60), text_size=size.tiny)
+    table.cell(t, 2, 14, "", bgcolor=color.new(color.navy,60), text_size=size.tiny)
+
+    // ── Stats portefeuille ──
+    table.cell(t, 0, 15, "Equity / DD",  text_color=color.gray, bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 1, 15, str.tostring(curEq,"#.##") + " $",
+         text_color=color.lime, bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 2, 15, str.tostring(curDD*100,"#.##") + "% DD",
+         text_color=curDD > maxDD * 0.8 ? color.red : color.white, bgcolor=color.black, text_size=size.tiny)
+
+    table.cell(t, 0, 16, "Mode TF",      text_color=color.gray,  bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 1, 16, tfMode,         text_color=color.aqua,  bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 2, 16, lastTfSrc,
+         text_color=lastTfSrc == "30m+1h" ? color.yellow : color.white, bgcolor=color.black, text_size=size.tiny)
+
+    table.cell(t, 0, 17, "ADX 1H",       text_color=color.gray,  bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 1, 17, str.tostring(adx1h,"#.#") + (isTrending1h ? " ▲" : ""),
+         text_color=adx1h > 25 ? color.lime : color.gray, bgcolor=color.black, text_size=size.tiny)
+    table.cell(t, 2, 17, str.tostring(startCapital,"#") + " $ capital",
+         text_color=color.white, bgcolor=color.black, text_size=size.tiny)
 
 // -----------------------------------------------------------------------------
 //  ALERTE MAX DRAWDOWN

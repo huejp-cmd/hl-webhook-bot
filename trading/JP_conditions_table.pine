@@ -1,0 +1,303 @@
+//@version=5
+// =============================================================================
+//  JP - Tableau des Conditions d'Entrée (temps réel)
+//  Compatible JP v5.4 - 29M / 30M
+//
+//  Affiche un tableau avec toutes les conditions LONG et SHORT
+//  🟢 = condition satisfaite   🔴 = condition non satisfaite
+//  ⭐ = signal valide (toutes conditions remplies)
+//
+//  A ajouter comme indicateur séparé sur le même chart que JP v5.4
+// =============================================================================
+indicator("JP - Conditions d'Entrée", overlay=true)
+
+// -----------------------------------------------------------------------------
+//  PARAMETRES (doivent correspondre à JP v5.4)
+// -----------------------------------------------------------------------------
+adxLength  = input.int  (14,    "ADX Length",    group="Indicateurs")
+rsiLength  = input.int  (100,   "RSI Length",    group="Indicateurs")
+bbLength   = input.int  (20,    "BB Length",     group="Indicateurs")
+bbMult     = input.float(2.0,   "BB Mult",       group="Indicateurs")
+atrLength  = input.int  (14,    "ATR Length",    group="Indicateurs")
+vpK        = input.float(1.5,   "VP K",          group="Indicateurs")
+volFilter  = input.bool (true,  "Volume Filter", group="Indicateurs")
+tfMode     = input.string("OR", "Mode TF (AND/OR)", options=["AND","OR"], group="Multi-TF")
+tablePos   = input.string("bottom_right", "Position tableau",
+             options=["top_right","top_left","bottom_right","bottom_left","middle_right"], group="Affichage")
+
+// -----------------------------------------------------------------------------
+//  CALCULS (identiques à JP v5.4)
+// -----------------------------------------------------------------------------
+h = high
+l = low
+c = close
+
+// Hull MA
+hullMa(src, len) =>
+    wma1 = ta.wma(src, len / 2)
+    wma2 = ta.wma(src, len)
+    ta.wma(2 * wma1 - wma2, math.round(math.sqrt(len)))
+
+// Volume
+volumeUp = volume > ta.sma(volume, 20) * 1.2
+var array<float> volWin = array.new_float(0)
+array.push(volWin, volume)
+if array.size(volWin) > 100
+    array.shift(volWin)
+sortedV  = array.copy(volWin)
+array.sort(sortedV)
+idx25    = math.min(math.round((array.size(sortedV) - 1) * 0.25), array.size(sortedV) - 1)
+vol25pct = array.get(sortedV, idx25)
+curVol   = volume
+
+// ATR
+atr30 = ta.atr(atrLength)
+
+// RSI
+rsi30 = ta.rsi(c, rsiLength)
+
+// Hull MAs
+ma20_30 = hullMa(c, 20)
+ma50_30 = hullMa(c, 50)
+
+// VWAP / VAH / VAL
+var float cumPV = 0.0
+var float cumVol = 0.0
+if ta.change(time("D")) != 0
+    cumPV  := 0.0
+    cumVol := 0.0
+cumPV  += (h + l + c) / 3 * volume
+cumVol += volume
+vwap30 = cumPV / nz(cumVol, 1)
+vah30  = ta.highest(vwap30 + vpK * atr30, 24)
+val30  = ta.lowest (vwap30 - vpK * atr30, 24)
+
+// Bollinger
+basis30   = ta.sma(c, bbLength)
+dev30     = bbMult * ta.stdev(c, bbLength)
+upperBB30 = basis30 + dev30
+lowerBB30 = basis30 - dev30
+
+// ADX / DI
+up30      = math.max(ta.change(h), 0.0)
+dn30      = math.max(-ta.change(l), 0.0)
+pDM30     = (up30 > dn30 and up30 > 0.0) ? up30 : 0.0
+mDM30     = (dn30 > up30 and dn30 > 0.0) ? dn30 : 0.0
+trRaw30   = math.max(math.max(h - l, math.abs(h - nz(c[1], c))), math.abs(l - nz(c[1], c)))
+sTrur30   = ta.rma(trRaw30, adxLength)
+diplus30  = sTrur30 != 0 ? 100.0 * ta.rma(pDM30, adxLength) / sTrur30 : 0.0
+diminus30 = sTrur30 != 0 ? 100.0 * ta.rma(mDM30, adxLength) / sTrur30 : 0.0
+dx30      = (diplus30 + diminus30) != 0 ? 100.0 * math.abs(diplus30 - diminus30) / (diplus30 + diminus30) : 0.0
+adx30     = ta.rma(dx30, adxLength)
+
+// Régimes
+volHigh30    = atr30 > ta.sma(atr30, 20) * 1.5
+trending30   = adx30 > 25
+ranging30    = adx30 < 20 and h <= upperBB30 and l >= lowerBB30
+explosive30  = volHigh30 and (rsi30 > 75 or rsi30 < 25) and (not volFilter or volumeUp)
+isTrending30 = trending30  and not explosive30
+isRanging30  = ranging30   and not (trending30 or explosive30)
+isExplosive30 = explosive30 and not trending30
+
+// BTC 1H
+btcH1h = request.security("BINANCE:BTCUSDT", "60", high)
+btcL1h = request.security("BINANCE:BTCUSDT", "60", low)
+btcC1h = request.security("BINANCE:BTCUSDT", "60", close[1])
+btcR1h = (btcH1h - btcL1h) / btcC1h
+inRange30 = (adx30 < 20) and (curVol < vol25pct) and (btcR1h < 0.01)
+
+// Signaux 1H
+get1hSignals() =>
+    h_  = high
+    l_  = low
+    c_  = close
+    r_  = ta.rsi(close, rsiLength)
+    m20_ = hullMa(close, 20)
+    m50_ = hullMa(close, 50)
+    up_  = math.max(ta.change(h_), 0.0)
+    dn_  = math.max(-ta.change(l_), 0.0)
+    pDM_ = (up_ > dn_ and up_ > 0.0) ? up_ : 0.0
+    mDM_ = (dn_ > up_ and dn_ > 0.0) ? dn_ : 0.0
+    tr_  = math.max(math.max(h_-l_, math.abs(h_-nz(c_[1],c_))), math.abs(l_-nz(c_[1],c_)))
+    sT_  = ta.rma(tr_, adxLength)
+    dip_ = sT_ != 0 ? 100.0 * ta.rma(pDM_, adxLength) / sT_ : 0.0
+    dim_ = sT_ != 0 ? 100.0 * ta.rma(mDM_, adxLength) / sT_ : 0.0
+    dx_  = (dip_ + dim_) != 0 ? 100.0 * math.abs(dip_ - dim_) / (dip_ + dim_) : 0.0
+    adx_ = ta.rma(dx_, adxLength)
+    tr1h_ = adx_ > 25
+    bT_  = dip_ > dim_ and c_ > m50_
+    pb_L = l_ <= m20_ and c_ > m20_ and r_ > 40 and r_ < 65
+    bT2_ = dim_ > dip_ and c_ < m50_
+    pb_S = h_ >= m20_ and c_ < m20_ and r_ > 35 and r_ < 60
+    lLong_  = (tr1h_ and bT_ and pb_L)
+    lShort_ = (tr1h_ and bT2_ and pb_S)
+    [lLong_, lShort_, adx_, tr1h_]
+
+[entryLong1h, entryShort1h, adx1h, isTrending1h] =
+     request.security(syminfo.tickerid, "60", get1hSignals())
+
+// Conditions LONG (détaillées)
+bullTrend30  = diplus30 > diminus30 and c > ma50_30
+pbLong30     = l <= ma20_30 and c > ma20_30 and rsi30 > 40 and rsi30 < 65
+brkUp30      = c > vah30 and volHigh30 and (c - nz(c[1], c)) > atr30 * 0.8 and (not volFilter or volumeUp)
+entryLong30m = (isTrending30 and bullTrend30 and pbLong30) or (isExplosive30 and brkUp30)
+
+// Conditions SHORT (détaillées)
+bearTrend30  = diminus30 > diplus30 and c < ma50_30
+pbShort30    = h >= ma20_30 and c < ma20_30 and rsi30 > 35 and rsi30 < 60
+brkDown30    = c < val30 and volHigh30 and (c - nz(c[1], c)) < -atr30 * 0.8 and (not volFilter or volumeUp)
+entryShort30m = (isTrending30 and bearTrend30 and pbShort30) or (isExplosive30 and brkDown30)
+
+// Filtres finaux
+strongBull   = adx30 > 30 and diplus30  > diminus30 * 1.5
+strongBear   = adx30 > 30 and diminus30 > diplus30  * 1.5
+notInPos     = strategy.position_size == 0  // toujours true en indicateur
+
+triggerLong  = tfMode == "AND" ? (entryLong30m  and entryLong1h)  : (entryLong30m  or entryLong1h)
+triggerShort = tfMode == "AND" ? (entryShort30m and entryShort1h) : (entryShort30m or entryShort1h)
+
+validLong  = triggerLong  and not strongBear and not inRange30
+validShort = triggerShort and not strongBull  and not inRange30
+
+// -----------------------------------------------------------------------------
+//  FONCTIONS D'AFFICHAGE
+// -----------------------------------------------------------------------------
+dot(ok) => ok ? "● " : "○ "
+clr(ok) => ok ? color.new(color.lime, 0) : color.new(color.red, 30)
+
+// Régime actuel
+regimeTxt = isTrending30 ? "TREND" : (isExplosive30 ? "EXPLO" : (isRanging30 ? "RANGE" : "NEUTRE"))
+regimeCol = isTrending30 ? color.lime : (isExplosive30 ? color.orange : (isRanging30 ? color.yellow : color.gray))
+
+// Mode TF label
+modeTxt = tfMode + " | " + (entryLong30m or entryShort30m ? (entryLong1h or entryShort1h ? "29m✓ 1H✓" : "29m✓ 1H✗") : (entryLong1h or entryShort1h ? "29m✗ 1H✓" : "29m✗ 1H✗"))
+
+// Signal final
+sigLong  = validLong  ? "⭐ LONG"  : "—"
+sigShort = validShort ? "⭐ SHORT" : "—"
+sigCol   = validLong ? color.lime : (validShort ? color.red : color.gray)
+
+// -----------------------------------------------------------------------------
+//  TABLEAU
+// -----------------------------------------------------------------------------
+tPos = tablePos == "top_right"     ? position.top_right     :
+       tablePos == "top_left"      ? position.top_left      :
+       tablePos == "bottom_left"   ? position.bottom_left   :
+       tablePos == "middle_right"  ? position.middle_right  :
+       position.bottom_right
+
+var table tbl = table.new(tPos, 3, 16,
+     bgcolor        = color.new(color.black, 15),
+     border_color   = color.new(color.white, 60),
+     border_width   = 1,
+     frame_color    = color.new(color.white, 40),
+     frame_width    = 1)
+
+if barstate.islast
+
+    // --- Entête ---
+    table.cell(tbl, 0, 0, "CONDITION",   text_color=color.white,  bgcolor=color.new(color.navy,10), text_size=size.small)
+    table.cell(tbl, 1, 0, "▲ LONG",      text_color=color.lime,   bgcolor=color.new(color.navy,10), text_size=size.small)
+    table.cell(tbl, 2, 0, "▼ SHORT",     text_color=color.red,    bgcolor=color.new(color.navy,10), text_size=size.small)
+
+    // --- Régime ---
+    table.cell(tbl, 0, 1, "Régime 29M",  text_color=color.gray,   bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 1, 1, regimeTxt,     text_color=regimeCol,    bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 2, 1, regimeTxt,     text_color=regimeCol,    bgcolor=color.new(color.black,0), text_size=size.tiny)
+
+    // --- ADX ---
+    table.cell(tbl, 0, 2, "ADX > 25",    text_color=color.gray,   bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 1, 2, dot(trending30) + str.tostring(adx30, "#.#"),  text_color=clr(trending30),  bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 2, 2, dot(trending30) + str.tostring(adx30, "#.#"),  text_color=clr(trending30),  bgcolor=color.new(color.black,0), text_size=size.tiny)
+
+    // --- DI direction ---
+    table.cell(tbl, 0, 3, "DI direction",text_color=color.gray,   bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 1, 3, dot(diplus30 > diminus30)  + str.tostring(diplus30,  "#.#") + " vs " + str.tostring(diminus30, "#.#"),
+         text_color=clr(diplus30 > diminus30),  bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 2, 3, dot(diminus30 > diplus30)  + str.tostring(diminus30, "#.#") + " vs " + str.tostring(diplus30,  "#.#"),
+         text_color=clr(diminus30 > diplus30), bgcolor=color.new(color.black,0), text_size=size.tiny)
+
+    // --- Prix vs HMA50 ---
+    table.cell(tbl, 0, 4, "Prix / HMA50", text_color=color.gray,  bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 1, 4, dot(c > ma50_30) + (c > ma50_30 ? "Au-dessus" : "En-dessous"),
+         text_color=clr(c > ma50_30),  bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 2, 4, dot(c < ma50_30) + (c < ma50_30 ? "En-dessous" : "Au-dessus"),
+         text_color=clr(c < ma50_30), bgcolor=color.new(color.black,0), text_size=size.tiny)
+
+    // --- Pullback HMA20 ---
+    table.cell(tbl, 0, 5, "Pullback HMA20",text_color=color.gray, bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 1, 5, dot(pbLong30)  + (pbLong30  ? "OK" : "Non"),
+         text_color=clr(pbLong30),  bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 2, 5, dot(pbShort30) + (pbShort30 ? "OK" : "Non"),
+         text_color=clr(pbShort30), bgcolor=color.new(color.black,0), text_size=size.tiny)
+
+    // --- RSI ---
+    rsiLongOk  = rsi30 > 40 and rsi30 < 65
+    rsiShortOk = rsi30 > 35 and rsi30 < 60
+    table.cell(tbl, 0, 6, "RSI",          text_color=color.gray,  bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 1, 6, dot(rsiLongOk)  + str.tostring(rsi30, "#.#") + " (40-65)",
+         text_color=clr(rsiLongOk),  bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 2, 6, dot(rsiShortOk) + str.tostring(rsi30, "#.#") + " (35-60)",
+         text_color=clr(rsiShortOk), bgcolor=color.new(color.black,0), text_size=size.tiny)
+
+    // --- Volume ---
+    table.cell(tbl, 0, 7, "Volume",        text_color=color.gray, bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 1, 7, dot(not volFilter or volumeUp) + (volumeUp ? "Élevé" : "Normal"),
+         text_color=clr(not volFilter or volumeUp), bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 2, 7, dot(not volFilter or volumeUp) + (volumeUp ? "Élevé" : "Normal"),
+         text_color=clr(not volFilter or volumeUp), bgcolor=color.new(color.black,0), text_size=size.tiny)
+
+    // --- Signal 29M ---
+    table.cell(tbl, 0, 8, "Signal 29M",   text_color=color.gray,  bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 1, 8, dot(entryLong30m)  + (entryLong30m  ? "OK" : "Non"),
+         text_color=clr(entryLong30m),  bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 2, 8, dot(entryShort30m) + (entryShort30m ? "OK" : "Non"),
+         text_color=clr(entryShort30m), bgcolor=color.new(color.black,0), text_size=size.tiny)
+
+    // --- Confirmation 1H ---
+    table.cell(tbl, 0, 9, "Confirm. 1H",  text_color=color.gray,  bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 1, 9, dot(entryLong1h)  + (entryLong1h  ? "OK" : "Non") + " (ADX " + str.tostring(adx1h, "#.#") + ")",
+         text_color=clr(entryLong1h),  bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 2, 9, dot(entryShort1h) + (entryShort1h ? "OK" : "Non") + " (ADX " + str.tostring(adx1h, "#.#") + ")",
+         text_color=clr(entryShort1h), bgcolor=color.new(color.black,0), text_size=size.tiny)
+
+    // --- Filtre inRange ---
+    table.cell(tbl, 0, 10, "Filtre Range", text_color=color.gray, bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 1, 10, dot(not inRange30) + (inRange30 ? "BLOQUÉ" : "Libre"),
+         text_color=clr(not inRange30), bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 2, 10, dot(not inRange30) + (inRange30 ? "BLOQUÉ" : "Libre"),
+         text_color=clr(not inRange30), bgcolor=color.new(color.black,0), text_size=size.tiny)
+
+    // --- Filtre strongBull/Bear ---
+    table.cell(tbl, 0, 11, "Anti-fort",    text_color=color.gray, bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 1, 11, dot(not strongBear) + (strongBear ? "BLOQUÉ Bear" : "OK"),
+         text_color=clr(not strongBear), bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 2, 11, dot(not strongBull) + (strongBull ? "BLOQUÉ Bull" : "OK"),
+         text_color=clr(not strongBull), bgcolor=color.new(color.black,0), text_size=size.tiny)
+
+    // --- Séparateur ---
+    table.cell(tbl, 0, 12, "─────────────", text_color=color.new(color.gray,50), bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 1, 12, "─────────",     text_color=color.new(color.gray,50), bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 2, 12, "─────────",     text_color=color.new(color.gray,50), bgcolor=color.new(color.black,0), text_size=size.tiny)
+
+    // --- Mode TF ---
+    table.cell(tbl, 0, 13, "Mode " + tfMode,  text_color=color.aqua, bgcolor=color.new(color.navy,30), text_size=size.tiny)
+    table.cell(tbl, 1, 13, "29M " + (entryLong30m  ? "✓" : "✗") + " | 1H " + (entryLong1h  ? "✓" : "✗"),
+         text_color=color.white, bgcolor=color.new(color.navy,30), text_size=size.tiny)
+    table.cell(tbl, 2, 13, "29M " + (entryShort30m ? "✓" : "✗") + " | 1H " + (entryShort1h ? "✓" : "✗"),
+         text_color=color.white, bgcolor=color.new(color.navy,30), text_size=size.tiny)
+
+    // --- Signal final ---
+    finalBg = validLong ? color.new(color.green,20) : (validShort ? color.new(color.red,20) : color.new(color.gray,40))
+    table.cell(tbl, 0, 14, "★ SIGNAL",     text_color=color.white, bgcolor=finalBg, text_size=size.small)
+    table.cell(tbl, 1, 14, validLong  ? "⭐ ENTRÉE"  : "─",
+         text_color=validLong  ? color.lime : color.gray, bgcolor=finalBg, text_size=size.small)
+    table.cell(tbl, 2, 14, validShort ? "⭐ ENTRÉE" : "─",
+         text_color=validShort ? color.red  : color.gray, bgcolor=finalBg, text_size=size.small)
+
+    // --- Valeurs clés ---
+    table.cell(tbl, 0, 15, "ATR / RSI",   text_color=color.gray,  bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 1, 15, "ATR " + str.tostring(atr30, "#.###") + " | RSI " + str.tostring(rsi30, "#.#"),
+         text_color=color.white, bgcolor=color.new(color.black,0), text_size=size.tiny)
+    table.cell(tbl, 2, 15, "HMA20 " + str.tostring(ma20_30, "#.##") + " | HMA50 " + str.tostring(ma50_30, "#.##"),
+         text_color=color.white, bgcolor=color.new(color.black,0), text_size=size.tiny)

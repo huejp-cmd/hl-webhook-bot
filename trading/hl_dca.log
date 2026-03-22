@@ -1,0 +1,58 @@
+2026-03-20 15:38:05 [INFO] HL DCA Bot démarré — EMA/RSI/MACD + DCA
+ * Serving Flask app 'hl_dca_bot'
+ * Debug mode: off
+2026-03-20 15:38:05 [INFO] [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8081
+ * Running on http://192.168.2.241:8081
+2026-03-20 15:38:05 [INFO] [33mPress CTRL+C to quit[0m
+2026-03-20 15:38:06 [ERROR] [SOL] Erreur cycle : 404 Client Error: Not Found for url: https://api.hyperliquid.xyz/
+2026-03-20 15:38:06 [ERROR] [ETH] Erreur cycle : 404 Client Error: Not Found for url: https://api.hyperliquid.xyz/
+2026-03-20 15:38:06 [INFO] Cycle terminé — prochain dans 60s
+2026-03-20 15:38:07 [INFO] 127.0.0.1 - - [20/Mar/2026 15:38:07] "GET /status HTTP/1.1" 200 -
+2026-03-20 15:38:38 [INFO] HL DCA Bot démarré — EMA/RSI/MACD + DCA
+ * Serving Flask app 'hl_dca_bot'
+ * Debug mode: off
+2026-03-20 15:38:38 [INFO] [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8081
+ * Running on http://192.168.2.241:8081
+2026-03-20 15:38:38 [INFO] [33mPress CTRL+C to quit[0m
+2026-03-20 15:38:40 [INFO] [SOL] Prix=88.2515 RSI=38.1 EMA50=89.5384 | LONG=False SHORT=False
+2026-03-20 15:38:40 [INFO] [ETH] Prix=2116.9500 RSI=37.4 EMA50=2162.5151 | LONG=False SHORT=True
+2026-03-20 15:38:41 [INFO] [ETH] Levier 5x ISOLATED configuré
+2026-03-20 15:38:43 [INFO] [ETH] Ordre sell 0.0 — {'status': 'ok', 'response': {'type': 'order', 'data': {'statuses': [{'error': 'Order has invalid price.'}]}}}
+2026-03-20 15:38:43 [INFO] [ETH] SHORT ouvert @ 2116.95 qty=0.0
+2026-03-20 15:38:43 [INFO] Cycle terminé — prochain dans 60s
+2026-03-20 15:38:54 [INFO] 127.0.0.1 - - [20/Mar/2026 15:38:54] "GET /status HTTP/1.1" 200 -
+2026-03-20 15:40:12 [INFO] HL DCA Bot démarré — EMA/RSI/MACD + DCA
+ * Serving Flask app 'hl_dca_bot'
+ * Debug mode: off
+2026-03-20 15:40:12 [INFO] [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8081
+ * Running on http://192.168.2.241:8081
+2026-03-20 15:40:12 [INFO] [33mPress CTRL+C to quit[0m
+2026-03-20 15:40:12 [INFO] [SOL] Prix=88.3895 RSI=39.6 EMA50=89.5436 | LONG=False SHORT=False
+2026-03-20 15:40:13 [INFO] [ETH] Prix=2118.9500 RSI=38.0 EMA50=2162.5856 | LONG=False SHORT=True
+2026-03-20 15:40:14 [INFO] [ETH] Levier 5x ISOLATED configuré
+2026-03-20 15:40:16 [INFO] [ETH] Ordre sell 0.0483 — {'status': 'ok', 'response': {'type': 'order', 'data': {'statuses': [{'error': 'Order has invalid price.'}]}}}
+2026-03-20 15:40:16 [INFO] [ETH] SHORT ouvert @ 2118.95 qty=0.0483
+2026-03-20 15:40:16 [INFO] Cycle terminé — prochain dans 60s
+2026-03-20 15:41:17 [INFO] [SOL] Prix=88.5015 RSI=41.0 EMA50=89.5481 | LONG=False SHORT=False
+2026-03-20 15:41:18 [INFO] [ETH] Prix=2122.1500 RSI=39.3 EMA50=2162.7151 | LONG=False SHORT=True
+2026-03-20 15:41:18 [INFO] Cycle terminé — prochain dans 60s
+2026-03-20 15:41:27 [INFO] HL DCA Bot démarré — EMA/RSI/MACD + DCA
+ * Serving Flask app 'hl_dca_bot'
+ * Debug mode: off
+2026-03-20 15:41:27 [INFO] [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8081
+ * Running on http://192.168.2.241:8081
+2026-03-20 15:41:27 [INFO] [33mPress CTRL+C to quit[0m
+2026-03-20 15:41:28 [INFO] [SOL] Prix=88.4635 RSI=40.6 EMA50=89.5469 | LONG=False SHORT=False
+2026-03-20 15:41:28 [INFO] [ETH] Prix=2121.6500 RSI=39.1 EMA50=2162.6955 | LONG=False SHORT=True
+2026-03-20 15:41:29 [INFO] [ETH] Levier 5x ISOLATED configuré
+2026-03-20 15:41:31 [INFO] [ETH] Ordre sell 0.0482 @ 2100.4 — {'status': 'ok', 'response': {'type': 'order', 'data': {'statuses': [{'filled': {'totalSz': '0.0482', 'avgPx': '2121.6', 'oid': 355939978266}}]}}}
+2026-03-20 15:41:31 [INFO] [ETH] SHORT ouvert @ 2121.65 qty=0.0482
+2026-03-20 15:41:31 [INFO] Cycle terminé — prochain dans 60s
