@@ -83,7 +83,7 @@ TP_LIMIT_TIMEOUT = 30
 # =============================================================================
 # Laisser vide = utilise le capital du signal Pine (recommande pour v5.4)
 # Forcer : {"SOL": 600.0, "ETH": 400.0}
-FORCED_CAPITAL_PER_SYMBOL = {}
+FORCED_CAPITAL_PER_SYMBOL = {"SOL": 600.0, "ETH": 400.0}
 
 DEFAULT_RISK_PCT = 0.02
 DEFAULT_LEV      = 2
@@ -442,16 +442,21 @@ def place_order(signal: dict) -> dict:
         capital = get_account_value()
         log.info(f"  Capital (compte) : {capital:.2f} USDC")
 
-    # -- Quantite (v5.3 : risk-based, comme le backtest TradingView) --
-    # qty = (capital × risk_pct × levier) / prix → risque fixe 2% du capital
-    risk_amt      = capital * risk_pct
-    qty_from_risk = (risk_amt * lev) / entry_px
-    qty_cap_expo  = (capital * lev) / entry_px
-    qty_raw       = min(qty_from_risk, qty_cap_expo)
-    qty           = round_qty(qty_raw, coin)
-
-    log.info(f"  Risque  : {risk_amt:.2f} USDC ({risk_pct*100:.0f}%)  "
-             f"Quantite : {qty} {coin}  (cap notionnel : {round(qty_cap_expo, 4)})")
+    # -- Quantite (v5.4 : utilise la qty calculée par Pine Script si disponible) --
+    if "qty" in signal and float(signal["qty"]) > 0:
+        qty = round_qty(float(signal["qty"]), coin)
+        risk_amt = capital * risk_pct
+        log.info(f"  Quantite (Pine)  : {qty} {coin}  "
+                 f"(capital={capital:.2f} USDC, risk={risk_amt:.2f} USDC)")
+    else:
+        # Fallback : calcul risk-based
+        risk_amt      = capital * risk_pct
+        qty_from_risk = (risk_amt * lev) / entry_px
+        qty_cap_expo  = (capital * lev) / entry_px
+        qty_raw       = min(qty_from_risk, qty_cap_expo)
+        qty           = round_qty(qty_raw, coin)
+        log.info(f"  Quantite (calc)  : {qty} {coin}  "
+                 f"(risk={risk_amt:.2f} USDC, notionnel={round(qty_cap_expo*entry_px,2)})")
 
     if qty <= 0:
         msg = f"Quantite nulle pour {coin} -- ordre annule"
