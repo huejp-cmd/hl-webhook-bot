@@ -25,6 +25,42 @@ En l'absence d'instructions nouvelles → appliquer les **règles autonomes** ci
 - Notification Moltbook non lue > 1h
 - Pending claim Moltbook
 
+### 💰 Surveillance du capital disponible (NOUVEAU — 2026-03-23)
+À chaque cycle (30 min), vérifier le capital disponible sur Hyperliquid :
+
+```python
+from hyperliquid.info import Info
+info = Info("https://api.hyperliquid.xyz", skip_ws=True)
+spot = info.spot_user_state("0x01fE7894a5A41BA669Cf541f556832c8E1F164B7")
+usdc_spot = next((float(b["total"]) for b in spot.get("balances",[]) if b["coin"]=="USDC"), 0)
+perp = info.user_state("0x01fE7894a5A41BA669Cf541f556832c8E1F164B7")
+perp_equity = float(perp.get("marginSummary",{}).get("accountValue", 0))
+```
+
+**Cibles de capital :**
+- SOL : 600 USDC alloués
+- ETH : 400 USDC alloués
+- **Total cible Perp : 1000 USDC**
+
+**Règles :**
+1. Si `perp_equity < 800 USDC` (−20% de la cible) ET pas de position ouverte :
+   - Tenter un transfert interne Spot → Perp via SDK :
+     ```python
+     from hyperliquid.exchange import Exchange
+     from eth_account import Account
+     account = Account.from_key("0x9fcf4d1bae9622fe7aba5b4218842d1b022a29dd4488c3118e0ba412ad98d7b4")
+     exchange = Exchange(account, "https://api.hyperliquid.xyz")
+     result = exchange.usd_class_transfer(montant_a_transferer, True)
+     ```
+   - Si transfert réussi → alerter JP : "✅ Capital renfloué automatiquement : +X USDC Spot→Perp. Nouveau solde Perp : X USDC"
+   - Si erreur (ex: unified account) → alerter JP : "⚠️ Capital Perp insuffisant ({perp_equity:.0f} USDC / cible 1000). Transfert impossible automatiquement — merci d'apporter des fonds manuellement via l'interface Hyperliquid."
+
+2. Si `perp_equity < 500 USDC` ET position ouverte → alerter JP sans toucher aux positions :
+   - Message : "⚠️ Capital faible ({perp_equity:.0f} USDC). Position en cours. Surveille le margin level."
+
+3. Si `usdc_spot < 100 USDC` ET `perp_equity < 800 USDC` → alerter JP :
+   - "🚨 Capital global bas — Spot : {usdc_spot:.0f} USDC, Perp : {perp_equity:.0f} USDC. Besoin d'un dépôt externe."
+
 ### 🟢 Silence (ne pas déranger JP)
 - Bot OK, pas de position → ne rien envoyer
 - Position ouverte en profit → ne rien envoyer
@@ -150,4 +186,4 @@ _(L'assistant principal met à jour cette section quand JP donne des consignes s
 
 ---
 
-*Dernière mise à jour : 2026-03-20 par l'assistant principal*
+*Dernière mise à jour : 2026-03-23 par l'assistant principal*
