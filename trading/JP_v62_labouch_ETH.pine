@@ -107,7 +107,7 @@ maxNotional = volSma20 * close * (liqPct / 100)
 
 var array<int> seq       = array.from(1, 1, 1, 1)
 var float cum_loss_units = 0.0
-var float prev_netprofit = 0.0
+var int   prev_closed    = 0
 var float daily_start_eq = strategy.equity
 var int   last_day       = dayofmonth
 var int   last_month     = month
@@ -434,12 +434,11 @@ if entryShort
     entryPx := rClose
     entrySd := "sell"
 
-prevPos = strategy.position_size[1]
-currPos = strategy.position_size
-
-if prevPos != 0.0 and currPos == 0.0
-    // ?? Mise a jour sequence Labouchere ??????????????????????????
-    isWin = strategy.netprofit > prev_netprofit
+if strategy.closedtrades > prev_closed
+    // Mise a jour sequence Labouchere (detecte via closedtrades)
+    last_pnl = strategy.netprofit - nz(strategy.netprofit[1], 0)
+    isWin = last_pnl > 0
+    prev_closed := strategy.closedtrades
     if isWin
         // Win inverse : on append le bet
         array.push(seq, entry_bet_int)
@@ -464,7 +463,6 @@ if prevPos != 0.0 and currPos == 0.0
             array.push(seq, 1)
             array.push(seq, 1)
             cum_loss_units := 0.0
-    prev_netprofit := strategy.netprofit
 
     // ?? Alerte close ?????????????????????????????????????????????
     if not na(entryPx) and not testMode
