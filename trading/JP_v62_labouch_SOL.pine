@@ -1,0 +1,686 @@
+//@version=5
+//
+//  JP v6.2 Labouchère — SOL 29M
+//  Stratégie v6.2 avec système Labouchère INVERSÉ intégré
+//  Capital de départ : 500 USDC | Coin : SOL | Timeframe : 29M
+//
+//  LABOUCHERE INVERSÉ :
+//    - Séquence init [1,1,1,1]
+//    - Bet = premier + dernier
+//    - Win  → append bet à la séquence (séquence grandit)
+//    - Loss → retire premier + dernier (séquence rétrécit → reset si vide)
+//    - Séquence vide → reset [1,1,1,1]
+//    - Reset mensuel le 1er du mois
+//    - Stop journalier si DD > STOP_LOSS_DAY%
+//
+//  ⚠️  CHARGER SUR UN CHART BYBIT : BYBIT:SOLUSDT 29M
+//
+
+strategy("JP v6.2 Labouchère — SOL 29M",
+ overlay=true,
+ default_qty_type=strategy.fixed,
+ commission_type=strategy.commission.percent,
+ commission_value=0.07,
+ pyramiding=3,
+ initial_capital=500,
+ calc_on_every_tick=false)
+
+// ═══════════════════════════════════════════════════════════════
+//  INPUTS
+// ═══════════════════════════════════════════════════════════════
+
+// ── Mode test ────────────────────────────────────────────────────
+g_test   = "⚙️ Mode"
+testMode = input.bool(false, "🧪 MODE TEST — désactive les alertes webhook", group=g_test,
+           tooltip="TRUE = DRY RUN Pine Script, aucun signal envoyé au bot.")
+
+// ── Coin cible ───────────────────────────────────────────────────
+g_hl     = "Hyperliquid"
+hlCoin   = input.string("SOL", "Coin cible HL", options=["SOL","ETH","BTC","ARB","OP","AVAX"], group=g_hl,
+           tooltip="Symbole envoyé au bot Hyperliquid dans le webhook.")
+whSymbol = hlCoin + "USDT.P"
+
+// ── Labouchère ───────────────────────────────────────────────────
+g_lab            = "🎯 Labouchère"
+unitFactor       = input.float(0.5,   "Facteur unité (% capital/unité)", group=g_lab, step=0.1, minval=0.1,
+                   tooltip="Chaque unité = X% du capital. 0.5 = 0.5%/unité.")
+leverageLabMult  = input.float(2.0,   "Levier Labouchère", group=g_lab, step=0.5, minval=1.0,
+                   tooltip="Levier appliqué au sizing Labouchère.")
+capMultLab       = input.float(4.0,   "Plafond (× pertes cumulées)", group=g_lab, step=0.5, minval=1.0,
+                   tooltip="bet_units ≤ max(CAP_MULT × cumul_pertes, 2). Sécurité anti-emballement.")
+startCapitalLab  = input.float(500.0, "Capital départ USDC", group=g_lab, step=100, minval=100,
+                   tooltip="Capital de référence pour calculer les tailles de position Labouchère.")
+stopLossDayPct   = input.float(15.0,  "Stop perte journalière (%)", group=g_lab, step=1.0, minval=1.0,
+                   tooltip="Si equity baisse de X% dans la journée → pause jusqu'au lendemain.")
+
+// ── DCA ──────────────────────────────────────────────────────────
+g_dca      = "DCA"
+dcaEnabled = input.bool(true,  "Activer DCA",           group=g_dca)
+maxDCA     = input.int(2,      "Niveaux DCA max (1-3)", group=g_dca, minval=1, maxval=3)
+dcaDist    = input.float(2.0,  "Distance DCA (%)",      group=g_dca, step=0.5) / 100
+dcaQtyMult = input.float(1.0,  "Multiplicateur qty DCA",group=g_dca, step=0.1,
+             tooltip="1.0 = même taille que l'entrée initiale.")
+
+// ── Paramètres stratégie ─────────────────────────────────────────
+useFixedRange  = input.bool(false, "Plage Fixe (sinon 1xATR)")
+fixedRangeSize = input.float(1.2,  "Plage Fixe ($)", step=0.1, minval=0.1)
+atrLength      = input.int(10,     "ATR Length")
+adxLength      = input.int(14,     "ADX Length")
+bbLength       = input.int(20,     "BB Length")
+bbMult         = input.float(2.0,  "BB Mult")
+rsiLength      = input.int(100,    "RSI Length")
+volFilter      = input.bool(true,  "Volume Filter")
+volMult        = input.float(1.4,  "Volume Threshold (x SMA)", step=0.1)
+riskPerc       = input.float(2.0,  "Risk per trade (%)", step=0.1) / 100
+maxDD          = input.float(13.0, "Max Drawdown Alert (%)") / 100
+vpK            = input.float(0.75, "VAH/VAL offset (xATR)", step=0.05)
+showStats      = input.bool(true,  "Afficher tableau perfs")
+showParams     = input.bool(true,  "Afficher tableau paramètres")
+showLabTable   = input.bool(true,  "Afficher tableau Labouchère")
+leverage       = input.float(2.0,  "Leverage (référence calcul SL)", minval=1.0, step=0.5)
+startCapital   = input.float(400.0,"Capital alloué $ (tester perfs)", minval=100, step=100)
+slCapPct       = input.float(5.0,  "SL max (% du capital)", minval=1.0, maxval=20.0, step=0.5) / 100
+
+// ── Exécution ────────────────────────────────────────────────────
+g_exec       = "Exécution"
+tpSlippage   = input.float(0.10, "Buffer slippage TP (%)", group=g_exec, step=0.01)
+
+g_cap        = "Capital"
+useCompound  = input.bool(false,   "Mode Compound (réinvestir les gains)", group=g_cap)
+maxCapital   = input.float(5000.0, "Plafond capital trading (USDC)",       group=g_cap, step=500)
+useLiqFilter = input.bool(true,   "Filtre liquidité (volume marché)",       group=g_cap)
+liqPct       = input.float(2.0,   "Max % du volume 20 bar par trade",       group=g_cap, step=0.5)
+
+// Capital de référence SL/TP (compound optionnel, plafonné)
+rawCapital  = useCompound
+     ? math.max(strategy.initial_capital + strategy.netprofit, startCapital * 0.5)
+     : startCapital
+stepCapital = math.min(rawCapital, maxCapital)
+
+// Filtre liquidité
+volSma20    = ta.sma(volume, 20)
+maxNotional = volSma20 * close * (liqPct / 100)
+
+// ═══════════════════════════════════════════════════════════════
+//  ÉTAT LABOUCHÈRE
+// ═══════════════════════════════════════════════════════════════
+
+var array<int> seq       = array.from(1, 1, 1, 1)
+var float cum_loss_units = 0.0
+var float prev_netprofit = 0.0
+var float daily_start_eq = strategy.equity
+var int   last_day       = dayofmonth
+var int   last_month     = month
+var int   entry_bet_int  = 2        // bet_units au moment de l'entrée
+
+// ── Reset mensuel (1er du mois) ──────────────────────────────────
+if month != last_month
+    last_month := month
+    if dayofmonth == 1
+        array.clear(seq)
+        array.push(seq, 1)
+        array.push(seq, 1)
+        array.push(seq, 1)
+        array.push(seq, 1)
+        cum_loss_units := 0.0
+
+// ── Tracker équité journalière (reset à minuit UTC) ──────────────
+if dayofmonth != last_day
+    daily_start_eq := strategy.equity
+    last_day       := dayofmonth
+
+// ── Stop journalier ──────────────────────────────────────────────
+dailyStop = strategy.equity < daily_start_eq * (1.0 - stopLossDayPct / 100.0)
+
+// ── Calcul bet_units courant (avec plafond) ──────────────────────
+seqSz   = array.size(seq)
+raw_bet = seqSz >= 2 ? array.get(seq, 0) + array.get(seq, seqSz - 1)
+        : seqSz == 1 ? array.get(seq, 0) * 2
+        : 2
+cap_units = math.max(capMultLab * cum_loss_units, 2.0)
+bet_units = math.min(float(raw_bet), cap_units)
+
+// ── Quantité Labouchère (remplace qty fixe de la stratégie base) ─
+mult_lab    = math.max(bet_units * unitFactor * leverageLabMult, 0.5)
+qty_labouch = (startCapitalLab * mult_lab / 100.0) / close
+qty_labouch := math.max(qty_labouch, startCapitalLab * 0.0005 / close)
+
+// ═══════════════════════════════════════════════════════════════
+//  FONCTIONS
+// ═══════════════════════════════════════════════════════════════
+
+hullMa(src, length) =>
+    n2      = math.floor(length / 2)
+    sqrtLen = math.floor(math.sqrt(length))
+    wma1    = ta.wma(src, n2)
+    wma2    = ta.wma(src, length)
+    ta.wma(2 * wma1 - wma2, sqrtLen)
+
+// ═══════════════════════════════════════════════════════════════
+//  CALCULS PRINCIPAUX
+// ═══════════════════════════════════════════════════════════════
+
+// ATR
+atr = ta.atr(atrLength)
+
+// Range Bars
+rSize = useFixedRange ? fixedRangeSize : atr
+
+var float rOpen  = na
+var float rHigh  = na
+var float rLow   = na
+var float rClose = na
+
+newBar = na(rOpen) or math.abs(close - rOpen) >= rSize
+
+if newBar
+    rOpen  := nz(close[1], open)
+    rHigh  := nz(close[1], open)
+    rLow   := nz(close[1], open)
+    rClose := close
+else
+    rClose := close
+    rHigh  := math.max(rHigh, close)
+    rLow   := math.min(rLow, close)
+
+// RSI / Volume
+rsi    = ta.rsi(close, rsiLength)
+volSma = ta.sma(volume, 20)
+volUp  = volume > volSma * volMult
+
+// HMA
+ma20 = hullMa(close, 20)
+ma50 = hullMa(close, 50)
+
+// VWAP / VAH / VAL
+cumVol = ta.cum(volume)
+cumPV  = ta.cum(((high + low + close) / 3) * volume)
+vwap_  = cumPV / nz(cumVol, 1)
+vah    = ta.highest(vwap_ + vpK * atr, 24)
+val    = ta.lowest( vwap_ - vpK * atr, 24)
+poc    = vwap_
+
+// DMI / ADX
+[diplus, diminus, adx] = ta.dmi(adxLength, adxLength)
+
+// Volatilité / InRange
+var float[] volWin = array.new_float()
+curVol = ta.stdev(math.log(high / low), 100)
+array.push(volWin, curVol)
+if array.size(volWin) > 100
+    array.shift(volWin)
+sorted = array.copy(volWin)
+array.sort(sorted, order.ascending)
+idx25  = math.round((array.size(sorted) - 1) * 0.25)
+vol25  = array.get(sorted, math.min(idx25, array.size(sorted) - 1))
+
+btcH   = request.security("BINANCE:BTCUSDT", "60", high)
+btcL   = request.security("BINANCE:BTCUSDT", "60", low)
+btcC   = request.security("BINANCE:BTCUSDT", "60", close[1])
+btcRng = (btcH - btcL) / nz(btcC, 1)
+
+inRng = adx < 20 and curVol < vol25 and btcRng < 0.01
+
+// Régimes
+basis     = ta.sma(close, bbLength)
+dev       = bbMult * ta.stdev(close, bbLength)
+upperBB   = basis + dev
+lowerBB   = basis - dev
+volHigh   = atr > ta.sma(atr, 20) * 1.5
+explosive = volHigh and (rsi > 75 or rsi < 25) and (not volFilter or volUp)
+isTrending  = adx > 25 and not explosive
+isRanging   = adx < 20 and rHigh <= upperBB and rLow >= lowerBB and not (adx > 25 or explosive)
+isExplosive = explosive and not (adx > 25 or isRanging)
+
+// Conditions d'entrée
+bullTrend    = diplus > diminus and rClose > ma50
+pullbackLong = rLow <= ma20 and rClose > ma20 and rsi > 40 and rsi < 65
+entryLT      = isTrending  and bullTrend and pullbackLong
+breakoutUp   = rClose > vah and volHigh and (rClose - nz(rClose[1], rClose)) > atr * 0.8 and (not volFilter or volUp)
+entryLE      = isExplosive and breakoutUp
+
+bearTrend     = diminus > diplus and rClose < ma50
+pullbackShort = rHigh >= ma20 and rClose < ma20 and rsi > 35 and rsi < 60
+entryST       = isTrending  and bearTrend and pullbackShort
+breakoutDown  = rClose < val and volHigh and (rClose - nz(rClose[1], rClose)) < -atr * 0.8 and (not volFilter or volUp)
+entrySE       = isExplosive and breakoutDown
+
+strongBull = adx > 30 and diplus  > diminus * 1.5
+strongBear = adx > 30 and diminus > diplus  * 1.5
+validL     = not strongBear
+validS     = not strongBull
+
+// SL / TP (sizing SL/TP conserve la logique originale — qty remplacé par Labouchère)
+calcQty(ep, sp) =>
+    dist = math.abs(ep - sp)
+    dist := dist == 0 ? 1e-12 : dist
+    (stepCapital * riskPerc) / dist
+
+capQty_(qty_raw, ep, sp) =>
+    dist = math.abs(ep - sp)
+    dist := dist == 0 ? 1e-12 : dist
+    capNormal = math.min(qty_raw, math.min((stepCapital * leverage) / ep, (stepCapital * slCapPct) / dist))
+    capLiq    = useLiqFilter ? maxNotional / ep : capNormal
+    math.min(capNormal, capLiq)
+
+// Long SL/TP
+slBaseL = isRanging ? val * 0.995 : ta.lowest(rLow, 15) * 0.995
+slL     = math.max(slBaseL, rClose * 0.980)
+tpMultL = isTrending ? 4.0 : (isRanging ? 2.5 : 3.3)
+tpL     = (rClose + (rClose - slL) * tpMultL) * (1 + tpSlippage / 100)
+rawQtyL = math.max(calcQty(rClose, slL) * leverage, stepCapital * 0.001)
+// Note: on utilise qty_labouch à la place de capQty_(rawQtyL, ...) pour les entrées
+
+// Short SL/TP
+slBaseS = isRanging ? vah * 1.005 : ta.highest(rHigh, 15) * 1.005
+slS     = math.min(slBaseS, rClose * 1.020)
+tpMultS = isTrending ? 4.0 : (isRanging ? 2.5 : 3.3)
+tpS     = (rClose - (slS - rClose) * tpMultS) * (1 - tpSlippage / 100)
+rawQtyS = math.max(calcQty(rClose, slS) * leverage, stepCapital * 0.001)
+
+regStr = isTrending ? "trend" : (isRanging ? "range" : "explosive")
+
+// ═══════════════════════════════════════════════════════════════
+//  DCA TRACKING
+// ═══════════════════════════════════════════════════════════════
+
+var int   dcaCountL  = 0
+var int   dcaCountS  = 0
+var float lastDcaPxL = na
+var float lastDcaPxS = na
+var float entrySlL   = na
+var float entryTpL   = na
+var float entrySlS   = na
+var float entryTpS   = na
+
+if strategy.position_size == 0
+    dcaCountL  := 0
+    dcaCountS  := 0
+    lastDcaPxL := na
+    lastDcaPxS := na
+
+inLong     = strategy.position_size > 0
+inShort    = strategy.position_size < 0
+dcaLongOk  = dcaEnabled and inLong  and dcaCountL < maxDCA and
+             not na(lastDcaPxL) and close < lastDcaPxL * (1 - dcaDist) and
+             not ((entryLT or entryLE) and validL)
+dcaShortOk = dcaEnabled and inShort and dcaCountS < maxDCA and
+             not na(lastDcaPxS) and close > lastDcaPxS * (1 + dcaDist) and
+             not ((entryST or entrySE) and validS)
+
+// ═══════════════════════════════════════════════════════════════
+//  STRATÉGIE ENTRÉES (qty_labouch remplace qty fixe)
+// ═══════════════════════════════════════════════════════════════
+
+// ── LONG ─────────────────────────────────────────────────────────
+entryLong = (entryLT or entryLE) and validL and not inRng and not dailyStop
+if entryLong
+    strategy.cancel_all()
+    trailPtsL  = rClose - slL
+    entrySlL  := slL
+    entryTpL  := tpL
+    dcaCountL := 0
+    lastDcaPxL:= rClose
+    entry_bet_int := int(math.round(bet_units))
+    strategy.entry("Long", strategy.long, qty=qty_labouch)
+    if trailPtsL > 0
+        strategy.exit("Exit Long", from_entry="Long", stop=slL, limit=tpL,
+             trail_points=trailPtsL, trail_offset=atr * 1.6)
+    else
+        strategy.exit("Exit Long", from_entry="Long", stop=slL, limit=tpL)
+    if not testMode
+        alert(
+         '{"action":"open","side":"buy","symbol":"' + whSymbol + '"'
+         + ',"regime":"'    + regStr + '"'
+         + ',"price":'      + str.tostring(math.round(rClose, 4))
+         + ',"sl":'         + str.tostring(math.round(slL,    4))
+         + ',"tp":'         + str.tostring(math.round(tpL,    4))
+         + ',"qty":'        + str.tostring(math.round(qty_labouch, 4))
+         + ',"leverage":'   + str.tostring(int(leverageLabMult))
+         + ',"capital":'    + str.tostring(startCapitalLab)
+         + ',"bet_units":'  + str.tostring(int(math.round(bet_units)))
+         + ',"mult_lab":'   + str.tostring(math.round(mult_lab, 2))
+         + '}',
+         testMode ? alert.freq_none : alert.freq_once_per_bar_close)
+
+// ── SHORT ────────────────────────────────────────────────────────
+entryShort = (entryST or entrySE) and validS and not inRng and not dailyStop
+if entryShort
+    strategy.cancel_all()
+    trailPtsS  = slS - rClose
+    entrySlS  := slS
+    entryTpS  := tpS
+    dcaCountS := 0
+    lastDcaPxS:= rClose
+    entry_bet_int := int(math.round(bet_units))
+    strategy.entry("Short", strategy.short, qty=qty_labouch)
+    if trailPtsS > 0
+        strategy.exit("Exit Short", from_entry="Short", stop=slS, limit=tpS,
+             trail_points=trailPtsS, trail_offset=atr * 1.6)
+    else
+        strategy.exit("Exit Short", from_entry="Short", stop=slS, limit=tpS)
+    if not testMode
+        alert(
+         '{"action":"open","side":"sell","symbol":"' + whSymbol + '"'
+         + ',"regime":"'    + regStr + '"'
+         + ',"price":'      + str.tostring(math.round(rClose, 4))
+         + ',"sl":'         + str.tostring(math.round(slS,    4))
+         + ',"tp":'         + str.tostring(math.round(tpS,    4))
+         + ',"qty":'        + str.tostring(math.round(qty_labouch, 4))
+         + ',"leverage":'   + str.tostring(int(leverageLabMult))
+         + ',"capital":'    + str.tostring(startCapitalLab)
+         + ',"bet_units":'  + str.tostring(int(math.round(bet_units)))
+         + ',"mult_lab":'   + str.tostring(math.round(mult_lab, 2))
+         + '}',
+         testMode ? alert.freq_none : alert.freq_once_per_bar_close)
+
+// ── DCA LONG ─────────────────────────────────────────────────────
+var float dcaQtyL = na
+if dcaLongOk
+    dcaQtyL    := qty_labouch * math.pow(dcaQtyMult, dcaCountL + 1)
+    dcaCountL  := dcaCountL + 1
+    lastDcaPxL := rClose
+    strategy.entry("DCA_L" + str.tostring(dcaCountL), strategy.long, qty=dcaQtyL)
+    newAvg = strategy.position_avg_price
+    newSl  = entrySlL
+    newTp  = newAvg + (newAvg - newSl) * (isTrending ? 4.0 : 3.0)
+    strategy.exit("Exit Long", stop=newSl, limit=newTp)
+    if not testMode
+        alert(
+         '{"action":"dca","side":"buy","symbol":"' + whSymbol + '"'
+         + ',"price":'       + str.tostring(math.round(rClose, 4))
+         + ',"qty":'         + str.tostring(math.round(dcaQtyL, 4))
+         + ',"dca_level":'   + str.tostring(dcaCountL)
+         + ',"avg_price":'   + str.tostring(math.round(strategy.position_avg_price, 4))
+         + ',"sl":'          + str.tostring(math.round(newSl, 4))
+         + ',"tp":'          + str.tostring(math.round(newTp, 4))
+         + ',"leverage":'    + str.tostring(int(leverageLabMult))
+         + '}',
+         testMode ? alert.freq_none : alert.freq_once_per_bar_close)
+
+// ── DCA SHORT ────────────────────────────────────────────────────
+var float dcaQtyS = na
+if dcaShortOk
+    dcaQtyS    := qty_labouch * math.pow(dcaQtyMult, dcaCountS + 1)
+    dcaCountS  := dcaCountS + 1
+    lastDcaPxS := rClose
+    strategy.entry("DCA_S" + str.tostring(dcaCountS), strategy.short, qty=dcaQtyS)
+    newAvg = strategy.position_avg_price
+    newSl  = entrySlS
+    newTp  = newAvg - (newSl - newAvg) * (isTrending ? 4.0 : 3.0)
+    strategy.exit("Exit Short", stop=newSl, limit=newTp)
+    if not testMode
+        alert(
+         '{"action":"dca","side":"sell","symbol":"' + whSymbol + '"'
+         + ',"price":'       + str.tostring(math.round(rClose, 4))
+         + ',"qty":'         + str.tostring(math.round(dcaQtyS, 4))
+         + ',"dca_level":'   + str.tostring(dcaCountS)
+         + ',"avg_price":'   + str.tostring(math.round(strategy.position_avg_price, 4))
+         + ',"sl":'          + str.tostring(math.round(newSl, 4))
+         + ',"tp":'          + str.tostring(math.round(newTp, 4))
+         + ',"leverage":'    + str.tostring(int(leverageLabMult))
+         + '}',
+         testMode ? alert.freq_none : alert.freq_once_per_bar_close)
+
+// ═══════════════════════════════════════════════════════════════
+//  DÉTECTION CLÔTURE + MISE À JOUR LABOUCHÈRE + ALERTE CLOSE
+// ═══════════════════════════════════════════════════════════════
+
+var float entryPx  = na
+var string entrySd = ""
+
+if entryLong
+    entryPx := rClose
+    entrySd := "buy"
+
+if entryShort
+    entryPx := rClose
+    entrySd := "sell"
+
+prevPos = strategy.position_size[1]
+currPos = strategy.position_size
+
+if prevPos != 0.0 and currPos == 0.0
+    // ── Mise à jour séquence Labouchère ──────────────────────────
+    isWin = strategy.netprofit > prev_netprofit
+    if isWin
+        // Win inversé : on append le bet
+        array.push(seq, entry_bet_int)
+    else
+        // Loss : on retire premier + dernier
+        if array.size(seq) >= 2
+            array.remove(seq, 0)
+            array.pop(seq)
+            cum_loss_units := cum_loss_units + float(entry_bet_int)
+        else
+            // Séquence épuisée → reset
+            array.clear(seq)
+            array.push(seq, 1)
+            array.push(seq, 1)
+            array.push(seq, 1)
+            array.push(seq, 1)
+            cum_loss_units := 0.0
+        // Vérification sécurité : si vide après retrait
+        if array.size(seq) == 0
+            array.push(seq, 1)
+            array.push(seq, 1)
+            array.push(seq, 1)
+            array.push(seq, 1)
+            cum_loss_units := 0.0
+    prev_netprofit := strategy.netprofit
+
+    // ── Alerte close ─────────────────────────────────────────────
+    if not na(entryPx) and not testMode
+        exitPx  = close
+        pnlPct  = entrySd == "buy" ?
+             math.round((exitPx - entryPx) / entryPx * 100, 2) :
+             math.round((entryPx - exitPx) / entryPx * 100, 2)
+        pnlSign = pnlPct >= 0 ? "GAIN" : "PERTE"
+        alert(
+         '{"action":"close"'
+         + ',"coin":"'    + hlCoin + '"'
+         + ',"symbol":"'  + whSymbol + '"'
+         + ',"side":"'    + entrySd + '"'
+         + ',"entry":'    + str.tostring(math.round(entryPx, 4))
+         + ',"exit":'     + str.tostring(math.round(exitPx,  4))
+         + ',"pnl_pct":'  + str.tostring(pnlPct)
+         + ',"equity":'   + str.tostring(math.round(strategy.equity, 2))
+         + ',"msg":"'     + pnlSign + ' ' + hlCoin + ' | ' + entrySd
+         + ' | Entree:' + str.tostring(math.round(entryPx, 2))
+         + ' Sortie:'   + str.tostring(math.round(exitPx,  2))
+         + ' PnL:'      + str.tostring(pnlPct) + '%"'
+         + '}',
+         alert.freq_once_per_bar_close)
+
+// ═══════════════════════════════════════════════════════════════
+//  VISUALISATION
+// ═══════════════════════════════════════════════════════════════
+
+plot(poc,  "POC",   color=color.fuchsia, linewidth=2)
+plot(vah,  "VAH",   color=color.blue,    style=plot.style_circles)
+plot(val,  "VAL",   color=color.blue,    style=plot.style_circles)
+plot(ma20, "HMA20", color=color.yellow,  linewidth=2)
+plot(ma50, "HMA50", color=color.red,     linewidth=2)
+plotshape(entryLT or entryLE, title="Long",  location=location.belowbar, color=color.green, style=shape.triangleup)
+plotshape(entryST or entrySE, title="Short", location=location.abovebar, color=color.red,   style=shape.triangledown)
+bgcolor(inRng ? color.new(color.orange, 90) : na)
+bgcolor(dailyStop ? color.new(color.red, 92) : na, title="Stop journalier actif")
+
+// ═══════════════════════════════════════════════════════════════
+//  TABLEAU LABOUCHÈRE (haut-droite)
+// ═══════════════════════════════════════════════════════════════
+
+// Construction de la chaîne de séquence [1,1,1,2,3]
+seqStr = "["
+seqSzDisp = array.size(seq)
+if seqSzDisp == 0
+    seqStr := "[reset]"
+else
+    for i = 0 to seqSzDisp - 1
+        seqStr := seqStr + str.tostring(array.get(seq, i))
+        if i < seqSzDisp - 1
+            seqStr := seqStr + ","
+    seqStr := seqStr + "]"
+
+stopLabel  = dailyStop ? "⚠️ STOP" : "OFF"
+stopColor  = dailyStop ? color.red  : color.new(color.green, 0)
+multDispStr = str.tostring(math.round(mult_lab, 2)) + "×"
+betUnitsStr = str.tostring(int(math.round(bet_units)))
+capStr      = str.tostring(startCapitalLab, "#") + " USDC"
+
+if showLabTable
+    var table labTbl = table.new(position.top_right, 2, 7,
+         border_color=color.new(color.gray, 40), border_width=1,
+         bgcolor=color.new(color.white, 5))
+
+    // En-tête
+    table.cell(labTbl, 0, 0, "🎯 Labouchère", text_color=color.white,
+         bgcolor=color.new(color.purple, 30), text_size=size.small)
+    table.cell(labTbl, 1, 0, "Valeur", text_color=color.white,
+         bgcolor=color.new(color.purple, 30), text_size=size.small)
+
+    // Séquence
+    table.cell(labTbl, 0, 1, "Séquence", text_color=color.gray,
+         bgcolor=color.rgb(240, 240, 255), text_size=size.tiny)
+    table.cell(labTbl, 1, 1, seqStr, text_color=color.new(color.blue, 0),
+         bgcolor=color.rgb(240, 240, 255), text_size=size.tiny)
+
+    // Bet units
+    table.cell(labTbl, 0, 2, "Bet units", text_color=color.gray,
+         bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+    table.cell(labTbl, 1, 2, betUnitsStr, text_color=color.new(color.orange, 0),
+         bgcolor=color.rgb(255, 255, 255), text_size=size.small)
+
+    // Multiplicateur
+    table.cell(labTbl, 0, 3, "Multiplicateur", text_color=color.gray,
+         bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+    table.cell(labTbl, 1, 3, multDispStr, text_color=color.new(color.purple, 0),
+         bgcolor=color.rgb(255, 255, 255), text_size=size.small)
+
+    // Capital actif
+    table.cell(labTbl, 0, 4, "Capital actif", text_color=color.gray,
+         bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+    table.cell(labTbl, 1, 4, capStr, text_color=color.new(color.green, 0),
+         bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+
+    // Cum pertes
+    table.cell(labTbl, 0, 5, "Cum. pertes (u)", text_color=color.gray,
+         bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+    table.cell(labTbl, 1, 5, str.tostring(int(cum_loss_units)), text_color=color.new(color.red, 20),
+         bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+
+    // Stop journalier
+    table.cell(labTbl, 0, 6, "Stop jour", text_color=color.gray,
+         bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+    table.cell(labTbl, 1, 6, stopLabel, text_color=stopColor,
+         bgcolor=color.rgb(255, 255, 255), text_size=size.small)
+
+// ═══════════════════════════════════════════════════════════════
+//  TABLEAU PERFS (inchangé du v6.2 original)
+// ═══════════════════════════════════════════════════════════════
+
+var float peakEq   = startCapitalLab
+var float maxDDVal = 0.0
+curEq = strategy.equity
+
+if curEq > peakEq
+    peakEq := curEq
+
+curDD = (peakEq - curEq) / peakEq
+if curDD > maxDDVal
+    maxDDVal := curDD
+
+if showStats
+    var table stats = table.new(position.top_left, 2, 5,
+         border_color=color.new(color.gray, 50), border_width=1)
+    table.cell(stats, 0, 0, "JP v6.2 Labouch",    text_color=color.black,             bgcolor=color.new(color.purple, 70), text_size=size.small)
+    table.cell(stats, 1, 0, hlCoin + " → HL",      text_color=color.new(color.blue, 0),bgcolor=color.new(color.purple, 70), text_size=size.small)
+    table.cell(stats, 0, 1, "Capital actuel",       text_color=color.gray,              bgcolor=color.rgb(255, 255, 255),    text_size=size.tiny)
+    table.cell(stats, 1, 1, str.tostring(curEq, "#.##") + " $",
+         text_color=color.new(color.green, 0), bgcolor=color.rgb(255, 255, 255),        text_size=size.tiny)
+    table.cell(stats, 0, 2, "Perte max/trade",      text_color=color.gray,              bgcolor=color.rgb(255, 255, 255),    text_size=size.tiny)
+    table.cell(stats, 1, 2, str.tostring(curEq * slCapPct, "#.##") + " $",
+         text_color=color.orange, bgcolor=color.rgb(255, 255, 255),                     text_size=size.tiny)
+    table.cell(stats, 0, 3, "DD Courant",           text_color=color.gray,              bgcolor=color.rgb(255, 255, 255),    text_size=size.tiny)
+    table.cell(stats, 1, 3, str.tostring(curDD * 100, "#.##") + "%",
+         text_color=curDD > maxDD * 0.8 ? color.red : color.black, bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+    table.cell(stats, 0, 4, "Max DD",               text_color=color.gray,              bgcolor=color.rgb(255, 255, 255),    text_size=size.tiny)
+    table.cell(stats, 1, 4, str.tostring(maxDDVal * 100, "#.##") + "%",
+         text_color=color.orange, bgcolor=color.rgb(255, 255, 255),                     text_size=size.tiny)
+
+// ═══════════════════════════════════════════════════════════════
+//  TABLEAU CONDITIONS (bas-gauche)
+// ═══════════════════════════════════════════════════════════════
+
+dot(ok) => ok ? "●" : "●"
+dotColor(ok) => ok ? color.new(color.green, 0) : color.red
+
+cAdx      = adx > 25
+cNotRange = not inRng
+cVol      = not volFilter or volUp
+
+cLongTrend   = diplus > diminus
+cLongMa50    = rClose > ma50
+cLongPullbk  = rLow <= ma20 and rClose > ma20
+cLongRsi     = rsi > 40 and rsi < 65
+cLongAll     = cAdx and cNotRange and cVol and cLongTrend and cLongMa50 and cLongPullbk and cLongRsi
+
+cShortTrend  = diminus > diplus
+cShortMa50   = rClose < ma50
+cShortPullbk = rHigh >= ma20 and rClose < ma20
+cShortRsi    = rsi > 35 and rsi < 60
+cShortAll    = cAdx and cNotRange and cVol and cShortTrend and cShortMa50 and cShortPullbk and cShortRsi
+
+if showParams
+    var table cond = table.new(position.bottom_left, 3, 12,
+         border_color=color.new(color.gray, 50), border_width=1)
+
+    table.cell(cond, 0, 0, "CONDITION",       text_color=color.black,               bgcolor=color.new(color.purple, 70), text_size=size.tiny)
+    table.cell(cond, 1, 0, "LONG",            text_color=color.new(color.green, 0), bgcolor=color.new(color.purple, 70), text_size=size.tiny)
+    table.cell(cond, 2, 0, "SHORT",           text_color=color.red,                 bgcolor=color.new(color.purple, 70), text_size=size.tiny)
+
+    table.cell(cond, 0, 1, "ADX>25 tendance", text_color=color.gray, bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+    table.cell(cond, 1, 1, dot(cAdx),         text_color=dotColor(cAdx), bgcolor=color.rgb(255, 255, 255), text_size=size.normal)
+    table.cell(cond, 2, 1, dot(cAdx),         text_color=dotColor(cAdx), bgcolor=color.rgb(255, 255, 255), text_size=size.normal)
+
+    table.cell(cond, 0, 2, "DI direction",    text_color=color.gray, bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+    table.cell(cond, 1, 2, dot(cLongTrend),   text_color=dotColor(cLongTrend),  bgcolor=color.rgb(255, 255, 255), text_size=size.normal)
+    table.cell(cond, 2, 2, dot(cShortTrend),  text_color=dotColor(cShortTrend), bgcolor=color.rgb(255, 255, 255), text_size=size.normal)
+
+    table.cell(cond, 0, 3, "Prix vs MA50",    text_color=color.gray, bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+    table.cell(cond, 1, 3, dot(cLongMa50),    text_color=dotColor(cLongMa50),   bgcolor=color.rgb(255, 255, 255), text_size=size.normal)
+    table.cell(cond, 2, 3, dot(cShortMa50),   text_color=dotColor(cShortMa50),  bgcolor=color.rgb(255, 255, 255), text_size=size.normal)
+
+    table.cell(cond, 0, 4, "Pullback MA20",   text_color=color.gray, bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+    table.cell(cond, 1, 4, dot(cLongPullbk),  text_color=dotColor(cLongPullbk),  bgcolor=color.rgb(255, 255, 255), text_size=size.normal)
+    table.cell(cond, 2, 4, dot(cShortPullbk), text_color=dotColor(cShortPullbk), bgcolor=color.rgb(255, 255, 255), text_size=size.normal)
+
+    table.cell(cond, 0, 5, "RSI zone",        text_color=color.gray, bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+    table.cell(cond, 1, 5, dot(cLongRsi),     text_color=dotColor(cLongRsi),   bgcolor=color.rgb(255, 255, 255), text_size=size.normal)
+    table.cell(cond, 2, 5, dot(cShortRsi),    text_color=dotColor(cShortRsi),  bgcolor=color.rgb(255, 255, 255), text_size=size.normal)
+
+    table.cell(cond, 0, 6, "Volume",          text_color=color.gray, bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+    table.cell(cond, 1, 6, dot(cVol),         text_color=dotColor(cVol), bgcolor=color.rgb(255, 255, 255), text_size=size.normal)
+    table.cell(cond, 2, 6, dot(cVol),         text_color=dotColor(cVol), bgcolor=color.rgb(255, 255, 255), text_size=size.normal)
+
+    table.cell(cond, 0, 7, "Hors range",      text_color=color.gray, bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+    table.cell(cond, 1, 7, dot(cNotRange),    text_color=dotColor(cNotRange), bgcolor=color.rgb(255, 255, 255), text_size=size.normal)
+    table.cell(cond, 2, 7, dot(cNotRange),    text_color=dotColor(cNotRange), bgcolor=color.rgb(255, 255, 255), text_size=size.normal)
+
+    table.cell(cond, 0, 8, "ADX / RSI",       text_color=color.gray, bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+    table.cell(cond, 1, 8, str.tostring(math.round(adx, 1)), text_color=color.black, bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+    table.cell(cond, 2, 8, str.tostring(math.round(rsi, 1)), text_color=color.black, bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+
+    table.cell(cond, 0, 9, "Régime",          text_color=color.gray, bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+    table.cell(cond, 1, 9, regStr,            text_color=isTrending ? color.new(color.green, 0) : (isRanging ? color.orange : color.fuchsia), bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+    table.cell(cond, 2, 9, regStr,            text_color=isTrending ? color.new(color.green, 0) : (isRanging ? color.orange : color.fuchsia), bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+
+    table.cell(cond, 0, 10, "",               text_color=color.gray, bgcolor=color.new(color.purple, 80), text_size=size.tiny)
+    table.cell(cond, 1, 10, "",               text_color=color.gray, bgcolor=color.new(color.purple, 80), text_size=size.tiny)
+    table.cell(cond, 2, 10, "",               text_color=color.gray, bgcolor=color.new(color.purple, 80), text_size=size.tiny)
+
+    sigLongBg  = cLongAll  ? color.new(color.green, 75) : color.white
+    sigShortBg = cShortAll ? color.new(color.green, 75) : color.white
+    table.cell(cond, 0, 11, "SIGNAL",         text_color=color.black,                                bgcolor=color.new(color.purple, 70), text_size=size.small)
+    table.cell(cond, 1, 11, cLongAll  ? "LONG"  : "-", text_color=cLongAll  ? color.new(color.green, 0) : color.gray, bgcolor=sigLongBg,  text_size=size.small)
+    table.cell(cond, 2, 11, cShortAll ? "SHORT" : "-", text_color=cShortAll ? color.red               : color.gray, bgcolor=sigShortBg, text_size=size.small)
