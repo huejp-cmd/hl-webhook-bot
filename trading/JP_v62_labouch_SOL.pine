@@ -134,16 +134,13 @@ dailyStop = strategy.equity < daily_start_eq * (1.0 - stopLossDayPct / 100.0)
 
 // ── Calcul bet_units courant (avec plafond) ──────────────────────
 seqSz   = array.size(seq)
-raw_bet = seqSz >= 2 ? array.get(seq, 0) + array.get(seq, seqSz - 1)
-        : seqSz == 1 ? array.get(seq, 0) * 2
-        : 2
+raw_bet = seqSz >= 2 ? array.get(seq, 0) + array.get(seq, seqSz - 1) : seqSz == 1 ? array.get(seq, 0) * 2 : 2
 cap_units = math.max(capMultLab * cum_loss_units, 2.0)
 bet_units = math.min(float(raw_bet), cap_units)
 
 // ── Quantité Labouchère (remplace qty fixe de la stratégie base) ─
 mult_lab    = math.max(bet_units * unitFactor * leverageLabMult, 0.5)
-qty_labouch = (startCapitalLab * mult_lab / 100.0) / close
-qty_labouch := math.max(qty_labouch, startCapitalLab * 0.0005 / close)
+qty_labouch = math.max((startCapitalLab * mult_lab / 100.0) / close, startCapitalLab * 0.0005 / close)
 
 // ═══════════════════════════════════════════════════════════════
 //  FONCTIONS
