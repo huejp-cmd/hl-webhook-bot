@@ -205,7 +205,7 @@ capQty_(qty_raw, ep, sp) =>
 
 // Long
 slBaseL = isRanging ? val * 0.995 : ta.lowest(rLow, 15) * 0.995
-slL     = math.max(slBaseL, rClose * 0.985)
+slL     = math.max(slBaseL, rClose * 0.980)
 tpMultL = isTrending ? 4.0 : (isRanging ? 2.5 : 3.3)
 tpL     = (rClose + (rClose - slL) * tpMultL) * (1 + tpSlippage / 100)
 rawQtyL = math.max(calcQty(rClose, slL) * leverage, stepCapital * 0.001)
@@ -213,7 +213,7 @@ qtyL    = capQty_(rawQtyL, rClose, slL)
 
 // Short
 slBaseS = isRanging ? vah * 1.005 : ta.highest(rHigh, 15) * 1.005
-slS     = math.min(slBaseS, rClose * 1.015)
+slS     = math.min(slBaseS, rClose * 1.020)
 tpMultS = isTrending ? 4.0 : (isRanging ? 2.5 : 3.3)
 tpS     = (rClose - (slS - rClose) * tpMultS) * (1 - tpSlippage / 100)
 rawQtyS = math.max(calcQty(rClose, slS) * leverage, stepCapital * 0.001)

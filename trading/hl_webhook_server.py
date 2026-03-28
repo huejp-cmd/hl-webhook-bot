@@ -62,7 +62,7 @@ MAINNET = True
 
 # True  = simule sans envoyer d'ordre reel
 # False = ordres reels sur Hyperliquid
-DRY_RUN = False
+DRY_RUN = True   # ← mode TEST actif
 
 # =============================================================================
 #  TIMEOUTS LIMIT -> MARKET
@@ -87,8 +87,8 @@ TP_LIMIT_TIMEOUT = 30
 # =============================================================================
 # Capital de base par symbole (JP : SOL=600, ETH=400)
 # Le bot applique un effet compound REEL en scalant la qty selon l'equity du compte
-BASE_CAPITAL_PER_SYMBOL = {"SOL": 600.0, "ETH": 400.0}
-TOTAL_BASE_CAPITAL      = 1000.0   # SOL 600 + ETH 400
+BASE_CAPITAL_PER_SYMBOL = {"SOL": 500.0, "ETH": 500.0}
+TOTAL_BASE_CAPITAL      = 1000.0   # SOL 500 + ETH 500
 FORCED_CAPITAL_PER_SYMBOL = {}     # Laisser vide = compound reel actif
 
 DEFAULT_RISK_PCT = 0.02
@@ -1114,6 +1114,26 @@ def manual_close(coin):
     result = close_position_market(c)
     return jsonify(result), 200
 
+
+# --- Init Labouchère si premier démarrage ---
+def _init_labouch_if_needed():
+    """Initialise la série 1 avec capital 500 + margin 500 par symbole."""
+    for symbol, capital in BASE_CAPITAL_PER_SYMBOL.items():
+        status = labouch.get_status(symbol)
+        # Si pas encore initialisé (series_number == 0 ou absent)
+        if status.get("series_number", 0) == 0 or status.get("active_capital", 0) == 0:
+            log.info(f"[Labouchère] Init automatique {symbol}: capital={capital} + margin={capital}")
+            labouch.init_series_with_margin(symbol, capital=capital, margin=capital)
+            # Définir le ceiling dans l'état
+            sym = labouch._get_sym(symbol)
+            sym["ceiling_usdc"] = 50_000.0 if symbol == "ETH" else 70_000.0
+            sym["ceiling_mode"] = "realistic"
+            labouch._save()
+        else:
+            log.info(f"[Labouchère] {symbol} état existant: série {status['series_number']}, "
+                     f"capital actif={status['active_capital']:.0f}, réserve={status['reserve']:.0f}")
+
+_init_labouch_if_needed()
 
 if __name__ == "__main__":
     log.info("Webhook Hyperliquid demarre -> http://0.0.0.0:5000")

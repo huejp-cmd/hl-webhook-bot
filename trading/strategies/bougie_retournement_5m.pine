@@ -1,0 +1,50 @@
+//@version=5
+strategy("Bougie Retournement 5M x4 LSMA", shorttitle="BougieFlex5M", overlay=true, default_qty_type=strategy.percent_of_equity, default_qty_value=100, pyramiding=0, calc_on_every_tick=true, commission_type=strategy.commission.percent, commission_value=0.05, slippage=2)
+
+mode_live    = input.bool(false, "Mode LIVE - desactiver pour backtest")
+levier       = input.float(4.0,  "Levier",            minval=1.0, maxval=10.0, step=0.5)
+tp_ratio     = input.float(1.5,  "Ratio TP/SL",       minval=0.5, maxval=5.0,  step=0.1)
+ticks_offset = input.int(1,      "Ticks offset",       minval=0,   maxval=10)
+filtre_vol   = input.bool(true,  "Filtrer petites bougies")
+vol_min_pct  = input.float(0.1,  "Taille bougie min pct", minval=0.01, step=0.01)
+lsma_period  = input.int(5,      "LSMA periode",       minval=2, maxval=50)
+show_lsma    = input.bool(true,  "Afficher LSMA")
+
+lsma      = ta.linreg(close, lsma_period, 0)
+lsma_up   = lsma > lsma[1]
+lsma_down = lsma < lsma[1]
+
+plot(show_lsma ? lsma : na, "LSMA", color=lsma_up ? color.green : color.red, linewidth=2)
+
+prevBullish = close[1] > open[1]
+prevBearish = close[1] < open[1]
+tailleOK    = not filtre_vol or (math.abs(close[1] - open[1]) / open[1] * 100 >= vol_min_pct)
+currBearish = mode_live ? close < open : close[0] < open[0] and barstate.isconfirmed
+currBullish = mode_live ? close > open : close[0] > open[0] and barstate.isconfirmed
+
+signalShort = prevBullish and currBearish and tailleOK and lsma_down
+signalLong  = prevBearish and currBullish and tailleOK and lsma_up
+
+tick        = syminfo.mintick * ticks_offset
+shortEntree = close - tick
+shortSL     = high[1] + tick
+shortTP     = shortEntree - (shortSL - shortEntree) * tp_ratio
+longEntree  = close + tick
+longSL      = low[1] - tick
+longTP      = longEntree + (longEntree - longSL) * tp_ratio
+
+if signalShort and strategy.position_size == 0
+    strategy.entry("Short", strategy.short, qty=(strategy.equity * levier) / shortEntree)
+    strategy.exit("SX", "Short", stop=shortSL, limit=shortTP)
+    label.new(bar_index, high, "SHORT SL:" + str.tostring(shortSL, "#.##") + " TP:" + str.tostring(shortTP, "#.##"), color=color.red, textcolor=color.white, style=label.style_label_down, size=size.small)
+
+if signalLong and strategy.position_size == 0
+    strategy.entry("Long", strategy.long, qty=(strategy.equity * levier) / longEntree)
+    strategy.exit("LX", "Long", stop=longSL, limit=longTP)
+    label.new(bar_index, low, "LONG SL:" + str.tostring(longSL, "#.##") + " TP:" + str.tostring(longTP, "#.##"), color=color.green, textcolor=color.white, style=label.style_label_up, size=size.small)
+
+plotshape(signalShort, location=location.abovebar, color=color.red,   style=shape.triangledown, size=size.small)
+plotshape(signalLong,  location=location.belowbar, color=color.green, style=shape.triangleup,   size=size.small)
+plot(strategy.position_size < 0 ? shortSL : strategy.position_size > 0 ? longSL : na, "SL", color=color.red,   style=plot.style_linebr)
+plot(strategy.position_size < 0 ? shortTP : strategy.position_size > 0 ? longTP : na, "TP", color=color.green, style=plot.style_linebr)
+bgcolor(strategy.position_size > 0 ? color.new(color.green, 90) : strategy.position_size < 0 ? color.new(color.red, 90) : na)

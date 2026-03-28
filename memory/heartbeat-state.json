@@ -1,17 +1,20 @@
 {
   "lastChecks": {
-    "trademolty_bot": 1742661207,
-    "moltbook": 1742661207,
-    "email": null,
-    "calendar": null,
+    "hl_bot": 1743130350,
+    "moltbook": 1742902346,
+    "email": 1743075742,
+    "calendar": 1743075742,
     "weather": null
   },
-  "lastUpdate": "2026-03-22T16:33:27Z",
-  "botStatus": {
-    "status": "online",
+  "lastUpdate": "2026-03-28T03:32:30Z",
+  "lastBotStatus": {
+    "railway": "online",
+    "local": "online",
     "mode": "LIVE",
     "network": "MAINNET",
-    "account_value": "1023.02 USDC",
-    "open_positions": []
+    "account_value": "0.00 USDC",
+    "wallet": "0xaF6542067Cab6D8D9E3D7BaA5AaE16DB86f83fBb",
+    "open_positions": [],
+    "alert": null
   }
 }

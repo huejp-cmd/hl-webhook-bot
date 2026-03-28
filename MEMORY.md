@@ -54,10 +54,12 @@ Raison : évite la congestion des clôtures rondes (bots, slippage, stop hunts).
 ## Accès complets — toutes plateformes (2026-03-20)
 
 **Hyperliquid (MAINNET)**
-- Wallet : `0x01fE7894a5A41BA669Cf541f556832c8E1F164B7`
-- Clé privée : `0x9fcf4d1bae9622fe7aba5b4218842d1b022a29dd4488c3118e0ba412ad98d7b4`
+- ~~Ancien wallet COMPROMIS (vol 24/03/2026) : `0x01fE...` — NE PLUS UTILISER~~
+- Wallet NOUVEAU (2026-03-25) : `0xaF6542067Cab6D8D9E3D7BaA5AaE16DB86f83fBb`
+- Clé privée : `0x7ba971a77b1bdafb0686aa1c2b145b8dcd9a027ec36d2c2dcaa3ae61c7551728`
 - Bot local (Mac) : `http://localhost:80` — token webhook : `jp_bot_secret_2026`
 - Bot Railway (prod) : `https://hl-webhook-bot-production.up.railway.app` — même token
+- **Leçon apprise** : clé privée était en clair dans repo GitHub PUBLIC → volée par bot scanner. Maintenant via variable env Railway uniquement. Repo rendu privé.
 
 **Railway**
 - Compte : `huejp-cmd` / `hue.jp@hotmail.fr` (GitHub OAuth)
@@ -97,7 +99,7 @@ JP a explicitement autorisé une intervention autonome complète sur tous les é
 
 ## Accès plateformes trading (2026-03-18, mdp ajouté 2026-03-22)
 
-- **TradingView** : compte `Sebastienhue1` / email `hue.jp@hotmail.fr` / mdp `Sebastienhue1*@` — credentials dans `credentials.json`
+- **TradingView** : compte `Sebastienhue1` / email `hue.jp@hotmail.fr` / mdp `dp0G3dSMcrHxhWp` (changé le 25/03/2026) — credentials dans `credentials.json`
 - **LuxAlgo** : compte `Sebastienhue1` — credentials dans `credentials.json`
 - **Hetzner VPS** : compte `K1267357225` / `hue.jp@hotmail.fr` — credentials dans `credentials.json` et `agents/trademolty/vps.json`
 - **Binance** : non utilisé par JP — ignorer
