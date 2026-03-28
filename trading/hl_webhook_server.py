@@ -491,6 +491,14 @@ def place_order(signal: dict) -> dict:
     lab_mult = labouch.get_multiplier(coin, capital)
     qty = round_qty(qty * lab_mult, coin)
     log.info(f"  Labouchère mult={lab_mult:.2f}x → qty={qty} {coin}")
+
+    # Vérifier ceiling AVANT d'ouvrir la position
+    if labouch.check_ceiling(coin, qty, entry_px):
+        ceiling_info = labouch.get_status(coin)
+        msg = f"🎯 CEILING {coin} — Série terminée. Réserve: {ceiling_info['reserve']:.0f} USDC. Nouvelle base: {ceiling_info['active_capital']:.0f} USDC"
+        log.info(f"  {msg}")
+        return {"status": "ceiling_hit", "details": ceiling_info}
+
     labouch.on_entry(coin, entry_px, qty, side, capital)
 
     # -- Mode simulation --

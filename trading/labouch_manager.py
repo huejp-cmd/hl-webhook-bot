@@ -5,7 +5,16 @@ Logique :
   WIN  → séquence grossit, multiplicateur augmente
   LOSS → séquence rétrécit, multiplicateur diminue (min 0.5×)
 
-Règles :
+Cycles de séries avec ceiling marché :
+  Série 1 : capital_propre + margin_initiale (levier)
+    → Ceiling hit : net = capital_total - margin
+                    50% → réserve sécurisée
+                    50% → base série 2 (sans margin)
+  Séries 2+ : sans margin
+    → Ceiling hit : 50% → réserve supplémentaire
+                    50% → base série suivante
+
+Règles Labouchère :
   1. Séquence de départ : [1, 1, 1, 1]
   2. Mise courante = sequence[0] + sequence[-1]  (en unités)
   3. 1 unité = unit_factor × la position normale
@@ -43,9 +52,27 @@ MIN_MULT          = 0.5    # multiplicateur absolu min
 RESET_MONTHLY     = True
 STOP_SESSION_PCT  = 0.15   # 15 % de perte journalière → pause
 
+# ---------------------------------------------------------------------------
+# Ceiling marché (taille notionnelle max par symbole en USDC)
+# ---------------------------------------------------------------------------
+MARKET_CEILING_NOTIONAL = {
+    "ETH": 50_000,    # USDC notional — exécution propre sans slippage
+    "SOL": 70_000,    # USDC notional
+    "BTC": 100_000,
+}
+DEFAULT_CEILING_NOTIONAL = 50_000
+
 
 def _default_sym_state() -> dict:
     return {
+        # --- Cycle de séries ---
+        "series_number":       1,
+        "margin_active":       False,
+        "initial_margin":      0.0,
+        "initial_capital":     0.0,
+        "active_capital":      0.0,
+        "reserve":             0.0,
+        # --- Labouchère ---
         "sequence":            [1, 1, 1, 1],
         "cum_loss_units":      0.0,
         "last_entry_price":    None,
@@ -53,6 +80,7 @@ def _default_sym_state() -> dict:
         "last_entry_side":     None,
         "last_entry_capital":  None,
         "last_bet_units":      2,
+        # --- Stats ---
         "daily_pnl":           0.0,
         "daily_start_capital": None,
         "daily_date":          None,
@@ -67,7 +95,7 @@ def _default_sym_state() -> dict:
 # ===========================================================================
 
 class LabouchManager:
-    """Gestionnaire Labouchère Inversé par symbole."""
+    """Gestionnaire Labouchère Inversé par symbole avec cycles de séries."""
 
     def __init__(
         self,
@@ -98,6 +126,12 @@ class LabouchManager:
             try:
                 with open(self.state_file, "r") as f:
                     self._state = json.load(f)
+                # Migration : ajouter les nouveaux champs manquants
+                for sym_key, sym_val in self._state.items():
+                    defaults = _default_sym_state()
+                    for k, v in defaults.items():
+                        if k not in sym_val:
+                            sym_val[k] = v
                 log.info(f"[Labouchère] État chargé depuis {self.state_file}")
             except Exception as e:
                 log.warning(f"[Labouchère] Impossible de lire l'état ({e}) → reset")
@@ -173,6 +207,123 @@ class LabouchManager:
         return max(MIN_MULT, min(self.max_mult, mult))
 
     # ------------------------------------------------------------------
+    # Ceiling marché — cycles de séries
+    # ------------------------------------------------------------------
+
+    def _get_ceiling_notional(self, symbol: str) -> float:
+        """Retourne le seuil notionnel critique pour ce symbole."""
+        return MARKET_CEILING_NOTIONAL.get(symbol.upper(), DEFAULT_CEILING_NOTIONAL)
+
+    def _trigger_ceiling(self, symbol: str, current_capital: float) -> dict:
+        """
+        Déclenche l'événement CEILING :
+          - Retire la margin si active (série 1)
+          - Split 50/50 : réserve + base série suivante
+          - Reset séquence
+        """
+        sym = self._get_sym(symbol)
+
+        if sym["margin_active"]:
+            net_capital = current_capital - sym["initial_margin"]
+            sym["margin_active"] = False
+        else:
+            net_capital = current_capital
+
+        # Sécurité : net_capital ne peut pas être négatif
+        net_capital = max(0.0, net_capital)
+
+        reserve_gain = net_capital * 0.50
+        next_capital = net_capital * 0.50
+
+        sym["reserve"]         += reserve_gain
+        sym["active_capital"]   = next_capital
+        sym["initial_capital"]  = next_capital
+        sym["initial_margin"]   = 0.0
+        sym["sequence"]         = [1, 1, 1, 1]
+        sym["cum_loss_units"]   = 0.0
+        sym["series_number"]   += 1
+
+        log.info(
+            f"[Labouchère] *** CEILING {symbol} — Série {sym['series_number'] - 1} terminée ***\n"
+            f"  Capital net    : {net_capital:.2f} USDC\n"
+            f"  → Réserve +    : {reserve_gain:.2f} USDC  (total: {sym['reserve']:.2f})\n"
+            f"  → Base série {sym['series_number']} : {next_capital:.2f} USDC\n"
+            f"  Margin active  : {sym['margin_active']}"
+        )
+        self._save()
+
+        return {
+            "event":               "ceiling_hit",
+            "symbol":              symbol,
+            "series_completed":    sym["series_number"] - 1,
+            "reserve_added":       reserve_gain,
+            "reserve_total":       sym["reserve"],
+            "next_series_capital": next_capital,
+            "next_series":         sym["series_number"],
+        }
+
+    def check_ceiling(
+        self,
+        symbol:        str,
+        next_qty:      float,
+        current_price: float,
+    ) -> bool:
+        """
+        Vérifie si la prochaine position atteindrait le seuil critique marché.
+        Si oui : déclenche le CEILING EVENT (split capital, reset séquence).
+
+        Retourne True si ceiling atteint (= ne pas placer cet ordre, série terminée).
+        """
+        ceiling = self._get_ceiling_notional(symbol)
+        notional = next_qty * current_price
+
+        if notional >= ceiling:
+            sym = self._get_sym(symbol)
+            # Utilise active_capital comme capital courant si disponible
+            current_capital = sym.get("active_capital") or sym.get("last_entry_capital") or 0.0
+            log.warning(
+                f"[Labouchère] CEILING CHECK {symbol}: "
+                f"notional={notional:.0f} ≥ ceiling={ceiling:.0f} USDC → CEILING HIT"
+            )
+            self._trigger_ceiling(symbol, current_capital)
+            return True
+
+        log.debug(
+            f"[Labouchère] CEILING CHECK {symbol}: "
+            f"notional={notional:.0f} < ceiling={ceiling:.0f} USDC → OK"
+        )
+        return False
+
+    # ------------------------------------------------------------------
+    # Initialisation série avec margin
+    # ------------------------------------------------------------------
+
+    def init_series_with_margin(
+        self,
+        symbol:  str,
+        capital: float,
+        margin:  float,
+    ):
+        """
+        Initialise la série 1 avec capital propre + margin.
+        À appeler une fois au démarrage ou après un reset manuel.
+        """
+        sym = self._get_sym(symbol)
+        sym["series_number"]   = 1
+        sym["margin_active"]   = True
+        sym["initial_margin"]  = margin
+        sym["initial_capital"] = capital
+        sym["active_capital"]  = capital + margin
+        sym["reserve"]         = 0.0
+        sym["sequence"]        = [1, 1, 1, 1]
+        sym["cum_loss_units"]  = 0.0
+        self._save()
+        log.info(
+            f"[Labouchère] {symbol} init série 1 : "
+            f"capital={capital} + margin={margin} = {capital + margin} USDC"
+        )
+
+    # ------------------------------------------------------------------
     # API publique
     # ------------------------------------------------------------------
 
@@ -180,10 +331,16 @@ class LabouchManager:
         """
         Retourne le multiplicateur à appliquer à la qty de base.
         Applique les resets mensuels/journaliers si nécessaire.
+        Met à jour active_capital avec le capital courant.
         """
         sym = self._get_sym(symbol)
         self._check_monthly_reset(sym)
         self._check_daily_reset(sym, capital)
+
+        # Sync active_capital si jamais non initialisé
+        if sym["active_capital"] == 0.0:
+            sym["active_capital"] = capital
+            sym["initial_capital"] = capital
 
         bet_units = self._calc_bet_units(sym)
         sym["last_bet_units"] = bet_units
@@ -208,12 +365,14 @@ class LabouchManager:
         """
         Enregistre les paramètres de l'entrée en position.
         Doit être appelé APRÈS get_multiplier (pour avoir last_bet_units).
+        Met à jour active_capital.
         """
         sym = self._get_sym(symbol)
         sym["last_entry_price"]   = price
         sym["last_entry_qty"]     = qty
         sym["last_entry_side"]    = side
         sym["last_entry_capital"] = capital
+        sym["active_capital"]     = capital  # sync capital courant
 
         if sym.get("daily_start_capital") is None:
             sym["daily_start_capital"] = capital
@@ -232,6 +391,7 @@ class LabouchManager:
         close_price peut être 0 (on utilise alors le delta capital).
         WIN  si capital_after > last_entry_capital
         LOSS sinon
+        Met à jour active_capital avec le capital après clôture.
         """
         sym           = self._get_sym(symbol)
         entry_capital = sym.get("last_entry_capital")
@@ -249,6 +409,9 @@ class LabouchManager:
         sym["daily_pnl"]   = sym.get("daily_pnl", 0.0) + pnl
         sym["total_pnl"]   = sym.get("total_pnl", 0.0) + pnl
         sym["trade_count"] = sym.get("trade_count", 0) + 1
+
+        # Sync active_capital
+        sym["active_capital"] = capital_after
 
         # ---------- Mise à jour séquence ----------
         if is_win:
@@ -329,19 +492,25 @@ class LabouchManager:
         )
 
         return {
-            "symbol":          symbol,
-            "sequence":        seq,
-            "seq_length":      len(seq),
-            "bet_units":       bet_units,
-            "multiplier":      round(mult, 3),
-            "cum_loss_units":  round(sym.get("cum_loss_units", 0.0), 2),
-            "daily_pnl":       round(daily_pnl, 2),
-            "daily_loss_pct":  round(daily_loss_pct, 2),
-            "total_pnl":       round(sym.get("total_pnl", 0.0), 2),
-            "trade_count":     sym.get("trade_count", 0),
-            "last_month":      sym.get("last_month"),
-            "last_entry_side": sym.get("last_entry_side"),
-            "stop_active":     daily_loss_pct >= self.stop_session_pct * 100,
+            "symbol":           symbol,
+            "series_number":    sym.get("series_number", 1),
+            "margin_active":    sym.get("margin_active", False),
+            "initial_margin":   sym.get("initial_margin", 0.0),
+            "active_capital":   round(sym.get("active_capital", 0.0), 2),
+            "reserve":          round(sym.get("reserve", 0.0), 2),
+            "sequence":         seq,
+            "seq_length":       len(seq),
+            "bet_units":        bet_units,
+            "multiplier":       round(mult, 3),
+            "cum_loss_units":   round(sym.get("cum_loss_units", 0.0), 2),
+            "daily_pnl":        round(daily_pnl, 2),
+            "daily_loss_pct":   round(daily_loss_pct, 2),
+            "total_pnl":        round(sym.get("total_pnl", 0.0), 2),
+            "trade_count":      sym.get("trade_count", 0),
+            "last_month":       sym.get("last_month"),
+            "last_entry_side":  sym.get("last_entry_side"),
+            "stop_active":      daily_loss_pct >= self.stop_session_pct * 100,
+            "ceiling_notional": self._get_ceiling_notional(symbol),
         }
 
     def get_all_status(self) -> dict:
