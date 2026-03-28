@@ -450,6 +450,10 @@ def place_order(signal: dict) -> dict:
     else:
         capital = get_account_value()
         log.info(f"  Capital (compte) : {capital:.2f} USDC")
+        # Fallback DRY_RUN : si capital = 0 (pas de clé privée), utiliser BASE_CAPITAL
+        if capital <= 0 and DRY_RUN:
+            capital = BASE_CAPITAL_PER_SYMBOL.get(coin, 500.0)
+            log.info(f"  Capital (DRY_RUN fallback) : {capital:.2f} USDC")
 
     # -- Quantite (v5.5 : Pine qty + compound reel sur equity du compte) --
     pine_qty = float(signal.get("qty", 0))
