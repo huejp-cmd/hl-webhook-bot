@@ -325,20 +325,19 @@ if entryLong
              trail_points=trailPtsL, trail_offset=atr * 1.6)
     else
         strategy.exit("Exit Long", from_entry="Long", stop=slL, limit=tpL)
-    if not testMode
-        alert(
-         '{"action":"open","side":"buy","symbol":"' + whSymbol + '"'
-         + ',"regime":"'    + regStr + '"'
-         + ',"price":'      + str.tostring(math.round(rClose, 4))
-         + ',"sl":'         + str.tostring(math.round(slL,    4))
-         + ',"tp":'         + str.tostring(math.round(tpL,    4))
-         + ',"qty":'        + str.tostring(math.round(qty_labouch, 4))
-         + ',"leverage":'   + str.tostring(int(leverageLabMult))
-         + ',"capital":'    + str.tostring(startCapitalLab)
-         + ',"bet_units":'  + str.tostring(int(math.round(bet_units)))
-         + ',"mult_lab":'   + str.tostring(math.round(mult_lab, 2))
-         + '}',
-         testMode ? alert.freq_none : alert.freq_once_per_bar_close)
+    alert(
+     '{"action":"open","side":"buy","symbol":"' + whSymbol + '"'
+     + ',"regime":"'    + regStr + '"'
+     + ',"price":'      + str.tostring(math.round(rClose, 4))
+     + ',"sl":'         + str.tostring(math.round(slL,    4))
+     + ',"tp":'         + str.tostring(math.round(tpL,    4))
+     + ',"qty":'        + str.tostring(math.round(qty_labouch, 4))
+     + ',"leverage":'   + str.tostring(int(leverageLabMult))
+     + ',"capital":'    + str.tostring(startCapitalLab)
+     + ',"bet_units":'  + str.tostring(int(math.round(bet_units)))
+     + ',"mult_lab":'   + str.tostring(math.round(mult_lab, 2))
+     + '}',
+     testMode ? alert.freq_none : alert.freq_once_per_bar_close)
 
 // ── SHORT ────────────────────────────────────────────────────────
 entryShort = (entryST or entrySE) and validS and not inRng and not dailyStop
@@ -356,20 +355,19 @@ if entryShort
              trail_points=trailPtsS, trail_offset=atr * 1.6)
     else
         strategy.exit("Exit Short", from_entry="Short", stop=slS, limit=tpS)
-    if not testMode
-        alert(
-         '{"action":"open","side":"sell","symbol":"' + whSymbol + '"'
-         + ',"regime":"'    + regStr + '"'
-         + ',"price":'      + str.tostring(math.round(rClose, 4))
-         + ',"sl":'         + str.tostring(math.round(slS,    4))
-         + ',"tp":'         + str.tostring(math.round(tpS,    4))
-         + ',"qty":'        + str.tostring(math.round(qty_labouch, 4))
-         + ',"leverage":'   + str.tostring(int(leverageLabMult))
-         + ',"capital":'    + str.tostring(startCapitalLab)
-         + ',"bet_units":'  + str.tostring(int(math.round(bet_units)))
-         + ',"mult_lab":'   + str.tostring(math.round(mult_lab, 2))
-         + '}',
-         testMode ? alert.freq_none : alert.freq_once_per_bar_close)
+    alert(
+     '{"action":"open","side":"sell","symbol":"' + whSymbol + '"'
+     + ',"regime":"'    + regStr + '"'
+     + ',"price":'      + str.tostring(math.round(rClose, 4))
+     + ',"sl":'         + str.tostring(math.round(slS,    4))
+     + ',"tp":'         + str.tostring(math.round(tpS,    4))
+     + ',"qty":'        + str.tostring(math.round(qty_labouch, 4))
+     + ',"leverage":'   + str.tostring(int(leverageLabMult))
+     + ',"capital":'    + str.tostring(startCapitalLab)
+     + ',"bet_units":'  + str.tostring(int(math.round(bet_units)))
+     + ',"mult_lab":'   + str.tostring(math.round(mult_lab, 2))
+     + '}',
+     testMode ? alert.freq_none : alert.freq_once_per_bar_close)
 
 // ── DCA LONG ─────────────────────────────────────────────────────
 var float dcaQtyL = na
@@ -382,18 +380,17 @@ if dcaLongOk
     newSl  = entrySlL
     newTp  = newAvg + (newAvg - newSl) * (isTrending ? 4.0 : 3.0)
     strategy.exit("Exit Long", stop=newSl, limit=newTp)
-    if not testMode
-        alert(
-         '{"action":"dca","side":"buy","symbol":"' + whSymbol + '"'
-         + ',"price":'       + str.tostring(math.round(rClose, 4))
-         + ',"qty":'         + str.tostring(math.round(dcaQtyL, 4))
-         + ',"dca_level":'   + str.tostring(dcaCountL)
-         + ',"avg_price":'   + str.tostring(math.round(strategy.position_avg_price, 4))
-         + ',"sl":'          + str.tostring(math.round(newSl, 4))
-         + ',"tp":'          + str.tostring(math.round(newTp, 4))
-         + ',"leverage":'    + str.tostring(int(leverageLabMult))
-         + '}',
-         testMode ? alert.freq_none : alert.freq_once_per_bar_close)
+    alert(
+     '{"action":"dca","side":"buy","symbol":"' + whSymbol + '"'
+     + ',"price":'       + str.tostring(math.round(rClose, 4))
+     + ',"qty":'         + str.tostring(math.round(dcaQtyL, 4))
+     + ',"dca_level":'   + str.tostring(dcaCountL)
+     + ',"avg_price":'   + str.tostring(math.round(strategy.position_avg_price, 4))
+     + ',"sl":'          + str.tostring(math.round(newSl, 4))
+     + ',"tp":'          + str.tostring(math.round(newTp, 4))
+     + ',"leverage":'    + str.tostring(int(leverageLabMult))
+     + '}',
+     testMode ? alert.freq_none : alert.freq_once_per_bar_close)
 
 // ── DCA SHORT ────────────────────────────────────────────────────
 var float dcaQtyS = na
@@ -406,18 +403,17 @@ if dcaShortOk
     newSl  = entrySlS
     newTp  = newAvg - (newSl - newAvg) * (isTrending ? 4.0 : 3.0)
     strategy.exit("Exit Short", stop=newSl, limit=newTp)
-    if not testMode
-        alert(
-         '{"action":"dca","side":"sell","symbol":"' + whSymbol + '"'
-         + ',"price":'       + str.tostring(math.round(rClose, 4))
-         + ',"qty":'         + str.tostring(math.round(dcaQtyS, 4))
-         + ',"dca_level":'   + str.tostring(dcaCountS)
-         + ',"avg_price":'   + str.tostring(math.round(strategy.position_avg_price, 4))
-         + ',"sl":'          + str.tostring(math.round(newSl, 4))
-         + ',"tp":'          + str.tostring(math.round(newTp, 4))
-         + ',"leverage":'    + str.tostring(int(leverageLabMult))
-         + '}',
-         testMode ? alert.freq_none : alert.freq_once_per_bar_close)
+    alert(
+     '{"action":"dca","side":"sell","symbol":"' + whSymbol + '"'
+     + ',"price":'       + str.tostring(math.round(rClose, 4))
+     + ',"qty":'         + str.tostring(math.round(dcaQtyS, 4))
+     + ',"dca_level":'   + str.tostring(dcaCountS)
+     + ',"avg_price":'   + str.tostring(math.round(strategy.position_avg_price, 4))
+     + ',"sl":'          + str.tostring(math.round(newSl, 4))
+     + ',"tp":'          + str.tostring(math.round(newTp, 4))
+     + ',"leverage":'    + str.tostring(int(leverageLabMult))
+     + '}',
+     testMode ? alert.freq_none : alert.freq_once_per_bar_close)
 
 // ═══════════════════════════════════════════════════════════════
 //  DÉTECTION CLÔTURE + MISE À JOUR LABOUCHÈRE + ALERTE CLOSE
@@ -474,20 +470,20 @@ if prevPos != 0.0 and currPos == 0.0
              math.round((entryPx - exitPx) / entryPx * 100, 2)
         pnlSign = pnlPct >= 0 ? "GAIN" : "PERTE"
         alert(
-         '{"action":"close"'
-         + ',"coin":"'    + hlCoin + '"'
-         + ',"symbol":"'  + whSymbol + '"'
-         + ',"side":"'    + entrySd + '"'
-         + ',"entry":'    + str.tostring(math.round(entryPx, 4))
-         + ',"exit":'     + str.tostring(math.round(exitPx,  4))
-         + ',"pnl_pct":'  + str.tostring(pnlPct)
-         + ',"equity":'   + str.tostring(math.round(strategy.equity, 2))
-         + ',"msg":"'     + pnlSign + ' ' + hlCoin + ' | ' + entrySd
-         + ' | Entree:' + str.tostring(math.round(entryPx, 2))
-         + ' Sortie:'   + str.tostring(math.round(exitPx,  2))
-         + ' PnL:'      + str.tostring(pnlPct) + '%"'
-         + '}',
-         alert.freq_once_per_bar_close)
+     '{"action":"close"'
+     + ',"coin":"'    + hlCoin + '"'
+     + ',"symbol":"'  + whSymbol + '"'
+     + ',"side":"'    + entrySd + '"'
+     + ',"entry":'    + str.tostring(math.round(entryPx, 4))
+     + ',"exit":'     + str.tostring(math.round(exitPx,  4))
+     + ',"pnl_pct":'  + str.tostring(pnlPct)
+     + ',"equity":'   + str.tostring(math.round(strategy.equity, 2))
+     + ',"msg":"'     + pnlSign + ' ' + hlCoin + ' | ' + entrySd
+     + ' | Entree:' + str.tostring(math.round(entryPx, 2))
+     + ' Sortie:'   + str.tostring(math.round(exitPx,  2))
+     + ' PnL:'      + str.tostring(pnlPct) + '%"'
+     + '}',
+     alert.freq_once_per_bar_close)
 
 // ═══════════════════════════════════════════════════════════════
 //  VISUALISATION
@@ -527,50 +523,50 @@ capStr      = str.tostring(startCapitalLab, "#") + " USDC"
 
 if showLabTable
     var table labTbl = table.new(position.top_right, 2, 7,
-         border_color=color.new(color.gray, 40), border_width=1,
-         bgcolor=color.new(color.white, 5))
+     border_color=color.new(color.gray, 40), border_width=1,
+     bgcolor=color.new(color.white, 5))
 
     // En-tête
     table.cell(labTbl, 0, 0, "🎯 Labouchère", text_color=color.white,
-         bgcolor=color.new(color.purple, 30), text_size=size.small)
+     bgcolor=color.new(color.purple, 30), text_size=size.small)
     table.cell(labTbl, 1, 0, "Valeur", text_color=color.white,
-         bgcolor=color.new(color.purple, 30), text_size=size.small)
+     bgcolor=color.new(color.purple, 30), text_size=size.small)
 
     // Séquence
     table.cell(labTbl, 0, 1, "Séquence", text_color=color.gray,
-         bgcolor=color.rgb(240, 240, 255), text_size=size.tiny)
+     bgcolor=color.rgb(240, 240, 255), text_size=size.tiny)
     table.cell(labTbl, 1, 1, seqStr, text_color=color.new(color.blue, 0),
-         bgcolor=color.rgb(240, 240, 255), text_size=size.tiny)
+     bgcolor=color.rgb(240, 240, 255), text_size=size.tiny)
 
     // Bet units
     table.cell(labTbl, 0, 2, "Bet units", text_color=color.gray,
-         bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+     bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
     table.cell(labTbl, 1, 2, betUnitsStr, text_color=color.new(color.orange, 0),
-         bgcolor=color.rgb(255, 255, 255), text_size=size.small)
+     bgcolor=color.rgb(255, 255, 255), text_size=size.small)
 
     // Multiplicateur
     table.cell(labTbl, 0, 3, "Multiplicateur", text_color=color.gray,
-         bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+     bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
     table.cell(labTbl, 1, 3, multDispStr, text_color=color.new(color.purple, 0),
-         bgcolor=color.rgb(255, 255, 255), text_size=size.small)
+     bgcolor=color.rgb(255, 255, 255), text_size=size.small)
 
     // Capital actif
     table.cell(labTbl, 0, 4, "Capital actif", text_color=color.gray,
-         bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+     bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
     table.cell(labTbl, 1, 4, capStr, text_color=color.new(color.green, 0),
-         bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+     bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
 
     // Cum pertes
     table.cell(labTbl, 0, 5, "Cum. pertes (u)", text_color=color.gray,
-         bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+     bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
     table.cell(labTbl, 1, 5, str.tostring(int(cum_loss_units)), text_color=color.new(color.red, 20),
-         bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+     bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
 
     // Stop journalier
     table.cell(labTbl, 0, 6, "Stop jour", text_color=color.gray,
-         bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+     bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
     table.cell(labTbl, 1, 6, stopLabel, text_color=stopColor,
-         bgcolor=color.rgb(255, 255, 255), text_size=size.small)
+     bgcolor=color.rgb(255, 255, 255), text_size=size.small)
 
 // ═══════════════════════════════════════════════════════════════
 //  TABLEAU PERFS (inchangé du v6.2 original)
@@ -589,21 +585,21 @@ if curDD > maxDDVal
 
 if showStats
     var table stats = table.new(position.top_left, 2, 5,
-         border_color=color.new(color.gray, 50), border_width=1)
+     border_color=color.new(color.gray, 50), border_width=1)
     table.cell(stats, 0, 0, "JP v6.2 Labouch",    text_color=color.black,             bgcolor=color.new(color.purple, 70), text_size=size.small)
     table.cell(stats, 1, 0, hlCoin + " → HL",      text_color=color.new(color.blue, 0),bgcolor=color.new(color.purple, 70), text_size=size.small)
     table.cell(stats, 0, 1, "Capital actuel",       text_color=color.gray,              bgcolor=color.rgb(255, 255, 255),    text_size=size.tiny)
     table.cell(stats, 1, 1, str.tostring(curEq, "#.##") + " $",
-         text_color=color.new(color.green, 0), bgcolor=color.rgb(255, 255, 255),        text_size=size.tiny)
+     text_color=color.new(color.green, 0), bgcolor=color.rgb(255, 255, 255),        text_size=size.tiny)
     table.cell(stats, 0, 2, "Perte max/trade",      text_color=color.gray,              bgcolor=color.rgb(255, 255, 255),    text_size=size.tiny)
     table.cell(stats, 1, 2, str.tostring(curEq * slCapPct, "#.##") + " $",
-         text_color=color.orange, bgcolor=color.rgb(255, 255, 255),                     text_size=size.tiny)
+     text_color=color.orange, bgcolor=color.rgb(255, 255, 255),                     text_size=size.tiny)
     table.cell(stats, 0, 3, "DD Courant",           text_color=color.gray,              bgcolor=color.rgb(255, 255, 255),    text_size=size.tiny)
     table.cell(stats, 1, 3, str.tostring(curDD * 100, "#.##") + "%",
-         text_color=curDD > maxDD * 0.8 ? color.red : color.black, bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+     text_color=curDD > maxDD * 0.8 ? color.red : color.black, bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
     table.cell(stats, 0, 4, "Max DD",               text_color=color.gray,              bgcolor=color.rgb(255, 255, 255),    text_size=size.tiny)
     table.cell(stats, 1, 4, str.tostring(maxDDVal * 100, "#.##") + "%",
-         text_color=color.orange, bgcolor=color.rgb(255, 255, 255),                     text_size=size.tiny)
+     text_color=color.orange, bgcolor=color.rgb(255, 255, 255),                     text_size=size.tiny)
 
 // ═══════════════════════════════════════════════════════════════
 //  TABLEAU CONDITIONS (bas-gauche)
@@ -630,7 +626,7 @@ cShortAll    = cAdx and cNotRange and cVol and cShortTrend and cShortMa50 and cS
 
 if showParams
     var table cond = table.new(position.bottom_left, 3, 12,
-         border_color=color.new(color.gray, 50), border_width=1)
+     border_color=color.new(color.gray, 50), border_width=1)
 
     table.cell(cond, 0, 0, "CONDITION",       text_color=color.black,               bgcolor=color.new(color.purple, 70), text_size=size.tiny)
     table.cell(cond, 1, 0, "LONG",            text_color=color.new(color.green, 0), bgcolor=color.new(color.purple, 70), text_size=size.tiny)
