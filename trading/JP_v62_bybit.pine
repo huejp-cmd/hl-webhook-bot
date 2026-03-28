@@ -27,7 +27,7 @@ strategy("JP v6.2 - Bybit->HL 30M",
 
 // ------- MODE TEST (désactive les alertes webhook) -------
 g_test   = "⚙️ Mode"
-testMode = input.bool(true, "🧪 MODE TEST — désactive les alertes webhook", group=g_test,
+testMode = input.bool(false, "🧪 MODE TEST — désactive les alertes webhook", group=g_test,
            tooltip="TRUE = Strategy Tester actif SANS envoyer de signal au bot (DRY RUN Pine Script). FALSE = alertes live envoyées au bot Railway.")
 
 // ------- COIN CIBLE (forçé dans le webhook) -------
