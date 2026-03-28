@@ -25,6 +25,11 @@ strategy("JP v6.2 - Bybit->HL 30M",
  initial_capital=500,
  calc_on_every_tick=false)
 
+// ------- MODE TEST (désactive les alertes webhook) -------
+g_test   = "⚙️ Mode"
+testMode = input.bool(true, "🧪 MODE TEST — désactive les alertes webhook", group=g_test,
+           tooltip="TRUE = Strategy Tester actif SANS envoyer de signal au bot (DRY RUN Pine Script). FALSE = alertes live envoyées au bot Railway.")
+
 // ------- COIN CIBLE (forçé dans le webhook) -------
 g_hl    = "Hyperliquid"
 hlCoin  = input.string("ETH", "Coin cible HL", options=["SOL","ETH","BTC","ARB","OP","AVAX"], group=g_hl,
@@ -268,17 +273,18 @@ if entryLong
              trail_points=trailPtsL, trail_offset=atr * 1.6)
     else
         strategy.exit("Exit Long", from_entry="Long", stop=slL, limit=tpL)
-    alert(
-     '{"action":"open","side":"buy","symbol":"' + whSymbol + '"'
-     + ',"regime":"' + regStr + '"'
-     + ',"price":'    + str.tostring(math.round(rClose, 4))
-     + ',"sl":'       + str.tostring(math.round(slL,    4))
-     + ',"tp":'       + str.tostring(math.round(tpL,    4))
-     + ',"qty":'      + str.tostring(math.round(qtyL,   4))
-     + ',"leverage":' + str.tostring(int(leverage))
-     + ',"capital":'  + str.tostring(stepCapital)
-     + ',"risk_pct":' + str.tostring(riskPerc * 100) + '}',
-     alert.freq_once_per_bar_close)
+if not testMode
+        alert(
+         '{"action":"open","side":"buy","symbol":"' + whSymbol + '"'
+         + ',"regime":"' + regStr + '"'
+         + ',"price":'    + str.tostring(math.round(rClose, 4))
+         + ',"sl":'       + str.tostring(math.round(slL,    4))
+         + ',"tp":'       + str.tostring(math.round(tpL,    4))
+         + ',"qty":'      + str.tostring(math.round(qtyL,   4))
+         + ',"leverage":' + str.tostring(int(leverage))
+         + ',"capital":'  + str.tostring(stepCapital)
+         + ',"risk_pct":' + str.tostring(riskPerc * 100) + '}',
+         alert.freq_once_per_bar_close)
 
 // ── SHORT : tendance OU explosif — 1 seul alert() par bougie (v6.2) ─
 entryShort = (entryST or entrySE) and validS and not inRng
@@ -295,17 +301,18 @@ if entryShort
              trail_points=trailPtsS, trail_offset=atr * 1.6)
     else
         strategy.exit("Exit Short", from_entry="Short", stop=slS, limit=tpS)
-    alert(
-     '{"action":"open","side":"sell","symbol":"' + whSymbol + '"'
-     + ',"regime":"' + regStr + '"'
-     + ',"price":'    + str.tostring(math.round(rClose, 4))
-     + ',"sl":'       + str.tostring(math.round(slS,    4))
-     + ',"tp":'       + str.tostring(math.round(tpS,    4))
-     + ',"qty":'      + str.tostring(math.round(qtyS,   4))
-     + ',"leverage":' + str.tostring(int(leverage))
-     + ',"capital":'  + str.tostring(stepCapital)
-     + ',"risk_pct":' + str.tostring(riskPerc * 100) + '}',
-     alert.freq_once_per_bar_close)
+if not testMode
+        alert(
+         '{"action":"open","side":"sell","symbol":"' + whSymbol + '"'
+         + ',"regime":"' + regStr + '"'
+         + ',"price":'    + str.tostring(math.round(rClose, 4))
+         + ',"sl":'       + str.tostring(math.round(slS,    4))
+         + ',"tp":'       + str.tostring(math.round(tpS,    4))
+         + ',"qty":'      + str.tostring(math.round(qtyS,   4))
+         + ',"leverage":' + str.tostring(int(leverage))
+         + ',"capital":'  + str.tostring(stepCapital)
+         + ',"risk_pct":' + str.tostring(riskPerc * 100) + '}',
+         alert.freq_once_per_bar_close)
 
 // ── DCA LONG ─────────────────────────────────────────────────────
 if dcaLongOk
@@ -319,19 +326,20 @@ if dcaLongOk
     newTp  = newAvg + (newAvg - newSl) * (isTrending ? 4.0 : 3.0)
     strategy.exit("Exit Long", stop=newSl, limit=newTp)
 
-    alert(
-     '{"action":"dca"'
-     + ',"side":"buy"'
-     + ',"symbol":"' + whSymbol + '"'
-     + ',"price":'   + str.tostring(math.round(rClose, 4))
-     + ',"qty":'     + str.tostring(math.round(dcaQtyL, 4))
-     + ',"dca_level":' + str.tostring(dcaCountL)
-     + ',"avg_price":' + str.tostring(math.round(strategy.position_avg_price, 4))
-     + ',"sl":'      + str.tostring(math.round(newSl, 4))
-     + ',"tp":'      + str.tostring(math.round(newTp, 4))
-     + ',"leverage":' + str.tostring(int(leverage))
-     + '}',
-     alert.freq_once_per_bar_close)
+if not testMode
+        alert(
+         '{"action":"dca"'
+         + ',"side":"buy"'
+         + ',"symbol":"' + whSymbol + '"'
+         + ',"price":'   + str.tostring(math.round(rClose, 4))
+         + ',"qty":'     + str.tostring(math.round(dcaQtyL, 4))
+         + ',"dca_level":' + str.tostring(dcaCountL)
+         + ',"avg_price":' + str.tostring(math.round(strategy.position_avg_price, 4))
+         + ',"sl":'      + str.tostring(math.round(newSl, 4))
+         + ',"tp":'      + str.tostring(math.round(newTp, 4))
+         + ',"leverage":' + str.tostring(int(leverage))
+         + '}',
+         alert.freq_once_per_bar_close)
 
 // ── DCA SHORT ────────────────────────────────────────────────────
 if dcaShortOk
@@ -344,19 +352,20 @@ if dcaShortOk
     newTp  = newAvg - (newSl - newAvg) * (isTrending ? 4.0 : 3.0)
     strategy.exit("Exit Short", stop=newSl, limit=newTp)
 
-    alert(
-     '{"action":"dca"'
-     + ',"side":"sell"'
-     + ',"symbol":"' + whSymbol + '"'
-     + ',"price":'   + str.tostring(math.round(rClose, 4))
-     + ',"qty":'     + str.tostring(math.round(dcaQtyS, 4))
-     + ',"dca_level":' + str.tostring(dcaCountS)
-     + ',"avg_price":' + str.tostring(math.round(strategy.position_avg_price, 4))
-     + ',"sl":'      + str.tostring(math.round(newSl, 4))
-     + ',"tp":'      + str.tostring(math.round(newTp, 4))
-     + ',"leverage":' + str.tostring(int(leverage))
-     + '}',
-     alert.freq_once_per_bar_close)
+if not testMode
+        alert(
+         '{"action":"dca"'
+         + ',"side":"sell"'
+         + ',"symbol":"' + whSymbol + '"'
+         + ',"price":'   + str.tostring(math.round(rClose, 4))
+         + ',"qty":'     + str.tostring(math.round(dcaQtyS, 4))
+         + ',"dca_level":' + str.tostring(dcaCountS)
+         + ',"avg_price":' + str.tostring(math.round(strategy.position_avg_price, 4))
+         + ',"sl":'      + str.tostring(math.round(newSl, 4))
+         + ',"tp":'      + str.tostring(math.round(newTp, 4))
+         + ',"leverage":' + str.tostring(int(leverage))
+         + '}',
+         alert.freq_once_per_bar_close)
 
 //
 //  DETECTION CLOTURE + ALERTE CLOSE
@@ -382,21 +391,22 @@ if prevPos != 0.0 and currPos == 0.0 and not na(entryPx)
      math.round((entryPx - exitPx) / entryPx * 100, 2)
     pnlSign = pnlPct >= 0 ? "GAIN" : "PERTE"
 
-    alert(
-     '{"action":"close"'
-     + ',"coin":"'    + hlCoin + '"'
-     + ',"symbol":"'  + whSymbol + '"'
-     + ',"side":"'    + entrySd + '"'
-     + ',"entry":'    + str.tostring(math.round(entryPx, 4))
-     + ',"exit":'     + str.tostring(math.round(exitPx,  4))
-     + ',"pnl_pct":'  + str.tostring(pnlPct)
-     + ',"equity":'   + str.tostring(math.round(strategy.equity, 2))
-     + ',"msg":"'     + pnlSign + ' ' + hlCoin + ' | ' + entrySd
-     + ' | Entree:' + str.tostring(math.round(entryPx, 2))
-     + ' Sortie:'   + str.tostring(math.round(exitPx,  2))
-     + ' PnL:'      + str.tostring(pnlPct) + '%"'
-     + '}',
-     alert.freq_once_per_bar_close)
+if not testMode
+        alert(
+         '{"action":"close"'
+         + ',"coin":"'    + hlCoin + '"'
+         + ',"symbol":"'  + whSymbol + '"'
+         + ',"side":"'    + entrySd + '"'
+         + ',"entry":'    + str.tostring(math.round(entryPx, 4))
+         + ',"exit":'     + str.tostring(math.round(exitPx,  4))
+         + ',"pnl_pct":'  + str.tostring(pnlPct)
+         + ',"equity":'   + str.tostring(math.round(strategy.equity, 2))
+         + ',"msg":"'     + pnlSign + ' ' + hlCoin + ' | ' + entrySd
+         + ' | Entree:' + str.tostring(math.round(entryPx, 2))
+         + ' Sortie:'   + str.tostring(math.round(exitPx,  2))
+         + ' PnL:'      + str.tostring(pnlPct) + '%"'
+         + '}',
+         alert.freq_once_per_bar_close)
 
 //
 //  VISUALISATION
