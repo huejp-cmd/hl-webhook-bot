@@ -325,19 +325,20 @@ if entryLong
              trail_points=trailPtsL, trail_offset=atr * 1.6)
     else
         strategy.exit("Exit Long", from_entry="Long", stop=slL, limit=tpL)
-    alert(
-     '{"action":"open","side":"buy","symbol":"' + whSymbol + '"'
-     + ',"regime":"'    + regStr + '"'
-     + ',"price":'      + str.tostring(math.round(rClose, 4))
-     + ',"sl":'         + str.tostring(math.round(slL,    4))
-     + ',"tp":'         + str.tostring(math.round(tpL,    4))
-     + ',"qty":'        + str.tostring(math.round(qty_labouch, 4))
-     + ',"leverage":'   + str.tostring(int(leverageLabMult))
-     + ',"capital":'    + str.tostring(startCapitalLab)
-     + ',"bet_units":'  + str.tostring(int(math.round(bet_units)))
-     + ',"mult_lab":'   + str.tostring(math.round(mult_lab, 2))
-     + '}',
-     testMode ? alert.freq_none : alert.freq_once_per_bar_close)
+    if not testMode
+        alert(
+         '{"action":"open","side":"buy","symbol":"' + whSymbol + '"'
+         + ',"regime":"'    + regStr + '"'
+         + ',"price":'      + str.tostring(math.round(rClose, 4))
+         + ',"sl":'         + str.tostring(math.round(slL,    4))
+         + ',"tp":'         + str.tostring(math.round(tpL,    4))
+         + ',"qty":'        + str.tostring(math.round(qty_labouch, 4))
+         + ',"leverage":'   + str.tostring(int(leverageLabMult))
+         + ',"capital":'    + str.tostring(startCapitalLab)
+         + ',"bet_units":'  + str.tostring(int(math.round(bet_units)))
+         + ',"mult_lab":'   + str.tostring(math.round(mult_lab, 2))
+         + '}',
+         alert.freq_once_per_bar_close)
 
 // ── SHORT ────────────────────────────────────────────────────────
 entryShort = (entryST or entrySE) and validS and not inRng and not dailyStop
@@ -355,19 +356,20 @@ if entryShort
              trail_points=trailPtsS, trail_offset=atr * 1.6)
     else
         strategy.exit("Exit Short", from_entry="Short", stop=slS, limit=tpS)
-    alert(
-     '{"action":"open","side":"sell","symbol":"' + whSymbol + '"'
-     + ',"regime":"'    + regStr + '"'
-     + ',"price":'      + str.tostring(math.round(rClose, 4))
-     + ',"sl":'         + str.tostring(math.round(slS,    4))
-     + ',"tp":'         + str.tostring(math.round(tpS,    4))
-     + ',"qty":'        + str.tostring(math.round(qty_labouch, 4))
-     + ',"leverage":'   + str.tostring(int(leverageLabMult))
-     + ',"capital":'    + str.tostring(startCapitalLab)
-     + ',"bet_units":'  + str.tostring(int(math.round(bet_units)))
-     + ',"mult_lab":'   + str.tostring(math.round(mult_lab, 2))
-     + '}',
-     testMode ? alert.freq_none : alert.freq_once_per_bar_close)
+    if not testMode
+        alert(
+         '{"action":"open","side":"sell","symbol":"' + whSymbol + '"'
+         + ',"regime":"'    + regStr + '"'
+         + ',"price":'      + str.tostring(math.round(rClose, 4))
+         + ',"sl":'         + str.tostring(math.round(slS,    4))
+         + ',"tp":'         + str.tostring(math.round(tpS,    4))
+         + ',"qty":'        + str.tostring(math.round(qty_labouch, 4))
+         + ',"leverage":'   + str.tostring(int(leverageLabMult))
+         + ',"capital":'    + str.tostring(startCapitalLab)
+         + ',"bet_units":'  + str.tostring(int(math.round(bet_units)))
+         + ',"mult_lab":'   + str.tostring(math.round(mult_lab, 2))
+         + '}',
+         alert.freq_once_per_bar_close)
 
 // ── DCA LONG ─────────────────────────────────────────────────────
 var float dcaQtyL = na
@@ -380,17 +382,18 @@ if dcaLongOk
     newSl  = entrySlL
     newTp  = newAvg + (newAvg - newSl) * (isTrending ? 4.0 : 3.0)
     strategy.exit("Exit Long", stop=newSl, limit=newTp)
-    alert(
-     '{"action":"dca","side":"buy","symbol":"' + whSymbol + '"'
-     + ',"price":'       + str.tostring(math.round(rClose, 4))
-     + ',"qty":'         + str.tostring(math.round(dcaQtyL, 4))
-     + ',"dca_level":'   + str.tostring(dcaCountL)
-     + ',"avg_price":'   + str.tostring(math.round(strategy.position_avg_price, 4))
-     + ',"sl":'          + str.tostring(math.round(newSl, 4))
-     + ',"tp":'          + str.tostring(math.round(newTp, 4))
-     + ',"leverage":'    + str.tostring(int(leverageLabMult))
-     + '}',
-     testMode ? alert.freq_none : alert.freq_once_per_bar_close)
+    if not testMode
+        alert(
+         '{"action":"dca","side":"buy","symbol":"' + whSymbol + '"'
+         + ',"price":'       + str.tostring(math.round(rClose, 4))
+         + ',"qty":'         + str.tostring(math.round(dcaQtyL, 4))
+         + ',"dca_level":'   + str.tostring(dcaCountL)
+         + ',"avg_price":'   + str.tostring(math.round(strategy.position_avg_price, 4))
+         + ',"sl":'          + str.tostring(math.round(newSl, 4))
+         + ',"tp":'          + str.tostring(math.round(newTp, 4))
+         + ',"leverage":'    + str.tostring(int(leverageLabMult))
+         + '}',
+         alert.freq_once_per_bar_close)
 
 // ── DCA SHORT ────────────────────────────────────────────────────
 var float dcaQtyS = na
@@ -403,17 +406,18 @@ if dcaShortOk
     newSl  = entrySlS
     newTp  = newAvg - (newSl - newAvg) * (isTrending ? 4.0 : 3.0)
     strategy.exit("Exit Short", stop=newSl, limit=newTp)
-    alert(
-     '{"action":"dca","side":"sell","symbol":"' + whSymbol + '"'
-     + ',"price":'       + str.tostring(math.round(rClose, 4))
-     + ',"qty":'         + str.tostring(math.round(dcaQtyS, 4))
-     + ',"dca_level":'   + str.tostring(dcaCountS)
-     + ',"avg_price":'   + str.tostring(math.round(strategy.position_avg_price, 4))
-     + ',"sl":'          + str.tostring(math.round(newSl, 4))
-     + ',"tp":'          + str.tostring(math.round(newTp, 4))
-     + ',"leverage":'    + str.tostring(int(leverageLabMult))
-     + '}',
-     testMode ? alert.freq_none : alert.freq_once_per_bar_close)
+    if not testMode
+        alert(
+         '{"action":"dca","side":"sell","symbol":"' + whSymbol + '"'
+         + ',"price":'       + str.tostring(math.round(rClose, 4))
+         + ',"qty":'         + str.tostring(math.round(dcaQtyS, 4))
+         + ',"dca_level":'   + str.tostring(dcaCountS)
+         + ',"avg_price":'   + str.tostring(math.round(strategy.position_avg_price, 4))
+         + ',"sl":'          + str.tostring(math.round(newSl, 4))
+         + ',"tp":'          + str.tostring(math.round(newTp, 4))
+         + ',"leverage":'    + str.tostring(int(leverageLabMult))
+         + '}',
+         alert.freq_once_per_bar_close)
 
 // ═══════════════════════════════════════════════════════════════
 //  DÉTECTION CLÔTURE + MISE À JOUR LABOUCHÈRE + ALERTE CLOSE
@@ -469,21 +473,22 @@ if prevPos != 0.0 and currPos == 0.0
              math.round((exitPx - entryPx) / entryPx * 100, 2) :
              math.round((entryPx - exitPx) / entryPx * 100, 2)
         pnlSign = pnlPct >= 0 ? "GAIN" : "PERTE"
-        alert(
-     '{"action":"close"'
-     + ',"coin":"'    + hlCoin + '"'
-     + ',"symbol":"'  + whSymbol + '"'
-     + ',"side":"'    + entrySd + '"'
-     + ',"entry":'    + str.tostring(math.round(entryPx, 4))
-     + ',"exit":'     + str.tostring(math.round(exitPx,  4))
-     + ',"pnl_pct":'  + str.tostring(pnlPct)
-     + ',"equity":'   + str.tostring(math.round(strategy.equity, 2))
-     + ',"msg":"'     + pnlSign + ' ' + hlCoin + ' | ' + entrySd
-     + ' | Entree:' + str.tostring(math.round(entryPx, 2))
-     + ' Sortie:'   + str.tostring(math.round(exitPx,  2))
-     + ' PnL:'      + str.tostring(pnlPct) + '%"'
-     + '}',
-     alert.freq_once_per_bar_close)
+        if not testMode
+            alert(
+         '{"action":"close"'
+         + ',"coin":"'    + hlCoin + '"'
+         + ',"symbol":"'  + whSymbol + '"'
+         + ',"side":"'    + entrySd + '"'
+         + ',"entry":'    + str.tostring(math.round(entryPx, 4))
+         + ',"exit":'     + str.tostring(math.round(exitPx,  4))
+         + ',"pnl_pct":'  + str.tostring(pnlPct)
+         + ',"equity":'   + str.tostring(math.round(strategy.equity, 2))
+         + ',"msg":"'     + pnlSign + ' ' + hlCoin + ' | ' + entrySd
+         + ' | Entree:' + str.tostring(math.round(entryPx, 2))
+         + ' Sortie:'   + str.tostring(math.round(exitPx,  2))
+         + ' PnL:'      + str.tostring(pnlPct) + '%"'
+         + '}',
+         alert.freq_once_per_bar_close)
 
 // ═══════════════════════════════════════════════════════════════
 //  VISUALISATION
