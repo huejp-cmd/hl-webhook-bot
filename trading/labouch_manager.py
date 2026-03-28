@@ -55,12 +55,28 @@ STOP_SESSION_PCT  = 0.15   # 15 % de perte journalière → pause
 # ---------------------------------------------------------------------------
 # Ceiling marché (taille notionnelle max par symbole en USDC)
 # ---------------------------------------------------------------------------
-MARKET_CEILING_NOTIONAL = {
-    "ETH": 50_000,    # USDC notional — exécution propre sans slippage
-    "SOL": 70_000,    # USDC notional
+# Mode "réaliste" : exécution propre sans slippage
+MARKET_CEILING_REALISTIC = {
+    "ETH": 50_000,
+    "SOL": 70_000,
     "BTC": 100_000,
 }
+
+# Mode "haut" : ceiling élevé pour maximiser la performance
+# (correspond à la liquidité profonde du carnet d'ordres)
+MARKET_CEILING_HIGH = {
+    "ETH": 500_000,
+    "SOL": 500_000,
+    "BTC": 1_000_000,
+}
+
 DEFAULT_CEILING_NOTIONAL = 50_000
+
+# Mode actif : "realistic" ou "high"
+CEILING_MODE = "high"  # JP: ceiling haut pour test et performance max
+
+# Alias rétrocompat (pointe sur le mode réaliste par défaut)
+MARKET_CEILING_NOTIONAL = MARKET_CEILING_REALISTIC
 
 
 def _default_sym_state() -> dict:
@@ -211,8 +227,21 @@ class LabouchManager:
     # ------------------------------------------------------------------
 
     def _get_ceiling_notional(self, symbol: str) -> float:
-        """Retourne le seuil notionnel critique pour ce symbole."""
+        """Retourne le seuil notionnel critique pour ce symbole (mode actif)."""
+        sym = self._get_sym(symbol)
+        if "ceiling_usdc" in sym:
+            return sym["ceiling_usdc"]
+        if "ceiling_mode" in sym:
+            mode = sym["ceiling_mode"]
+            ceilings = MARKET_CEILING_HIGH if mode == "high" else MARKET_CEILING_REALISTIC
+            return ceilings.get(symbol.upper(), DEFAULT_CEILING_NOTIONAL)
+        # Fallback rétrocompat : utilise MARKET_CEILING_NOTIONAL (mode realistic)
         return MARKET_CEILING_NOTIONAL.get(symbol.upper(), DEFAULT_CEILING_NOTIONAL)
+
+    def _get_current_capital(self, symbol: str) -> float:
+        """Retourne active_capital ou estime depuis l'état."""
+        sym = self._get_sym(symbol)
+        return sym.get("active_capital", sym.get("initial_capital", 0.0))
 
     def _trigger_ceiling(self, symbol: str, current_capital: float) -> dict:
         """
@@ -274,18 +303,27 @@ class LabouchManager:
 
         Retourne True si ceiling atteint (= ne pas placer cet ordre, série terminée).
         """
-        ceiling = self._get_ceiling_notional(symbol)
+        sym = self._get_sym(symbol)
+
+        # Priorité : ceiling stocké dans l'état (défini par init_from_ceiling)
+        # Sinon : fallback sur MARKET_CEILING_NOTIONAL (rétrocompat)
+        if "ceiling_usdc" in sym:
+            ceiling = sym["ceiling_usdc"]
+        elif "ceiling_mode" in sym:
+            mode = sym["ceiling_mode"]
+            ceilings = MARKET_CEILING_HIGH if mode == "high" else MARKET_CEILING_REALISTIC
+            ceiling = ceilings.get(symbol, DEFAULT_CEILING_NOTIONAL)
+        else:
+            ceiling = MARKET_CEILING_NOTIONAL.get(symbol, DEFAULT_CEILING_NOTIONAL)
+
         notional = next_qty * current_price
 
         if notional >= ceiling:
-            sym = self._get_sym(symbol)
-            # Utilise active_capital comme capital courant si disponible
-            current_capital = sym.get("active_capital") or sym.get("last_entry_capital") or 0.0
-            log.warning(
+            log.info(
                 f"[Labouchère] CEILING CHECK {symbol}: "
                 f"notional={notional:.0f} ≥ ceiling={ceiling:.0f} USDC → CEILING HIT"
             )
-            self._trigger_ceiling(symbol, current_capital)
+            self._trigger_ceiling(symbol, self._get_current_capital(symbol))
             return True
 
         log.debug(
@@ -322,6 +360,61 @@ class LabouchManager:
             f"[Labouchère] {symbol} init série 1 : "
             f"capital={capital} + margin={margin} = {capital + margin} USDC"
         )
+
+    def init_from_ceiling(
+        self,
+        symbol:       str,
+        ceiling_qty:  float,
+        price:        float,
+        ceiling_mode: str = None,
+    ) -> dict:
+        """
+        Initialise automatiquement à partir du ceiling marché.
+
+        La règle fondamentale : capital_propre = ceiling / 2, margin = ceiling / 2
+        Le risque absolu maximum = capital_propre initial (jamais plus).
+
+        Args:
+            symbol       : "ETH", "SOL", etc.
+            ceiling_qty  : taille critique en unités du token (ex: 25 pour 25 ETH)
+                           Si None → utilise MARKET_CEILING selon ceiling_mode
+            price        : prix actuel en USDC
+            ceiling_mode : "realistic" ou "high". Si None → utilise CEILING_MODE global.
+
+        Exemple :
+            labouch.init_from_ceiling("ETH", ceiling_qty=25, price=2000)
+            # → capital = 25 000 USDC, margin = 25 000 USDC, ceiling = 50 000 USDC
+
+            labouch.init_from_ceiling("SOL", ceiling_qty=None, price=130)
+            # → utilise MARKET_CEILING_HIGH["SOL"] = 500 000
+            # → capital = 250 000 USDC, margin = 250 000 USDC
+        """
+        mode = ceiling_mode or CEILING_MODE
+
+        if ceiling_qty is not None:
+            ceiling_usdc = ceiling_qty * price
+        else:
+            ceilings = MARKET_CEILING_HIGH if mode == "high" else MARKET_CEILING_REALISTIC
+            ceiling_usdc = ceilings.get(symbol, DEFAULT_CEILING_NOTIONAL)
+
+        capital = ceiling_usdc / 2
+        margin  = ceiling_usdc / 2
+
+        # Met à jour aussi le ceiling du symbole dans l'état
+        sym = self._get_sym(symbol)
+        sym["ceiling_usdc"] = ceiling_usdc
+        sym["ceiling_mode"] = mode
+
+        self.init_series_with_margin(symbol, capital, margin)
+
+        log.info(
+            f"[Labouchère] {symbol} init_from_ceiling [{mode}]:\n"
+            f"  Ceiling  : {ceiling_usdc:,.0f} USDC notional\n"
+            f"  Capital  : {capital:,.0f} USDC propre\n"
+            f"  Margin   : {margin:,.0f} USDC\n"
+            f"  Risque max absolu ≈ {capital:,.0f} USDC"
+        )
+        return {"capital": capital, "margin": margin, "ceiling_usdc": ceiling_usdc}
 
     # ------------------------------------------------------------------
     # API publique
@@ -511,6 +604,8 @@ class LabouchManager:
             "last_entry_side":  sym.get("last_entry_side"),
             "stop_active":      daily_loss_pct >= self.stop_session_pct * 100,
             "ceiling_notional": self._get_ceiling_notional(symbol),
+            "ceiling_usdc":     sym.get("ceiling_usdc", DEFAULT_CEILING_NOTIONAL),
+            "ceiling_mode":     sym.get("ceiling_mode", CEILING_MODE),
         }
 
     def get_all_status(self) -> dict:

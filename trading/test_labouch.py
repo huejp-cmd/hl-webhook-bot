@@ -14,7 +14,14 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from labouch_manager import LabouchManager, MARKET_CEILING_NOTIONAL, DEFAULT_CEILING_NOTIONAL
+from labouch_manager import (
+    LabouchManager,
+    MARKET_CEILING_NOTIONAL,
+    MARKET_CEILING_REALISTIC,
+    MARKET_CEILING_HIGH,
+    DEFAULT_CEILING_NOTIONAL,
+    CEILING_MODE,
+)
 
 SEP  = "─" * 72
 SEP2 = "═" * 72
@@ -365,6 +372,54 @@ def test_scenario_e_classic():
 
 
 # ===========================================================================
+#  Scénario F — init_from_ceiling()
+# ===========================================================================
+
+def test_scenario_f_init_from_ceiling():
+    print()
+    print(SEP2)
+    print("SCÉNARIO F — init_from_ceiling()")
+    print(SEP2)
+
+    passed = []
+
+    # ── Test 1 : ceiling_qty explicite (25 ETH à 2000 USDC = 50 000 ceiling) ──
+    mgr_f = LabouchManager(state_file="/tmp/test_labouch_f.json")
+
+    result = mgr_f.init_from_ceiling("ETH", ceiling_qty=25, price=2000)
+    passed.append(assert_eq("capital == 25 000", result["capital"], 25_000))
+    passed.append(assert_eq("margin == 25 000",  result["margin"],  25_000))
+    passed.append(assert_eq("ceiling_usdc == 50 000", result["ceiling_usdc"], 50_000))
+
+    status = mgr_f.get_status("ETH")
+    passed.append(assert_eq("status active_capital == 50 000", status["active_capital"], 50_000))
+    passed.append(assert_true("status margin_active == True",  status["margin_active"] is True))
+    passed.append(assert_eq("status ceiling_usdc == 50 000",   status["ceiling_usdc"],  50_000))
+    print("  ✅ PASS init_from_ceiling avec ceiling_qty=25 ETH @ 2000 USDC")
+
+    # ── Test 2 : mode "high" sans ceiling_qty ──
+    result2 = mgr_f.init_from_ceiling("SOL", ceiling_qty=None, price=130, ceiling_mode="high")
+    passed.append(assert_eq("SOL high ceiling_usdc == 500 000", result2["ceiling_usdc"], 500_000))
+    passed.append(assert_eq("SOL high capital == 250 000",      result2["capital"],      250_000))
+    print("  ✅ PASS init_from_ceiling mode high SOL")
+
+    # ── Test 3 : mode "realistic" ──
+    result3 = mgr_f.init_from_ceiling("SOL", ceiling_qty=None, price=130, ceiling_mode="realistic")
+    passed.append(assert_eq("SOL realistic ceiling_usdc == 70 000", result3["ceiling_usdc"], 70_000))
+    passed.append(assert_eq("SOL realistic capital == 35 000",      result3["capital"],      35_000))
+    print("  ✅ PASS init_from_ceiling mode realistic SOL")
+
+    import os as _os
+    if _os.path.exists("/tmp/test_labouch_f.json"):
+        _os.remove("/tmp/test_labouch_f.json")
+
+    all_ok = all(passed)
+    print()
+    print(f"  {'✅ Scénario F : TOUS LES TESTS PASSÉS' if all_ok else '❌ Scénario F : ÉCHEC'}")
+    return all_ok
+
+
+# ===========================================================================
 #  Main
 # ===========================================================================
 
@@ -376,6 +431,7 @@ if __name__ == "__main__":
     results.append(("Scénario C (pas de ceiling si notional < seuil)", test_scenario_c_no_ceiling()))
     results.append(("Scénario D (get_status nouveaux champs)",  test_scenario_d_status()))
     results.append(("Scénario E (simulation classique 10 trades)", test_scenario_e_classic()))
+    results.append(("Scénario F (init_from_ceiling)",            test_scenario_f_init_from_ceiling()))
 
     print()
     print(SEP2)
