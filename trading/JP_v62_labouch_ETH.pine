@@ -1,22 +1,22 @@
 //@version=5
 //
-//  JP v6.2 Labouchère — ETH 29M
-//  Stratégie v6.2 avec système Labouchère INVERSÉ intégré
-//  Capital de départ : 500 USDC | Coin : ETH | Timeframe : 29M
+//  JP v6.2 Labouchere - ETH 29M
+//  Strategie v6.2 avec systeme Labouchere INVERS? integre
+//  Capital de depart : 500 USDC | Coin : ETH | Timeframe : 29M
 //
-//  LABOUCHERE INVERSÉ :
-//    - Séquence init [1,1,1,1]
+//  LABOUCHERE INVERS? :
+//    - Sequence init [1,1,1,1]
 //    - Bet = premier + dernier
-//    - Win  → append bet à la séquence (séquence grandit)
-//    - Loss → retire premier + dernier (séquence rétrécit → reset si vide)
-//    - Séquence vide → reset [1,1,1,1]
+//    - Win  ? append bet a la sequence (sequence grandit)
+//    - Loss ? retire premier + dernier (sequence retrecit ? reset si vide)
+//    - Sequence vide ? reset [1,1,1,1]
 //    - Reset mensuel le 1er du mois
 //    - Stop journalier si DD > STOP_LOSS_DAY%
 //
-//  ⚠️  CHARGER SUR UN CHART BYBIT : BYBIT:ETHUSDT 29M
+//  [!]  CHARGER SUR UN CHART BYBIT : BYBIT:ETHUSDT 29M
 //
 
-strategy("JP v6.2 Labouchère — ETH 29M",
+strategy("JP v6.2 Labouchere - ETH 29M",
  overlay=true,
  default_qty_type=strategy.fixed,
  commission_type=strategy.commission.percent,
@@ -25,43 +25,43 @@ strategy("JP v6.2 Labouchère — ETH 29M",
  initial_capital=500,
  calc_on_every_tick=false)
 
-// ═══════════════════════════════════════════════════════════════
+// ???????????????????????????????????????????????????????????????
 //  INPUTS
-// ═══════════════════════════════════════════════════════════════
+// ???????????????????????????????????????????????????????????????
 
-// ── Mode test ────────────────────────────────────────────────────
-g_test   = "⚙️ Mode"
-testMode = input.bool(false, "🧪 MODE TEST — désactive les alertes webhook", group=g_test,
-           tooltip="TRUE = DRY RUN Pine Script, aucun signal envoyé au bot.")
+// ?? Mode test ????????????????????????????????????????????????????
+g_test   = "[config] Mode"
+testMode = input.bool(false, "[TEST] MODE TEST ? desactive les alertes webhook", group=g_test,
+           tooltip="TRUE = DRY RUN Pine Script, aucun signal envoye au bot.")
 
-// ── Coin cible ───────────────────────────────────────────────────
+// ?? Coin cible ???????????????????????????????????????????????????
 g_hl     = "Hyperliquid"
 hlCoin   = input.string("ETH", "Coin cible HL", options=["SOL","ETH","BTC","ARB","OP","AVAX"], group=g_hl,
-           tooltip="Symbole envoyé au bot Hyperliquid dans le webhook.")
+           tooltip="Symbole envoye au bot Hyperliquid dans le webhook.")
 whSymbol = hlCoin + "USDT.P"
 
-// ── Labouchère ───────────────────────────────────────────────────
-g_lab            = "🎯 Labouchère"
-unitFactor       = input.float(0.5,   "Facteur unité (% capital/unité)", group=g_lab, step=0.1, minval=0.1,
-                   tooltip="Chaque unité = X% du capital. 0.5 = 0.5%/unité.")
-leverageLabMult  = input.float(2.0,   "Levier Labouchère", group=g_lab, step=0.5, minval=1.0,
-                   tooltip="Levier appliqué au sizing Labouchère.")
-capMultLab       = input.float(4.0,   "Plafond (× pertes cumulées)", group=g_lab, step=0.5, minval=1.0,
-                   tooltip="bet_units ≤ max(CAP_MULT × cumul_pertes, 2). Sécurité anti-emballement.")
-startCapitalLab  = input.float(500.0, "Capital départ USDC", group=g_lab, step=100, minval=100,
-                   tooltip="Capital de référence pour calculer les tailles de position Labouchère.")
-stopLossDayPct   = input.float(15.0,  "Stop perte journalière (%)", group=g_lab, step=1.0, minval=1.0,
-                   tooltip="Si equity baisse de X% dans la journée → pause jusqu'au lendemain.")
+// ?? Labouchere ???????????????????????????????????????????????????
+g_lab            = " Labouchere"
+unitFactor       = input.float(0.5,   "Facteur unite (% capital/unite)", group=g_lab, step=0.1, minval=0.1,
+                   tooltip="Chaque unite = X% du capital. 0.5 = 0.5%/unite.")
+leverageLabMult  = input.float(2.0,   "Levier Labouchere", group=g_lab, step=0.5, minval=1.0,
+                   tooltip="Levier applique au sizing Labouchere.")
+capMultLab       = input.float(4.0,   "Plafond (? pertes cumulees)", group=g_lab, step=0.5, minval=1.0,
+                   tooltip="bet_units ? max(CAP_MULT ? cumul_pertes, 2). Securite anti-emballement.")
+startCapitalLab  = input.float(500.0, "Capital depart USDC", group=g_lab, step=100, minval=100,
+                   tooltip="Capital de reference pour calculer les tailles de position Labouchere.")
+stopLossDayPct   = input.float(15.0,  "Stop perte journaliere (%)", group=g_lab, step=1.0, minval=1.0,
+                   tooltip="Si equity baisse de X% dans la journee ? pause jusqu'au lendemain.")
 
-// ── DCA ──────────────────────────────────────────────────────────
+// ?? DCA ??????????????????????????????????????????????????????????
 g_dca      = "DCA"
 dcaEnabled = input.bool(true,  "Activer DCA",           group=g_dca)
 maxDCA     = input.int(2,      "Niveaux DCA max (1-3)", group=g_dca, minval=1, maxval=3)
 dcaDist    = input.float(2.0,  "Distance DCA (%)",      group=g_dca, step=0.5) / 100
 dcaQtyMult = input.float(1.0,  "Multiplicateur qty DCA",group=g_dca, step=0.1,
-             tooltip="1.0 = même taille que l'entrée initiale.")
+             tooltip="1.0 = meme taille que l'entree initiale.")
 
-// ── Paramètres stratégie ─────────────────────────────────────────
+// ?? Parametres strategie ?????????????????????????????????????????
 useFixedRange  = input.bool(false, "Plage Fixe (sinon 1xATR)")
 fixedRangeSize = input.float(1.2,  "Plage Fixe ($)", step=0.1, minval=0.1)
 atrLength      = input.int(10,     "ATR Length")
@@ -75,35 +75,35 @@ riskPerc       = input.float(2.0,  "Risk per trade (%)", step=0.1) / 100
 maxDD          = input.float(13.0, "Max Drawdown Alert (%)") / 100
 vpK            = input.float(0.75, "VAH/VAL offset (xATR)", step=0.05)
 showStats      = input.bool(true,  "Afficher tableau perfs")
-showParams     = input.bool(true,  "Afficher tableau paramètres")
-showLabTable   = input.bool(true,  "Afficher tableau Labouchère")
-leverage       = input.float(2.0,  "Leverage (référence calcul SL)", minval=1.0, step=0.5)
-startCapital   = input.float(400.0,"Capital alloué $ (tester perfs)", minval=100, step=100)
+showParams     = input.bool(true,  "Afficher tableau parametres")
+showLabTable   = input.bool(true,  "Afficher tableau Labouchere")
+leverage       = input.float(2.0,  "Leverage (reference calcul SL)", minval=1.0, step=0.5)
+startCapital   = input.float(400.0,"Capital alloue $ (tester perfs)", minval=100, step=100)
 slCapPct       = input.float(5.0,  "SL max (% du capital)", minval=1.0, maxval=20.0, step=0.5) / 100
 
-// ── Exécution ────────────────────────────────────────────────────
-g_exec       = "Exécution"
+// ?? Execution ????????????????????????????????????????????????????
+g_exec       = "Execution"
 tpSlippage   = input.float(0.10, "Buffer slippage TP (%)", group=g_exec, step=0.01)
 
 g_cap        = "Capital"
-useCompound  = input.bool(false,   "Mode Compound (réinvestir les gains)", group=g_cap)
+useCompound  = input.bool(false,   "Mode Compound (reinvestir les gains)", group=g_cap)
 maxCapital   = input.float(5000.0, "Plafond capital trading (USDC)",       group=g_cap, step=500)
-useLiqFilter = input.bool(true,   "Filtre liquidité (volume marché)",       group=g_cap)
+useLiqFilter = input.bool(true,   "Filtre liquidite (volume marche)",       group=g_cap)
 liqPct       = input.float(2.0,   "Max % du volume 20 bar par trade",       group=g_cap, step=0.5)
 
-// Capital de référence SL/TP (compound optionnel, plafonné)
+// Capital de reference SL/TP (compound optionnel, plafonne)
 rawCapital  = useCompound
      ? math.max(strategy.initial_capital + strategy.netprofit, startCapital * 0.5)
      : startCapital
 stepCapital = math.min(rawCapital, maxCapital)
 
-// Filtre liquidité
+// Filtre liquidite
 volSma20    = ta.sma(volume, 20)
 maxNotional = volSma20 * close * (liqPct / 100)
 
-// ═══════════════════════════════════════════════════════════════
-//  ÉTAT LABOUCHÈRE
-// ═══════════════════════════════════════════════════════════════
+// ???????????????????????????????????????????????????????????????
+//  ?TAT LABOUCH?RE
+// ???????????????????????????????????????????????????????????????
 
 var array<int> seq       = array.from(1, 1, 1, 1)
 var float cum_loss_units = 0.0
@@ -111,9 +111,9 @@ var float prev_netprofit = 0.0
 var float daily_start_eq = strategy.equity
 var int   last_day       = dayofmonth
 var int   last_month     = month
-var int   entry_bet_int  = 2        // bet_units au moment de l'entrée
+var int   entry_bet_int  = 2        // bet_units au moment de l'entree
 
-// ── Reset mensuel (1er du mois) ──────────────────────────────────
+// ?? Reset mensuel (1er du mois) ??????????????????????????????????
 if month != last_month
     last_month := month
     if dayofmonth == 1
@@ -124,27 +124,27 @@ if month != last_month
         array.push(seq, 1)
         cum_loss_units := 0.0
 
-// ── Tracker équité journalière (reset à minuit UTC) ──────────────
+// ?? Tracker equite journaliere (reset a minuit UTC) ??????????????
 if dayofmonth != last_day
     daily_start_eq := strategy.equity
     last_day       := dayofmonth
 
-// ── Stop journalier ──────────────────────────────────────────────
+// ?? Stop journalier ??????????????????????????????????????????????
 dailyStop = strategy.equity < daily_start_eq * (1.0 - stopLossDayPct / 100.0)
 
-// ── Calcul bet_units courant (avec plafond) ──────────────────────
+// ?? Calcul bet_units courant (avec plafond) ??????????????????????
 seqSz   = array.size(seq)
 raw_bet = seqSz >= 2 ? array.get(seq, 0) + array.get(seq, seqSz - 1) : seqSz == 1 ? array.get(seq, 0) * 2 : 2
 cap_units = math.max(capMultLab * cum_loss_units, 2.0)
 bet_units = math.min(float(raw_bet), cap_units)
 
-// ── Quantité Labouchère (remplace qty fixe de la stratégie base) ─
+// ?? Quantite Labouchere (remplace qty fixe de la strategie base) ?
 mult_lab    = math.max(bet_units * unitFactor * leverageLabMult, 0.5)
 qty_labouch = math.max((startCapitalLab * mult_lab / 100.0) / close, startCapitalLab * 0.0005 / close)
 
-// ═══════════════════════════════════════════════════════════════
+// ???????????????????????????????????????????????????????????????
 //  FONCTIONS
-// ═══════════════════════════════════════════════════════════════
+// ???????????????????????????????????????????????????????????????
 
 hullMa(src, length) =>
     n2      = math.floor(length / 2)
@@ -153,9 +153,9 @@ hullMa(src, length) =>
     wma2    = ta.wma(src, length)
     ta.wma(2 * wma1 - wma2, sqrtLen)
 
-// ═══════════════════════════════════════════════════════════════
+// ???????????????????????????????????????????????????????????????
 //  CALCULS PRINCIPAUX
-// ═══════════════════════════════════════════════════════════════
+// ???????????????????????????????????????????????????????????????
 
 // ATR
 atr = ta.atr(atrLength)
@@ -200,7 +200,7 @@ poc    = vwap_
 // DMI / ADX
 [diplus, diminus, adx] = ta.dmi(adxLength, adxLength)
 
-// Volatilité / InRange
+// Volatilite / InRange
 var float[] volWin = array.new_float()
 curVol = ta.stdev(math.log(high / low), 100)
 array.push(volWin, curVol)
@@ -218,7 +218,7 @@ btcRng = (btcH - btcL) / nz(btcC, 1)
 
 inRng = adx < 20 and curVol < vol25 and btcRng < 0.01
 
-// Régimes
+// Regimes
 basis     = ta.sma(close, bbLength)
 dev       = bbMult * ta.stdev(close, bbLength)
 upperBB   = basis + dev
@@ -229,7 +229,7 @@ isTrending  = adx > 25 and not explosive
 isRanging   = adx < 20 and rHigh <= upperBB and rLow >= lowerBB and not (adx > 25 or explosive)
 isExplosive = explosive and not (adx > 25 or isRanging)
 
-// Conditions d'entrée
+// Conditions d'entree
 bullTrend    = diplus > diminus and rClose > ma50
 pullbackLong = rLow <= ma20 and rClose > ma20 and rsi > 40 and rsi < 65
 entryLT      = isTrending  and bullTrend and pullbackLong
@@ -247,7 +247,7 @@ strongBear = adx > 30 and diminus > diplus  * 1.5
 validL     = not strongBear
 validS     = not strongBull
 
-// SL / TP (sizing SL/TP conserve la logique originale — qty remplacé par Labouchère)
+// SL / TP (sizing SL/TP conserve la logique originale ? qty remplace par Labouchere)
 calcQty(ep, sp) =>
     dist = math.abs(ep - sp)
     dist := dist == 0 ? 1e-12 : dist
@@ -266,7 +266,7 @@ slL     = math.max(slBaseL, rClose * 0.980)
 tpMultL = isTrending ? 4.0 : (isRanging ? 2.5 : 3.3)
 tpL     = (rClose + (rClose - slL) * tpMultL) * (1 + tpSlippage / 100)
 rawQtyL = math.max(calcQty(rClose, slL) * leverage, stepCapital * 0.001)
-// Note: on utilise qty_labouch à la place de capQty_(rawQtyL, ...) pour les entrées
+// Note: on utilise qty_labouch a la place de capQty_(rawQtyL, ...) pour les entrees
 
 // Short SL/TP
 slBaseS = isRanging ? vah * 1.005 : ta.highest(rHigh, 15) * 1.005
@@ -277,9 +277,9 @@ rawQtyS = math.max(calcQty(rClose, slS) * leverage, stepCapital * 0.001)
 
 regStr = isTrending ? "trend" : (isRanging ? "range" : "explosive")
 
-// ═══════════════════════════════════════════════════════════════
+// ???????????????????????????????????????????????????????????????
 //  DCA TRACKING
-// ═══════════════════════════════════════════════════════════════
+// ???????????????????????????????????????????????????????????????
 
 var int   dcaCountL  = 0
 var int   dcaCountS  = 0
@@ -305,11 +305,11 @@ dcaShortOk = dcaEnabled and inShort and dcaCountS < maxDCA and
              not na(lastDcaPxS) and close > lastDcaPxS * (1 + dcaDist) and
              not ((entryST or entrySE) and validS)
 
-// ═══════════════════════════════════════════════════════════════
-//  STRATÉGIE ENTRÉES (qty_labouch remplace qty fixe)
-// ═══════════════════════════════════════════════════════════════
+// ???????????????????????????????????????????????????????????????
+//  STRAT?GIE ENTR?ES (qty_labouch remplace qty fixe)
+// ???????????????????????????????????????????????????????????????
 
-// ── LONG ─────────────────────────────────────────────────────────
+// ?? LONG ?????????????????????????????????????????????????????????
 entryLong = (entryLT or entryLE) and validL and not inRng and not dailyStop
 if entryLong
     strategy.cancel_all()
@@ -340,7 +340,7 @@ if entryLong
          + '}',
          alert.freq_once_per_bar_close)
 
-// ── SHORT ────────────────────────────────────────────────────────
+// ?? SHORT ????????????????????????????????????????????????????????
 entryShort = (entryST or entrySE) and validS and not inRng and not dailyStop
 if entryShort
     strategy.cancel_all()
@@ -371,7 +371,7 @@ if entryShort
          + '}',
          alert.freq_once_per_bar_close)
 
-// ── DCA LONG ─────────────────────────────────────────────────────
+// ?? DCA LONG ?????????????????????????????????????????????????????
 var float dcaQtyL = na
 if dcaLongOk
     dcaQtyL    := qty_labouch * math.pow(dcaQtyMult, dcaCountL + 1)
@@ -395,7 +395,7 @@ if dcaLongOk
          + '}',
          alert.freq_once_per_bar_close)
 
-// ── DCA SHORT ────────────────────────────────────────────────────
+// ?? DCA SHORT ????????????????????????????????????????????????????
 var float dcaQtyS = na
 if dcaShortOk
     dcaQtyS    := qty_labouch * math.pow(dcaQtyMult, dcaCountS + 1)
@@ -419,9 +419,9 @@ if dcaShortOk
          + '}',
          alert.freq_once_per_bar_close)
 
-// ═══════════════════════════════════════════════════════════════
-//  DÉTECTION CLÔTURE + MISE À JOUR LABOUCHÈRE + ALERTE CLOSE
-// ═══════════════════════════════════════════════════════════════
+// ???????????????????????????????????????????????????????????????
+//  D?TECTION CL?TURE + MISE ? JOUR LABOUCH?RE + ALERTE CLOSE
+// ???????????????????????????????????????????????????????????????
 
 var float entryPx  = na
 var string entrySd = ""
@@ -438,10 +438,10 @@ prevPos = strategy.position_size[1]
 currPos = strategy.position_size
 
 if prevPos != 0.0 and currPos == 0.0
-    // ── Mise à jour séquence Labouchère ──────────────────────────
+    // ?? Mise a jour sequence Labouchere ??????????????????????????
     isWin = strategy.netprofit > prev_netprofit
     if isWin
-        // Win inversé : on append le bet
+        // Win inverse : on append le bet
         array.push(seq, entry_bet_int)
     else
         // Loss : on retire premier + dernier
@@ -450,14 +450,14 @@ if prevPos != 0.0 and currPos == 0.0
             array.pop(seq)
             cum_loss_units := cum_loss_units + float(entry_bet_int)
         else
-            // Séquence épuisée → reset
+            // Sequence epuisee ? reset
             array.clear(seq)
             array.push(seq, 1)
             array.push(seq, 1)
             array.push(seq, 1)
             array.push(seq, 1)
             cum_loss_units := 0.0
-        // Vérification sécurité : si vide après retrait
+        // Verification securite : si vide apres retrait
         if array.size(seq) == 0
             array.push(seq, 1)
             array.push(seq, 1)
@@ -466,7 +466,7 @@ if prevPos != 0.0 and currPos == 0.0
             cum_loss_units := 0.0
     prev_netprofit := strategy.netprofit
 
-    // ── Alerte close ─────────────────────────────────────────────
+    // ?? Alerte close ?????????????????????????????????????????????
     if not na(entryPx) and not testMode
         exitPx  = close
         pnlPct  = entrySd == "buy" ?
@@ -490,9 +490,9 @@ if prevPos != 0.0 and currPos == 0.0
          + '}',
          alert.freq_once_per_bar_close)
 
-// ═══════════════════════════════════════════════════════════════
+// ???????????????????????????????????????????????????????????????
 //  VISUALISATION
-// ═══════════════════════════════════════════════════════════════
+// ???????????????????????????????????????????????????????????????
 
 plot(poc,  "POC",   color=color.fuchsia, linewidth=2)
 plot(vah,  "VAH",   color=color.blue,    style=plot.style_circles)
@@ -504,11 +504,11 @@ plotshape(entryST or entrySE, title="Short", location=location.abovebar, color=c
 bgcolor(inRng ? color.new(color.orange, 90) : na)
 bgcolor(dailyStop ? color.new(color.red, 92) : na, title="Stop journalier actif")
 
-// ═══════════════════════════════════════════════════════════════
-//  TABLEAU LABOUCHÈRE (haut-droite)
-// ═══════════════════════════════════════════════════════════════
+// ???????????????????????????????????????????????????????????????
+//  TABLEAU LABOUCH?RE (haut-droite)
+// ???????????????????????????????????????????????????????????????
 
-// Construction de la chaîne de séquence [1,1,1,2,3]
+// Construction de la chaine de sequence [1,1,1,2,3]
 seqStr = "["
 seqSzDisp = array.size(seq)
 if seqSzDisp == 0
@@ -520,9 +520,9 @@ else
             seqStr := seqStr + ","
     seqStr := seqStr + "]"
 
-stopLabel  = dailyStop ? "⚠️ STOP" : "OFF"
+stopLabel  = dailyStop ? "[!] STOP" : "OFF"
 stopColor  = dailyStop ? color.red  : color.new(color.green, 0)
-multDispStr = str.tostring(math.round(mult_lab, 2)) + "×"
+multDispStr = str.tostring(math.round(mult_lab, 2)) + "?"
 betUnitsStr = str.tostring(int(math.round(bet_units)))
 capStr      = str.tostring(startCapitalLab, "#") + " USDC"
 
@@ -531,14 +531,14 @@ if showLabTable
      border_color=color.new(color.gray, 40), border_width=1,
      bgcolor=color.new(color.white, 5))
 
-    // En-tête
-    table.cell(labTbl, 0, 0, "🎯 Labouchère", text_color=color.white,
+    // En-tete
+    table.cell(labTbl, 0, 0, " Labouchere", text_color=color.white,
      bgcolor=color.new(color.purple, 30), text_size=size.small)
     table.cell(labTbl, 1, 0, "Valeur", text_color=color.white,
      bgcolor=color.new(color.purple, 30), text_size=size.small)
 
-    // Séquence
-    table.cell(labTbl, 0, 1, "Séquence", text_color=color.gray,
+    // Sequence
+    table.cell(labTbl, 0, 1, "Sequence", text_color=color.gray,
      bgcolor=color.rgb(240, 240, 255), text_size=size.tiny)
     table.cell(labTbl, 1, 1, seqStr, text_color=color.new(color.blue, 0),
      bgcolor=color.rgb(240, 240, 255), text_size=size.tiny)
@@ -573,9 +573,9 @@ if showLabTable
     table.cell(labTbl, 1, 6, stopLabel, text_color=stopColor,
      bgcolor=color.rgb(255, 255, 255), text_size=size.small)
 
-// ═══════════════════════════════════════════════════════════════
-//  TABLEAU PERFS (inchangé du v6.2 original)
-// ═══════════════════════════════════════════════════════════════
+// ???????????????????????????????????????????????????????????????
+//  TABLEAU PERFS (inchange du v6.2 original)
+// ???????????????????????????????????????????????????????????????
 
 var float peakEq   = startCapitalLab
 var float maxDDVal = 0.0
@@ -592,7 +592,7 @@ if showStats
     var table stats = table.new(position.top_left, 2, 5,
      border_color=color.new(color.gray, 50), border_width=1)
     table.cell(stats, 0, 0, "JP v6.2 Labouch",    text_color=color.black,             bgcolor=color.new(color.purple, 70), text_size=size.small)
-    table.cell(stats, 1, 0, hlCoin + " → HL",      text_color=color.new(color.blue, 0),bgcolor=color.new(color.purple, 70), text_size=size.small)
+    table.cell(stats, 1, 0, hlCoin + " ? HL",      text_color=color.new(color.blue, 0),bgcolor=color.new(color.purple, 70), text_size=size.small)
     table.cell(stats, 0, 1, "Capital actuel",       text_color=color.gray,              bgcolor=color.rgb(255, 255, 255),    text_size=size.tiny)
     table.cell(stats, 1, 1, str.tostring(curEq, "#.##") + " $",
      text_color=color.new(color.green, 0), bgcolor=color.rgb(255, 255, 255),        text_size=size.tiny)
@@ -606,11 +606,11 @@ if showStats
     table.cell(stats, 1, 4, str.tostring(maxDDVal * 100, "#.##") + "%",
      text_color=color.orange, bgcolor=color.rgb(255, 255, 255),                     text_size=size.tiny)
 
-// ═══════════════════════════════════════════════════════════════
+// ???????????????????????????????????????????????????????????????
 //  TABLEAU CONDITIONS (bas-gauche)
-// ═══════════════════════════════════════════════════════════════
+// ???????????????????????????????????????????????????????????????
 
-dot(ok) => ok ? "●" : "●"
+dot(ok) => ok ? "?" : "?"
 dotColor(ok) => ok ? color.new(color.green, 0) : color.red
 
 cAdx      = adx > 25
@@ -669,7 +669,7 @@ if showParams
     table.cell(cond, 1, 8, str.tostring(math.round(adx, 1)), text_color=color.black, bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
     table.cell(cond, 2, 8, str.tostring(math.round(rsi, 1)), text_color=color.black, bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
 
-    table.cell(cond, 0, 9, "Régime",          text_color=color.gray, bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
+    table.cell(cond, 0, 9, "Regime",          text_color=color.gray, bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
     table.cell(cond, 1, 9, regStr,            text_color=isTrending ? color.new(color.green, 0) : (isRanging ? color.orange : color.fuchsia), bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
     table.cell(cond, 2, 9, regStr,            text_color=isTrending ? color.new(color.green, 0) : (isRanging ? color.orange : color.fuchsia), bgcolor=color.rgb(255, 255, 255), text_size=size.tiny)
 
