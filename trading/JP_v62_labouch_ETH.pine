@@ -139,8 +139,14 @@ cap_units = math.max(capMultLab * cum_loss_units, 2.0)
 bet_units = math.min(float(raw_bet), cap_units)
 
 // ?? Quantite Labouchere (remplace qty fixe de la strategie base) ?
-mult_lab    = math.max(bet_units * unitFactor * leverageLabMult, 0.5)
-qty_labouch = math.max((startCapitalLab * mult_lab / 100.0) / close, startCapitalLab * 0.0005 / close)
+mult_lab = math.max(bet_units * unitFactor * leverageLabMult, 0.5)
+
+// Capital effectif Labouchere (compound optionnel, plafonne)
+rawCapLab   = useCompound
+    ? math.max(strategy.initial_capital + strategy.netprofit, startCapitalLab * 0.5)
+    : startCapitalLab
+capLab      = math.min(rawCapLab, maxCapital)
+qty_labouch = math.max((capLab * mult_lab / 100.0) / close, capLab * 0.0005 / close)
 
 // ???????????????????????????????????????????????????????????????
 //  FONCTIONS
