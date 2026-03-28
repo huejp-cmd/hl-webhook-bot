@@ -36,6 +36,7 @@ TradingView Alertes :
 import json
 import logging
 import math
+import os
 import threading
 import time
 from datetime import datetime
@@ -46,11 +47,14 @@ from hyperliquid.info import Info
 from hyperliquid.utils import constants
 from eth_account import Account
 
+from labouch_manager import LabouchManager
+labouch = LabouchManager()
+
 # =============================================================================
 #  CONFIGURATION
 # =============================================================================
-PRIVATE_KEY   = "0x9fcf4d1bae9622fe7aba5b4218842d1b022a29dd4488c3118e0ba412ad98d7b4"
-WEBHOOK_TOKEN = "jp_bot_secret_2026"
+PRIVATE_KEY   = os.environ.get("PRIVATE_KEY", "")
+WEBHOOK_TOKEN = os.environ.get("WEBHOOK_TOKEN", "jp_bot_secret_2026")
 
 # True  = Mainnet Hyperliquid (argent reel)
 # False = Testnet (test sans risque)
@@ -81,9 +85,11 @@ TP_LIMIT_TIMEOUT = 30
 # =============================================================================
 #  CAPITAL PAR SYMBOLE
 # =============================================================================
-# Laisser vide = utilise le capital du signal Pine (recommande pour v5.4)
-# Forcer : {"SOL": 600.0, "ETH": 400.0}
-FORCED_CAPITAL_PER_SYMBOL = {"SOL": 600.0, "ETH": 400.0}
+# Capital de base par symbole (JP : SOL=600, ETH=400)
+# Le bot applique un effet compound REEL en scalant la qty selon l'equity du compte
+BASE_CAPITAL_PER_SYMBOL = {"SOL": 600.0, "ETH": 400.0}
+TOTAL_BASE_CAPITAL      = 1000.0   # SOL 600 + ETH 400
+FORCED_CAPITAL_PER_SYMBOL = {}     # Laisser vide = compound reel actif
 
 DEFAULT_RISK_PCT = 0.02
 DEFAULT_LEV      = 2
@@ -173,21 +179,21 @@ def normalize_coin(ticker: str, price: float = None) -> str:
 
 
 def get_account_value() -> float:
-    """Retourne l'equity du compte (perps + spot USDC pour compte unifie)."""
+    """Retourne l'equity du compte PERP uniquement (capital + margin positions ouvertes).
+    Le spot USDC est une réserve — il n'entre pas dans le calcul du compound."""
     try:
-        # Perps equity (positions ouvertes + margin utilisee)
         state = info.user_state(account.address)
-        perp_val = float(state.get("marginSummary", {}).get("accountValue", 0))
-
-        # Spot USDC (compte unifie Hyperliquid : le capital disponible est en spot)
+        # accountValue = balance perp disponible + margin utilisée + PnL non réalisé
+        perp_equity = float(state.get("marginSummary", {}).get("accountValue", 0))
+        if perp_equity > 0:
+            return perp_equity
+        # Fallback : lire le spot USDC si le compte perp est vide
         spot_state = info.spot_user_state(account.address)
         spot_usdc = next(
             (float(b["total"]) for b in spot_state.get("balances", []) if b["coin"] == "USDC"),
             0.0,
         )
-
-        total = perp_val + spot_usdc
-        return total if total > 0 else perp_val
+        return spot_usdc
     except Exception as e:
         log.error(f"get_account_value: {e}")
         return 0.0
@@ -390,6 +396,9 @@ def close_position_market(coin: str) -> dict:
     try:
         result = exchange.market_close(coin)
         log.info(f"  Fermeture marche : {result}")
+        cap_after = get_account_value()
+        labouch.on_close(coin, 0, cap_after)
+        log.info(f"  Labouchère: {labouch.get_status(coin)}")
         return {"status": "closed", "coin": coin, "result": str(result)}
     except Exception as e:
         log.error(f"  Fermeture echouee : {e}")
@@ -442,12 +451,25 @@ def place_order(signal: dict) -> dict:
         capital = get_account_value()
         log.info(f"  Capital (compte) : {capital:.2f} USDC")
 
-    # -- Quantite (v5.4 : utilise la qty calculée par Pine Script si disponible) --
-    if "qty" in signal and float(signal["qty"]) > 0:
-        qty = round_qty(float(signal["qty"]), coin)
+    # -- Quantite (v5.5 : Pine qty + compound reel sur equity du compte) --
+    pine_qty = float(signal.get("qty", 0))
+    if pine_qty > 0 and coin in BASE_CAPITAL_PER_SYMBOL:
+        # Compound reel : scale la qty Pine selon l'equity actuelle du compte
+        base_capital  = BASE_CAPITAL_PER_SYMBOL[coin]          # ex: 600 SOL
+        real_equity   = get_account_value()                     # equity reelle HL
+        coin_alloc    = base_capital / TOTAL_BASE_CAPITAL       # 0.60 pour SOL
+        real_capital  = real_equity * coin_alloc                # capital reel alloue
+        real_capital  = max(real_capital, base_capital * 0.5)  # plancher 50%
+        scale_factor  = real_capital / base_capital
+        qty           = round_qty(pine_qty * scale_factor, coin)
+        risk_amt      = real_capital * risk_pct
+        log.info(f"  Compound reel    : equity={real_equity:.2f} USDC → "
+                 f"capital {coin}={real_capital:.2f} USDC (x{scale_factor:.2f}) "
+                 f"→ qty {pine_qty} × {scale_factor:.2f} = {qty} {coin}")
+    elif pine_qty > 0:
+        qty      = round_qty(pine_qty, coin)
         risk_amt = capital * risk_pct
-        log.info(f"  Quantite (Pine)  : {qty} {coin}  "
-                 f"(capital={capital:.2f} USDC, risk={risk_amt:.2f} USDC)")
+        log.info(f"  Quantite (Pine)  : {qty} {coin}")
     else:
         # Fallback : calcul risk-based
         risk_amt      = capital * risk_pct
@@ -455,13 +477,21 @@ def place_order(signal: dict) -> dict:
         qty_cap_expo  = (capital * lev) / entry_px
         qty_raw       = min(qty_from_risk, qty_cap_expo)
         qty           = round_qty(qty_raw, coin)
-        log.info(f"  Quantite (calc)  : {qty} {coin}  "
-                 f"(risk={risk_amt:.2f} USDC, notionnel={round(qty_cap_expo*entry_px,2)})")
+        log.info(f"  Quantite (calc)  : {qty} {coin}")
 
     if qty <= 0:
         msg = f"Quantite nulle pour {coin} -- ordre annule"
         log.error(f"  {msg}")
         return {"status": "error", "reason": msg}
+
+    # --- Labouchère ---
+    ok, reason = labouch.should_trade(coin, capital)
+    if not ok:
+        return {"status": "skipped_labouch", "reason": reason}
+    lab_mult = labouch.get_multiplier(coin, capital)
+    qty = round_qty(qty * lab_mult, coin)
+    log.info(f"  Labouchère mult={lab_mult:.2f}x → qty={qty} {coin}")
+    labouch.on_entry(coin, entry_px, qty, side, capital)
 
     # -- Mode simulation --
     if DRY_RUN:
@@ -1010,6 +1040,12 @@ setInterval(refresh, 15000);
 def conditions_data():
     """Retourne les dernières conditions en JSON (utilisé par le dashboard JS)."""
     return jsonify(_conditions), 200
+
+
+@app.route("/labouch_status", methods=["GET"])
+def labouch_status():
+    """Retourne l'état Labouchère de tous les symboles."""
+    return jsonify(labouch.get_all_status())
 
 
 @app.route("/status", methods=["GET"])

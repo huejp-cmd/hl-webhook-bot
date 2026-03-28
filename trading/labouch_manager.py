@@ -1,0 +1,349 @@
+"""
+Labouchère Inversé Dynamique — Position Sizing Manager
+=======================================================
+Logique :
+  WIN  → séquence grossit, multiplicateur augmente
+  LOSS → séquence rétrécit, multiplicateur diminue (min 0.5×)
+
+Règles :
+  1. Séquence de départ : [1, 1, 1, 1]
+  2. Mise courante = sequence[0] + sequence[-1]  (en unités)
+  3. 1 unité = unit_factor × la position normale
+  4. mult_effectif = bet_units × unit_factor × leverage_mult  (≥ 0.5, ≤ max_mult)
+  5. WIN  : ajoute bet_units à la fin
+  6. LOSS : retire premier + dernier ; séquence vide → reset [1,1,1,1]
+  7. Plafond dynamique : bet_units ≤ cap_mult × cum_loss_units  (min 2)
+  8. Plafond absolu    : mult_effectif ≤ max_mult
+  9. Reset mensuel     : séquence + cum_loss_units remis à zéro
+ 10. Stop session      : perte journalière > stop_session_pct du capital → pause
+"""
+
+import json
+import logging
+import os
+from datetime import datetime
+from typing import Tuple
+
+log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Chemin par défaut du fichier d'état (même dossier que ce module)
+# ---------------------------------------------------------------------------
+_HERE      = os.path.dirname(os.path.abspath(__file__))
+STATE_FILE = os.path.join(_HERE, "labouch_state.json")
+
+# ---------------------------------------------------------------------------
+# Paramètres par défaut
+# ---------------------------------------------------------------------------
+UNIT_FACTOR       = 0.5    # 1 unité = 0.5× la position normale
+LEVERAGE_MULT     = 2.0    # levier Labouchère
+CAP_MULT          = 4      # plafond = 4× pertes cumulées
+MAX_MULT          = 6.0    # multiplicateur absolu max
+MIN_MULT          = 0.5    # multiplicateur absolu min
+RESET_MONTHLY     = True
+STOP_SESSION_PCT  = 0.15   # 15 % de perte journalière → pause
+
+
+def _default_sym_state() -> dict:
+    return {
+        "sequence":            [1, 1, 1, 1],
+        "cum_loss_units":      0.0,
+        "last_entry_price":    None,
+        "last_entry_qty":      None,
+        "last_entry_side":     None,
+        "last_entry_capital":  None,
+        "last_bet_units":      2,
+        "daily_pnl":           0.0,
+        "daily_start_capital": None,
+        "daily_date":          None,
+        "last_month":          None,
+        "trade_count":         0,
+        "total_pnl":           0.0,
+    }
+
+
+# ===========================================================================
+#  LabouchManager
+# ===========================================================================
+
+class LabouchManager:
+    """Gestionnaire Labouchère Inversé par symbole."""
+
+    def __init__(
+        self,
+        state_file:       str   = STATE_FILE,
+        unit_factor:      float = UNIT_FACTOR,
+        leverage_mult:    float = LEVERAGE_MULT,
+        cap_mult:         int   = CAP_MULT,
+        max_mult:         float = MAX_MULT,
+        reset_monthly:    bool  = RESET_MONTHLY,
+        stop_session_pct: float = STOP_SESSION_PCT,
+    ):
+        self.state_file       = state_file
+        self.unit_factor      = unit_factor
+        self.leverage_mult    = leverage_mult
+        self.cap_mult         = cap_mult
+        self.max_mult         = max_mult
+        self.reset_monthly    = reset_monthly
+        self.stop_session_pct = stop_session_pct
+        self._state: dict     = {}
+        self._load()
+
+    # ------------------------------------------------------------------
+    # Persistance
+    # ------------------------------------------------------------------
+
+    def _load(self):
+        if os.path.exists(self.state_file):
+            try:
+                with open(self.state_file, "r") as f:
+                    self._state = json.load(f)
+                log.info(f"[Labouchère] État chargé depuis {self.state_file}")
+            except Exception as e:
+                log.warning(f"[Labouchère] Impossible de lire l'état ({e}) → reset")
+                self._state = {}
+        else:
+            self._state = {}
+
+    def _save(self):
+        try:
+            with open(self.state_file, "w") as f:
+                json.dump(self._state, f, indent=2)
+        except Exception as e:
+            log.error(f"[Labouchère] Impossible de sauvegarder l'état : {e}")
+
+    def _get_sym(self, symbol: str) -> dict:
+        """Retourne l'état du symbole, l'initialise si absent."""
+        if symbol not in self._state:
+            self._state[symbol] = _default_sym_state()
+        return self._state[symbol]
+
+    # ------------------------------------------------------------------
+    # Resets
+    # ------------------------------------------------------------------
+
+    def _check_monthly_reset(self, sym: dict):
+        if not self.reset_monthly:
+            return
+        current_month = datetime.utcnow().strftime("%Y-%m")
+        if sym.get("last_month") != current_month:
+            log.info(f"[Labouchère] Reset mensuel ({current_month})")
+            sym["sequence"]            = [1, 1, 1, 1]
+            sym["cum_loss_units"]      = 0.0
+            sym["last_month"]          = current_month
+            sym["daily_pnl"]           = 0.0
+            sym["daily_start_capital"] = None
+            sym["daily_date"]          = None
+
+    def _check_daily_reset(self, sym: dict, capital: float):
+        """Initialise le capital journalier de référence si nouveau jour."""
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+        if sym.get("daily_date") != today:
+            sym["daily_pnl"]           = 0.0
+            sym["daily_start_capital"] = capital
+            sym["daily_date"]          = today
+            log.info(f"[Labouchère] Nouveau jour {today}, capital de référence={capital:.2f}")
+
+    # ------------------------------------------------------------------
+    # Calcul interne
+    # ------------------------------------------------------------------
+
+    def _calc_bet_units(self, sym: dict) -> int:
+        """Calcule bet_units depuis la séquence avec plafond dynamique."""
+        seq = sym.get("sequence") or []
+        if not seq:
+            seq = [1, 1, 1, 1]
+            sym["sequence"] = seq
+
+        if len(seq) == 1:
+            bet_units = seq[0] * 2
+        else:
+            bet_units = seq[0] + seq[-1]
+
+        # Plafond dynamique : min 2 unités
+        cum_loss  = max(0.0, sym.get("cum_loss_units", 0.0))
+        cap_units = max(2, self.cap_mult * cum_loss)
+        bet_units = min(bet_units, int(cap_units))
+
+        return max(1, int(bet_units))
+
+    def _mult_from_units(self, bet_units: int) -> float:
+        """Convertit bet_units en multiplicateur final clampé."""
+        mult = bet_units * self.unit_factor * self.leverage_mult
+        return max(MIN_MULT, min(self.max_mult, mult))
+
+    # ------------------------------------------------------------------
+    # API publique
+    # ------------------------------------------------------------------
+
+    def get_multiplier(self, symbol: str, capital: float) -> float:
+        """
+        Retourne le multiplicateur à appliquer à la qty de base.
+        Applique les resets mensuels/journaliers si nécessaire.
+        """
+        sym = self._get_sym(symbol)
+        self._check_monthly_reset(sym)
+        self._check_daily_reset(sym, capital)
+
+        bet_units = self._calc_bet_units(sym)
+        sym["last_bet_units"] = bet_units
+        mult = self._mult_from_units(bet_units)
+
+        log.info(
+            f"[Labouchère] {symbol}: seq={sym['sequence']} "
+            f"bet={bet_units}u × {self.unit_factor} × {self.leverage_mult} "
+            f"= mult={mult:.2f}×"
+        )
+        self._save()
+        return mult
+
+    def on_entry(
+        self,
+        symbol:  str,
+        price:   float,
+        qty:     float,
+        side:    str,
+        capital: float,
+    ):
+        """
+        Enregistre les paramètres de l'entrée en position.
+        Doit être appelé APRÈS get_multiplier (pour avoir last_bet_units).
+        """
+        sym = self._get_sym(symbol)
+        sym["last_entry_price"]   = price
+        sym["last_entry_qty"]     = qty
+        sym["last_entry_side"]    = side
+        sym["last_entry_capital"] = capital
+
+        if sym.get("daily_start_capital") is None:
+            sym["daily_start_capital"] = capital
+        if sym.get("daily_date") is None:
+            sym["daily_date"] = datetime.utcnow().strftime("%Y-%m-%d")
+
+        log.info(
+            f"[Labouchère] {symbol} ENTRÉE: {side} {qty}@{price:.4f}  "
+            f"capital={capital:.2f} USDC  bet_units={sym['last_bet_units']}"
+        )
+        self._save()
+
+    def on_close(self, symbol: str, close_price: float, capital_after: float):
+        """
+        Met à jour la séquence après fermeture.
+        close_price peut être 0 (on utilise alors le delta capital).
+        WIN  si capital_after > last_entry_capital
+        LOSS sinon
+        """
+        sym           = self._get_sym(symbol)
+        entry_capital = sym.get("last_entry_capital")
+        bet_units     = sym.get("last_bet_units", 2)
+
+        # ---------- P&L ----------
+        if entry_capital is not None and entry_capital > 0:
+            pnl = capital_after - entry_capital
+        else:
+            pnl = 0.0
+
+        is_win = pnl > 0
+
+        # Mise à jour P&L journalier + total
+        sym["daily_pnl"]   = sym.get("daily_pnl", 0.0) + pnl
+        sym["total_pnl"]   = sym.get("total_pnl", 0.0) + pnl
+        sym["trade_count"] = sym.get("trade_count", 0) + 1
+
+        # ---------- Mise à jour séquence ----------
+        if is_win:
+            # WIN : ajoute bet_units à la fin
+            sym["sequence"].append(bet_units)
+            log.info(
+                f"[Labouchère] {symbol} WIN  pnl={pnl:+.2f} USDC | "
+                f"séquence → {sym['sequence']}"
+            )
+        else:
+            # LOSS : retire premier + dernier
+            sym["cum_loss_units"] = sym.get("cum_loss_units", 0.0) + bet_units
+            seq = sym["sequence"]
+            if len(seq) >= 2:
+                sym["sequence"] = seq[1:-1]
+            elif len(seq) == 1:
+                sym["sequence"] = []
+
+            if not sym["sequence"]:
+                sym["sequence"] = [1, 1, 1, 1]
+                log.info(f"[Labouchère] {symbol} séquence épuisée → reset [1,1,1,1]")
+
+            log.info(
+                f"[Labouchère] {symbol} LOSS pnl={pnl:+.2f} USDC | "
+                f"cum_loss={sym['cum_loss_units']:.1f}u | "
+                f"séquence → {sym['sequence']}"
+            )
+
+        # Réinitialise les champs d'entrée
+        sym["last_entry_price"]   = None
+        sym["last_entry_qty"]     = None
+        sym["last_entry_side"]    = None
+        sym["last_entry_capital"] = None
+        self._save()
+
+    def should_trade(self, symbol: str, capital: float) -> Tuple[bool, str]:
+        """
+        Vérifie si le trading est autorisé (stop session journalier).
+        Retourne (True, "ok") ou (False, raison).
+        """
+        sym = self._get_sym(symbol)
+        self._check_monthly_reset(sym)
+        self._check_daily_reset(sym, capital)
+
+        daily_start = sym.get("daily_start_capital") or 0.0
+        daily_pnl   = sym.get("daily_pnl", 0.0)
+
+        if daily_start > 0 and daily_pnl < 0:
+            loss_pct = (-daily_pnl) / daily_start
+            if loss_pct >= self.stop_session_pct:
+                reason = (
+                    f"Stop session {symbol}: perte journalière "
+                    f"{daily_pnl:.2f} USDC ({loss_pct*100:.1f}% ≥ "
+                    f"{self.stop_session_pct*100:.0f}%)"
+                )
+                log.warning(f"[Labouchère] {reason}")
+                return False, reason
+
+        return True, "ok"
+
+    def get_status(self, symbol: str) -> dict:
+        """Retourne l'état courant du symbole (lecture seule)."""
+        sym = self._get_sym(symbol)
+        seq = sym.get("sequence") or [1, 1, 1, 1]
+
+        if len(seq) == 1:
+            bet_units = seq[0] * 2
+        else:
+            bet_units = seq[0] + seq[-1]
+
+        bet_units = max(1, int(bet_units))
+        mult      = self._mult_from_units(bet_units)
+
+        daily_start = sym.get("daily_start_capital") or 0.0
+        daily_pnl   = sym.get("daily_pnl", 0.0)
+        daily_loss_pct = (
+            (-daily_pnl / daily_start * 100) if daily_start > 0 else 0.0
+        )
+
+        return {
+            "symbol":          symbol,
+            "sequence":        seq,
+            "seq_length":      len(seq),
+            "bet_units":       bet_units,
+            "multiplier":      round(mult, 3),
+            "cum_loss_units":  round(sym.get("cum_loss_units", 0.0), 2),
+            "daily_pnl":       round(daily_pnl, 2),
+            "daily_loss_pct":  round(daily_loss_pct, 2),
+            "total_pnl":       round(sym.get("total_pnl", 0.0), 2),
+            "trade_count":     sym.get("trade_count", 0),
+            "last_month":      sym.get("last_month"),
+            "last_entry_side": sym.get("last_entry_side"),
+            "stop_active":     daily_loss_pct >= self.stop_session_pct * 100,
+        }
+
+    def get_all_status(self) -> dict:
+        """Retourne l'état de tous les symboles connus."""
+        return {sym: self.get_status(sym) for sym in self._state}
