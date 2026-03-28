@@ -273,8 +273,7 @@ if entryLong
              trail_points=trailPtsL, trail_offset=atr * 1.6)
     else
         strategy.exit("Exit Long", from_entry="Long", stop=slL, limit=tpL)
-    if not testMode
-        alert(
+    alert(
          '{"action":"open","side":"buy","symbol":"' + whSymbol + '"'
          + ',"regime":"' + regStr + '"'
          + ',"price":'    + str.tostring(math.round(rClose, 4))
@@ -284,7 +283,7 @@ if entryLong
          + ',"leverage":' + str.tostring(int(leverage))
          + ',"capital":'  + str.tostring(stepCapital)
          + ',"risk_pct":' + str.tostring(riskPerc * 100) + '}',
-         alert.freq_once_per_bar_close)
+         testMode ? alert.freq_none : alert.freq_once_per_bar_close)
 
 // ── SHORT : tendance OU explosif — 1 seul alert() par bougie (v6.2) ─
 entryShort = (entryST or entrySE) and validS and not inRng
@@ -301,8 +300,7 @@ if entryShort
              trail_points=trailPtsS, trail_offset=atr * 1.6)
     else
         strategy.exit("Exit Short", from_entry="Short", stop=slS, limit=tpS)
-    if not testMode
-        alert(
+    alert(
          '{"action":"open","side":"sell","symbol":"' + whSymbol + '"'
          + ',"regime":"' + regStr + '"'
          + ',"price":'    + str.tostring(math.round(rClose, 4))
@@ -312,7 +310,7 @@ if entryShort
          + ',"leverage":' + str.tostring(int(leverage))
          + ',"capital":'  + str.tostring(stepCapital)
          + ',"risk_pct":' + str.tostring(riskPerc * 100) + '}',
-         alert.freq_once_per_bar_close)
+         testMode ? alert.freq_none : alert.freq_once_per_bar_close)
 
 // ── DCA LONG ─────────────────────────────────────────────────────
 if dcaLongOk
@@ -326,8 +324,7 @@ if dcaLongOk
     newTp  = newAvg + (newAvg - newSl) * (isTrending ? 4.0 : 3.0)
     strategy.exit("Exit Long", stop=newSl, limit=newTp)
 
-    if not testMode
-        alert(
+    alert(
          '{"action":"dca"'
          + ',"side":"buy"'
          + ',"symbol":"' + whSymbol + '"'
@@ -339,7 +336,7 @@ if dcaLongOk
          + ',"tp":'      + str.tostring(math.round(newTp, 4))
          + ',"leverage":' + str.tostring(int(leverage))
          + '}',
-         alert.freq_once_per_bar_close)
+         testMode ? alert.freq_none : alert.freq_once_per_bar_close)
 
 // ── DCA SHORT ────────────────────────────────────────────────────
 if dcaShortOk
@@ -352,8 +349,7 @@ if dcaShortOk
     newTp  = newAvg - (newSl - newAvg) * (isTrending ? 4.0 : 3.0)
     strategy.exit("Exit Short", stop=newSl, limit=newTp)
 
-    if not testMode
-        alert(
+    alert(
          '{"action":"dca"'
          + ',"side":"sell"'
          + ',"symbol":"' + whSymbol + '"'
@@ -365,7 +361,7 @@ if dcaShortOk
          + ',"tp":'      + str.tostring(math.round(newTp, 4))
          + ',"leverage":' + str.tostring(int(leverage))
          + '}',
-         alert.freq_once_per_bar_close)
+         testMode ? alert.freq_none : alert.freq_once_per_bar_close)
 
 //
 //  DETECTION CLOTURE + ALERTE CLOSE
@@ -391,8 +387,7 @@ if prevPos != 0.0 and currPos == 0.0 and not na(entryPx)
      math.round((entryPx - exitPx) / entryPx * 100, 2)
     pnlSign = pnlPct >= 0 ? "GAIN" : "PERTE"
 
-    if not testMode
-        alert(
+    alert(
          '{"action":"close"'
          + ',"coin":"'    + hlCoin + '"'
          + ',"symbol":"'  + whSymbol + '"'
@@ -406,7 +401,7 @@ if prevPos != 0.0 and currPos == 0.0 and not na(entryPx)
          + ' Sortie:'   + str.tostring(math.round(exitPx,  2))
          + ' PnL:'      + str.tostring(pnlPct) + '%"'
          + '}',
-         alert.freq_once_per_bar_close)
+         testMode ? alert.freq_none : alert.freq_once_per_bar_close)
 
 //
 //  VISUALISATION
