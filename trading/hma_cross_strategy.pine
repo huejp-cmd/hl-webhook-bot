@@ -131,18 +131,18 @@ if newtrade
     prevnp  := strategy.netprofit
 
 // --- ENTREE LONG ---
+eqbase = compound ? strategy.equity : capfloor
+qty_l  = dist_l > 0.0 ? math.max(bet_cur * eqbase * risk_pct / 100.0 / dist_l, 0.0) : 0.0
+qty_s  = dist_s > 0.0 ? math.max(bet_cur * eqbase * risk_pct / 100.0 / dist_s, 0.0) : 0.0
+
 if tradeon and long_ok and strategy.position_size == 0
-    b = compound ? strategy.equity : capfloor
-    q = math.max(bet_cur * b * risk_pct / 100.0 / dist_l, 0.0)
-    strategy.entry("Long", strategy.long, qty=q)
+    strategy.entry("Long", strategy.long, qty=qty_l)
     slact := low
     tpact := tp_l
 
 // --- ENTREE SHORT ---
 if tradeon and short_ok and strategy.position_size == 0
-    b = compound ? strategy.equity : capfloor
-    q = math.max(bet_cur * b * risk_pct / 100.0 / dist_s, 0.0)
-    strategy.entry("Short", strategy.short, qty=q)
+    strategy.entry("Short", strategy.short, qty=qty_s)
     slact := high
     tpact := tp_s
 
