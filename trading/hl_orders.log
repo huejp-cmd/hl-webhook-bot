@@ -5443,3 +5443,157 @@ Port 80 is in use by another program. Either identify and stop that program, or 
 2026-03-28 02:04:54,816 [INFO] 127.0.0.1 - - [28/Mar/2026 02:04:54] "GET /status HTTP/1.1" 200 -
 2026-03-28 02:34:54,280 [INFO] 127.0.0.1 - - [28/Mar/2026 02:34:54] "GET /status HTTP/1.1" 200 -
 2026-03-28 02:34:54,280 [INFO] 127.0.0.1 - - [28/Mar/2026 02:34:54] "GET /status HTTP/1.1" 200 -
+2026-03-28 10:54:58,766 [INFO] 127.0.0.1 - - [28/Mar/2026 10:54:58] "GET /status HTTP/1.1" 200 -
+2026-03-28 10:54:58,766 [INFO] 127.0.0.1 - - [28/Mar/2026 10:54:58] "GET /status HTTP/1.1" 200 -
+Traceback (most recent call last):
+  File "/Users/huejeanpierre/Library/Python/3.13/lib/python/site-packages/eth_account/account.py", line 897, in _parse_private_key
+    return self._keys.PrivateKey(hb_key)
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "/Users/huejeanpierre/Library/Python/3.13/lib/python/site-packages/eth_keys/datatypes.py", line 244, in __init__
+    validate_private_key_bytes(private_key_bytes)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^
+  File "/Users/huejeanpierre/Library/Python/3.13/lib/python/site-packages/eth_keys/validation.py", line 81, in validate_private_key_bytes
+    validate_bytes_length(value, 32, "private key")
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huejeanpierre/Library/Python/3.13/lib/python/site-packages/eth_keys/validation.py", line 52, in validate_bytes_length
+    raise ValidationError(
+    ...<2 lines>...
+    )
+eth_utils.exceptions.ValidationError: Unexpected private key length: Expected 32, but got 0 bytes
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/huejeanpierre/.openclaw/workspace/trading/hl_webhook_server.py", line 121, in <module>
+    account  = Account.from_key(PRIVATE_KEY)
+  File "/Users/huejeanpierre/Library/Python/3.13/lib/python/site-packages/eth_utils/decorators.py", line 31, in _wrapper
+    return self.method(objtype, *args, **kwargs)
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huejeanpierre/Library/Python/3.13/lib/python/site-packages/eth_account/account.py", line 310, in from_key
+    key = self._parse_private_key(private_key)
+  File "/Users/huejeanpierre/Library/Python/3.13/lib/python/site-packages/eth_utils/decorators.py", line 31, in _wrapper
+    return self.method(objtype, *args, **kwargs)
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/huejeanpierre/Library/Python/3.13/lib/python/site-packages/eth_account/account.py", line 899, in _parse_private_key
+    raise ValueError(
+    ...<2 lines>...
+    ) from original_exception
+ValueError: The private key must be exactly 32 bytes long, instead of 0 bytes.
+2026-03-28 10:55:34,964 [INFO] Wallet  : 0xaF6542067Cab6D8D9E3D7BaA5AaE16DB86f83fBb
+2026-03-28 10:55:34,964 [INFO] Wallet  : 0xaF6542067Cab6D8D9E3D7BaA5AaE16DB86f83fBb
+2026-03-28 10:55:34,964 [INFO] Reseau  : MAINNET Hyperliquid
+2026-03-28 10:55:34,964 [INFO] Reseau  : MAINNET Hyperliquid
+2026-03-28 10:55:34,964 [INFO] Mode    : DRY_RUN (simulation)
+2026-03-28 10:55:34,964 [INFO] Mode    : DRY_RUN (simulation)
+2026-03-28 10:55:34,965 [INFO] [Labouchère] SOL état existant: série 1, capital actif=1000, réserve=0
+2026-03-28 10:55:34,965 [INFO] [Labouchère] SOL état existant: série 1, capital actif=1000, réserve=0
+2026-03-28 10:55:34,965 [INFO] [Labouchère] ETH état existant: série 1, capital actif=1000, réserve=0
+2026-03-28 10:55:34,965 [INFO] [Labouchère] ETH état existant: série 1, capital actif=1000, réserve=0
+2026-03-28 10:55:34,965 [INFO] Webhook Hyperliquid demarre -> http://0.0.0.0:5000
+2026-03-28 10:55:34,965 [INFO] Webhook Hyperliquid demarre -> http://0.0.0.0:5000
+2026-03-28 10:55:34,965 [INFO] Coins supportes : SOL, ETH (et tout coin Hyperliquid)
+2026-03-28 10:55:34,965 [INFO] Coins supportes : SOL, ETH (et tout coin Hyperliquid)
+2026-03-28 10:55:34,965 [INFO] Margin type     : ISOLATED par coin
+2026-03-28 10:55:34,965 [INFO] Margin type     : ISOLATED par coin
+2026-03-28 10:55:34,965 [INFO] DRY_RUN=True  MAINNET=True
+2026-03-28 10:55:34,965 [INFO] DRY_RUN=True  MAINNET=True
+2026-03-28 10:55:34,965 [INFO] Entry timeout   : 30s
+2026-03-28 10:55:34,965 [INFO] Entry timeout   : 30s
+2026-03-28 10:55:34,965 [INFO] TP timeout      : 30s
+2026-03-28 10:55:34,965 [INFO] TP timeout      : 30s
+ * Tip: There are .env files present. Install python-dotenv to use them.
+ * Serving Flask app 'hl_webhook_server'
+ * Debug mode: off
+Address already in use
+Port 5000 is in use by another program. Either identify and stop that program, or start the server with a different port.
+On macOS, try searching for and disabling 'AirPlay Receiver' in System Settings.
+2026-03-28 10:55:47,329 [INFO] Wallet  : 0xaF6542067Cab6D8D9E3D7BaA5AaE16DB86f83fBb
+2026-03-28 10:55:47,329 [INFO] Wallet  : 0xaF6542067Cab6D8D9E3D7BaA5AaE16DB86f83fBb
+2026-03-28 10:55:47,329 [INFO] Reseau  : MAINNET Hyperliquid
+2026-03-28 10:55:47,329 [INFO] Reseau  : MAINNET Hyperliquid
+2026-03-28 10:55:47,329 [INFO] Mode    : DRY_RUN (simulation)
+2026-03-28 10:55:47,329 [INFO] Mode    : DRY_RUN (simulation)
+2026-03-28 10:55:47,330 [INFO] [Labouchère] SOL état existant: série 1, capital actif=1000, réserve=0
+2026-03-28 10:55:47,330 [INFO] [Labouchère] SOL état existant: série 1, capital actif=1000, réserve=0
+2026-03-28 10:55:47,330 [INFO] [Labouchère] ETH état existant: série 1, capital actif=1000, réserve=0
+2026-03-28 10:55:47,330 [INFO] [Labouchère] ETH état existant: série 1, capital actif=1000, réserve=0
+2026-03-28 10:55:47,330 [INFO] Webhook Hyperliquid demarre -> http://0.0.0.0:5000
+2026-03-28 10:55:47,330 [INFO] Webhook Hyperliquid demarre -> http://0.0.0.0:5000
+2026-03-28 10:55:47,330 [INFO] Coins supportes : SOL, ETH (et tout coin Hyperliquid)
+2026-03-28 10:55:47,330 [INFO] Coins supportes : SOL, ETH (et tout coin Hyperliquid)
+2026-03-28 10:55:47,330 [INFO] Margin type     : ISOLATED par coin
+2026-03-28 10:55:47,330 [INFO] Margin type     : ISOLATED par coin
+2026-03-28 10:55:47,330 [INFO] DRY_RUN=True  MAINNET=True
+2026-03-28 10:55:47,330 [INFO] DRY_RUN=True  MAINNET=True
+2026-03-28 10:55:47,330 [INFO] Entry timeout   : 30s
+2026-03-28 10:55:47,330 [INFO] Entry timeout   : 30s
+2026-03-28 10:55:47,330 [INFO] TP timeout      : 30s
+2026-03-28 10:55:47,330 [INFO] TP timeout      : 30s
+ * Tip: There are .env files present. Install python-dotenv to use them.
+ * Serving Flask app 'hl_webhook_server'
+ * Debug mode: off
+2026-03-28 10:55:47,339 [INFO] [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8081
+ * Running on http://192.168.2.241:8081
+2026-03-28 10:55:47,339 [INFO] [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8081
+ * Running on http://192.168.2.241:8081
+2026-03-28 10:55:47,339 [INFO] [33mPress CTRL+C to quit[0m
+2026-03-28 10:55:47,339 [INFO] [33mPress CTRL+C to quit[0m
+/Users/huejeanpierre/.openclaw/workspace/trading/hl_webhook_server.py:1221: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  "time":                datetime.utcnow().isoformat() + "Z",
+2026-03-28 10:55:52,684 [INFO] 127.0.0.1 - - [28/Mar/2026 10:55:52] "GET /status HTTP/1.1" 200 -
+2026-03-28 10:55:52,684 [INFO] 127.0.0.1 - - [28/Mar/2026 10:55:52] "GET /status HTTP/1.1" 200 -
+2026-03-29 12:28:24,117 [INFO] Wallet  : 0xaF6542067Cab6D8D9E3D7BaA5AaE16DB86f83fBb
+2026-03-29 12:28:24,117 [INFO] Reseau  : MAINNET Hyperliquid
+2026-03-29 12:28:24,117 [INFO] Mode    : DRY_RUN (simulation)
+2026-03-29 12:28:24,118 [INFO] [Labouchère] SOL état existant: série 1, capital actif=1000, réserve=0
+2026-03-29 12:28:24,118 [INFO] [Labouchère] ETH état existant: série 1, capital actif=1000, réserve=0
+2026-03-29 12:28:24,118 [INFO] Webhook Hyperliquid demarre -> http://0.0.0.0:5000
+2026-03-29 12:28:24,118 [INFO] Coins supportes : SOL, ETH (et tout coin Hyperliquid)
+2026-03-29 12:28:24,118 [INFO] Margin type     : ISOLATED par coin
+2026-03-29 12:28:24,118 [INFO] DRY_RUN=True  MAINNET=True
+2026-03-29 12:28:24,118 [INFO] Entry timeout   : 30s
+2026-03-29 12:28:24,118 [INFO] TP timeout      : 30s
+2026-03-29 12:28:34,383 [INFO] Wallet  : 0xaF6542067Cab6D8D9E3D7BaA5AaE16DB86f83fBb
+2026-03-29 12:28:34,383 [INFO] Reseau  : MAINNET Hyperliquid
+2026-03-29 12:28:34,383 [INFO] Mode    : DRY_RUN (simulation)
+2026-03-29 12:28:34,384 [INFO] [Labouchère] SOL état existant: série 1, capital actif=1000, réserve=0
+2026-03-29 12:28:34,384 [INFO] [Labouchère] ETH état existant: série 1, capital actif=1000, réserve=0
+2026-03-29 12:28:34,384 [INFO] Webhook Hyperliquid demarre -> http://0.0.0.0:5000
+2026-03-29 12:28:34,384 [INFO] Coins supportes : SOL, ETH (et tout coin Hyperliquid)
+2026-03-29 12:28:34,384 [INFO] Margin type     : ISOLATED par coin
+2026-03-29 12:28:34,384 [INFO] DRY_RUN=True  MAINNET=True
+2026-03-29 12:28:34,384 [INFO] Entry timeout   : 30s
+2026-03-29 12:28:34,385 [INFO] TP timeout      : 30s
+2026-03-29 12:28:44,655 [INFO] Wallet  : 0xaF6542067Cab6D8D9E3D7BaA5AaE16DB86f83fBb
+2026-03-29 12:28:44,655 [INFO] Reseau  : MAINNET Hyperliquid
+2026-03-29 12:28:44,655 [INFO] Mode    : DRY_RUN (simulation)
+2026-03-29 12:28:44,656 [INFO] [Labouchère] SOL état existant: série 1, capital actif=1000, réserve=0
+2026-03-29 12:28:44,656 [INFO] [Labouchère] ETH état existant: série 1, capital actif=1000, réserve=0
+2026-03-29 12:28:44,656 [INFO] Webhook Hyperliquid demarre -> http://0.0.0.0:5000
+2026-03-29 12:28:44,656 [INFO] Coins supportes : SOL, ETH (et tout coin Hyperliquid)
+2026-03-29 12:28:44,656 [INFO] Margin type     : ISOLATED par coin
+2026-03-29 12:28:44,656 [INFO] DRY_RUN=True  MAINNET=True
+2026-03-29 12:28:44,656 [INFO] Entry timeout   : 30s
+2026-03-29 12:28:44,656 [INFO] TP timeout      : 30s
+2026-03-29 12:28:52,095 [INFO] Wallet  : 0xaF6542067Cab6D8D9E3D7BaA5AaE16DB86f83fBb
+2026-03-29 12:28:52,095 [INFO] Reseau  : MAINNET Hyperliquid
+2026-03-29 12:28:52,095 [INFO] Mode    : DRY_RUN (simulation)
+2026-03-29 12:28:52,096 [INFO] [Labouchère] SOL état existant: série 1, capital actif=1000, réserve=0
+2026-03-29 12:28:52,096 [INFO] [Labouchère] ETH état existant: série 1, capital actif=1000, réserve=0
+2026-03-29 12:28:52,096 [INFO] Webhook Hyperliquid demarre -> http://0.0.0.0:5000
+2026-03-29 12:28:52,096 [INFO] Coins supportes : SOL, ETH (et tout coin Hyperliquid)
+2026-03-29 12:28:52,096 [INFO] Margin type     : ISOLATED par coin
+2026-03-29 12:28:52,096 [INFO] DRY_RUN=True  MAINNET=True
+2026-03-29 12:28:52,096 [INFO] Entry timeout   : 30s
+2026-03-29 12:28:52,096 [INFO] TP timeout      : 30s
+2026-03-29 12:28:52,105 [INFO] [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8081
+ * Running on http://192.168.2.241:8081
+2026-03-29 12:28:52,105 [INFO] [33mPress CTRL+C to quit[0m
+2026-03-29 12:28:57,958 [INFO] 127.0.0.1 - - [29/Mar/2026 12:28:57] "GET /status HTTP/1.1" 200 -
+2026-03-29 12:37:22,930 [INFO] 127.0.0.1 - - [29/Mar/2026 12:37:22] "GET /status HTTP/1.1" 200 -

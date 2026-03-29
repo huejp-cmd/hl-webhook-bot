@@ -1,0 +1,142 @@
+//@version=5
+indicator("HMA Cross Signal 🐢", overlay=true)
+
+// ══════════════════════════════════════════════════════
+//  PARAMÈTRES
+// ══════════════════════════════════════════════════════
+var string G_HMA  = "━━ Hull Moving Averages ━━"
+var string G_FILT = "━━ Filtres ━━"
+var string G_DIR  = "━━ Direction ━━"
+
+hma1_len  = input.int  (20,    "HMA 1 (période)",               group=G_HMA,  minval=2)
+hma2_len  = input.int  (50,    "HMA 2 (période)",               group=G_HMA,  minval=2)
+use_hma1  = input.bool (true,  "Activer HMA 1",                 group=G_HMA)
+use_hma2  = input.bool (true,  "Activer HMA 2",                 group=G_HMA)
+atr_len   = input.int  (10,    "ATR (période)",                 group=G_FILT, minval=1)
+atr_filt  = input.float(0.5,   "Filtre ATR minimum (× ATR)",   group=G_FILT, step=0.1, minval=0.0)
+show_filt = input.bool (true,  "Afficher signaux filtrés (✗)", group=G_FILT)
+allow_long  = input.bool(true, "Activer LONGS",                group=G_DIR)
+allow_short = input.bool(true, "Activer SHORTS",               group=G_DIR)
+
+// ══════════════════════════════════════════════════════
+//  HULL MOVING AVERAGE
+// ══════════════════════════════════════════════════════
+hma(src, len) =>
+    h = math.round(len / 2)
+    s = math.round(math.sqrt(float(len)))
+    ta.wma(2.0 * ta.wma(src, h) - ta.wma(src, len), s)
+
+h1 = hma(close, hma1_len)
+h2 = hma(close, hma2_len)
+
+// ══════════════════════════════════════════════════════
+//  ATR
+// ══════════════════════════════════════════════════════
+atr_val = ta.atr(atr_len)
+
+// ══════════════════════════════════════════════════════
+//  SIGNAUX
+// ══════════════════════════════════════════════════════
+cross_up_1 = use_hma1 and ta.crossover (close, h1)
+cross_up_2 = use_hma2 and ta.crossover (close, h2)
+cross_dn_1 = use_hma1 and ta.crossunder(close, h1)
+cross_dn_2 = use_hma2 and ta.crossunder(close, h2)
+
+long_sig  = allow_long  and (cross_up_1 or cross_up_2)
+short_sig = allow_short and (cross_dn_1 or cross_dn_2)
+
+hma_long  = cross_up_1 ? h1 : h2
+hma_short = cross_dn_1 ? h1 : h2
+
+// ══════════════════════════════════════════════════════
+//  NIVEAUX ENTRY / SL / TP
+// ══════════════════════════════════════════════════════
+entry_l = hma_long
+sl_l    = low
+dist_l  = entry_l - sl_l
+tp_l    = entry_l + dist_l    // 1:1
+
+entry_s = hma_short
+sl_s    = high
+dist_s  = sl_s - entry_s
+tp_s    = entry_s - dist_s    // 1:1
+
+long_ok  = long_sig  and (dist_l > atr_filt * atr_val) and (dist_l > 0.0)
+short_ok = short_sig and (dist_s > atr_filt * atr_val) and (dist_s > 0.0)
+
+// ══════════════════════════════════════════════════════
+//  AFFICHAGE HMA
+// ══════════════════════════════════════════════════════
+plot(h1, "HMA " + str.tostring(hma1_len), color=color.new(color.blue,   0), linewidth=2)
+plot(h2, "HMA " + str.tostring(hma2_len), color=color.new(color.orange, 0), linewidth=2)
+
+// ══════════════════════════════════════════════════════
+//  SIGNAUX (flèches)
+// ══════════════════════════════════════════════════════
+plotshape(long_ok,  "Long ✓",  shape.triangleup,   location.belowbar, color.new(color.lime, 0),  size=size.small)
+plotshape(short_ok, "Short ✓", shape.triangledown, location.abovebar, color.new(color.red,  0),  size=size.small)
+
+plotshape(show_filt and long_sig  and not long_ok,  "Long ✗",  shape.xcross, location.belowbar, color.new(color.gray, 40), size=size.tiny)
+plotshape(show_filt and short_sig and not short_ok, "Short ✗", shape.xcross, location.abovebar, color.new(color.gray, 40), size=size.tiny)
+
+// ══════════════════════════════════════════════════════
+//  LIGNES SL / TP (dernier signal actif)
+// ══════════════════════════════════════════════════════
+var float last_entry = na
+var float last_sl    = na
+var float last_tp    = na
+var bool  last_long  = true
+
+if long_ok
+    last_entry := entry_l
+    last_sl    := sl_l
+    last_tp    := tp_l
+    last_long  := true
+if short_ok
+    last_entry := entry_s
+    last_sl    := sl_s
+    last_tp    := tp_s
+    last_long  := false
+
+// Afficher les niveaux sur les dernières N bougies
+lookback = 30
+show_lvl = bar_index >= last_value(bar_index, 1) - lookback
+
+plot(show_lvl ? last_entry : na, "Entrée",    color=color.new(color.white, 30), style=plot.style_linebr, linewidth=1)
+plot(show_lvl ? last_sl    : na, "SL",        color=color.new(color.red,   20), style=plot.style_linebr, linewidth=1)
+plot(show_lvl ? last_tp    : na, "TP (1:1)",  color=color.new(color.lime,  20), style=plot.style_linebr, linewidth=1)
+
+// ══════════════════════════════════════════════════════
+//  ALERTES TradingView
+// ══════════════════════════════════════════════════════
+alertcondition(long_ok,  "🐢 Long Signal",  "HMA Cross ACHAT ▲ | {{ticker}} {{interval}} | Entry: {{plot_0}} | SL: {{low}}")
+alertcondition(short_ok, "🐢 Short Signal", "HMA Cross VENTE ▼ | {{ticker}} {{interval}} | Entry: {{plot_0}} | SL: {{high}}")
+alertcondition(long_ok or short_ok, "🐢 Any Signal", "HMA Cross Signal | {{ticker}} {{interval}}")
+
+// ══════════════════════════════════════════════════════
+//  TABLEAU INFO (coin haut droit)
+// ══════════════════════════════════════════════════════
+var table t = table.new(position.top_right, 2, 7,
+     bgcolor      = color.new(color.black, 72),
+     border_color = color.new(color.gray,  50), border_width = 1,
+     frame_color  = color.new(color.gray,  50), frame_width  = 1)
+
+dir_str = last_long ? "▲ LONG" : "▼ SHORT"
+dir_col = last_long ? color.lime : color.red
+dist_cur = last_long ? dist_l : dist_s
+filt_min = atr_filt * atr_val
+
+table.cell(t, 0, 0, "HMA CROSS",           text_color=color.white,  bgcolor=color.new(color.navy, 25), text_size=size.small, text_halign=text.align_center)
+table.cell(t, 1, 0, "Signal",               text_color=color.yellow, bgcolor=color.new(color.navy, 25), text_size=size.small, text_halign=text.align_center)
+table.cell(t, 0, 1, "ATR(" + str.tostring(atr_len) + ")", text_color=color.silver, text_size=size.tiny)
+table.cell(t, 1, 1, str.tostring(atr_val, "#.#####"),      text_color=color.white,  text_size=size.tiny)
+table.cell(t, 0, 2, "Filtre min.",           text_color=color.silver, text_size=size.tiny)
+table.cell(t, 1, 2, str.tostring(filt_min, "#.#####"),     text_color=color.white,  text_size=size.tiny)
+table.cell(t, 0, 3, "Dernier signal",        text_color=color.silver, text_size=size.tiny)
+table.cell(t, 1, 3, dir_str,                 text_color=dir_col,       text_size=size.small)
+table.cell(t, 0, 4, "Dist. SL",              text_color=color.silver, text_size=size.tiny)
+table.cell(t, 1, 4, str.tostring(na(last_sl) ? 0.0 : math.abs(last_entry - last_sl), "#.#####"), text_color=color.white, text_size=size.tiny)
+table.cell(t, 0, 5, "Long actif",            text_color=color.silver, text_size=size.tiny)
+table.cell(t, 1, 5, long_ok  ? "✓ OUI" : "—", text_color=long_ok  ? color.lime : color.gray, text_size=size.small)
+table.cell(t, 0, 6, "Short actif",           text_color=color.silver, text_size=size.tiny)
+table.cell(t, 1, 6, short_ok ? "✓ OUI" : "—", text_color=short_ok ? color.red  : color.gray, text_size=size.small)

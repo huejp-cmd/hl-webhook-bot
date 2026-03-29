@@ -86,15 +86,13 @@ g_exec       = "Execution"
 tpSlippage   = input.float(0.10, "Buffer slippage TP (%)", group=g_exec, step=0.01)
 
 g_cap        = "Capital"
-useCompound  = input.bool(false,   "Mode Compound (reinvestir les gains)", group=g_cap)
+useCompound  = input.bool(true,    "Mode Compound (reinvestir les gains)", group=g_cap)
 maxCapital   = input.float(5000.0, "Plafond capital trading (USDC)",       group=g_cap, step=500)
 useLiqFilter = input.bool(true,   "Filtre liquidite (volume marche)",       group=g_cap)
 liqPct       = input.float(2.0,   "Max % du volume 20 bar par trade",       group=g_cap, step=0.5)
 
 // Capital de reference SL/TP (compound optionnel, plafonne)
-rawCapital  = useCompound
-     ? math.max(strategy.initial_capital + strategy.netprofit, startCapital * 0.5)
-     : startCapital
+rawCapital  = useCompound ? math.max(strategy.initial_capital + strategy.netprofit, startCapital * 0.5) : startCapital
 stepCapital = math.min(rawCapital, maxCapital)
 
 // Filtre liquidite
@@ -142,9 +140,7 @@ bet_units = math.min(float(raw_bet), cap_units)
 mult_lab = math.max(bet_units * unitFactor * leverageLabMult, 0.5)
 
 // Capital effectif Labouchere (compound optionnel, plafonne)
-rawCapLab   = useCompound
-    ? math.max(strategy.initial_capital + strategy.netprofit, startCapitalLab * 0.5)
-    : startCapitalLab
+rawCapLab   = useCompound ? math.max(strategy.initial_capital + strategy.netprofit, startCapitalLab * 0.5) : startCapitalLab
 capLab      = math.min(rawCapLab, maxCapital)
 qty_labouch = math.max((capLab * mult_lab / 100.0) / close, capLab * 0.0005 / close)
 

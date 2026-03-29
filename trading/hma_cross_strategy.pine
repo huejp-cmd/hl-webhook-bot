@@ -1,0 +1,227 @@
+//@version=5
+strategy("HMA Cross + Labouchère Inversée 🐢", 
+         overlay              = true, 
+         pyramiding           = 1,
+         initial_capital      = 10000,
+         default_qty_type     = strategy.cash,
+         default_qty_value    = 100,
+         commission_type      = strategy.commission.percent,
+         commission_value     = 0.05,
+         slippage             = 2)
+
+// ══════════════════════════════════════════════════════
+//  PARAMÈTRES
+// ══════════════════════════════════════════════════════
+var string G_HMA  = "━━ Hull Moving Averages ━━"
+var string G_RISK = "━━ Gestion du risque ━━"
+var string G_DIR  = "━━ Direction ━━"
+
+// HMA
+hma1_len  = input.int  (20,    "HMA 1 (période)",               group=G_HMA,  minval=2)
+hma2_len  = input.int  (50,    "HMA 2 (période)",               group=G_HMA,  minval=2)
+use_hma1  = input.bool (true,  "Activer HMA 1",                 group=G_HMA)
+use_hma2  = input.bool (true,  "Activer HMA 2",                 group=G_HMA)
+
+// Risque & filtres
+atr_len   = input.int  (10,    "ATR (période)",                 group=G_RISK, minval=1)
+atr_filt  = input.float(0.5,   "Filtre ATR minimum (× ATR)",   group=G_RISK, step=0.1, minval=0.0)
+risk_pct  = input.float(1.0,   "Risque unitaire (% equity)",   group=G_RISK, step=0.1, minval=0.01)
+compound  = input.bool (true,  "Compound (réinvestissement)",   group=G_RISK)
+// Slippage : le TP est relevé d'autant pour que le gain NET reste 1:1
+slip_pts  = input.float(0.0,   "Slippage estimé (points prix)", group=G_RISK, step=0.0001, minval=0.0)
+
+// Direction
+allow_long  = input.bool(true, "Activer LONGS",  group=G_DIR)
+allow_short = input.bool(true, "Activer SHORTS", group=G_DIR)
+
+// ══════════════════════════════════════════════════════
+//  HULL MOVING AVERAGE
+//  HMA(n) = WMA( 2×WMA(n/2) − WMA(n), √n )
+// ══════════════════════════════════════════════════════
+hma(src, len) =>
+    h = math.round(len / 2)
+    s = math.round(math.sqrt(float(len)))
+    ta.wma(2.0 * ta.wma(src, h) - ta.wma(src, len), s)
+
+h1 = hma(close, hma1_len)
+h2 = hma(close, hma2_len)
+
+// ══════════════════════════════════════════════════════
+//  ATR
+// ══════════════════════════════════════════════════════
+atr_val = ta.atr(atr_len)
+
+// ══════════════════════════════════════════════════════
+//  SIGNAUX DE CROISEMENT
+// ══════════════════════════════════════════════════════
+// LONG  : close croise HMA par le bas (traverse de bas en haut)
+cross_up_1 = use_hma1 and ta.crossover(close, h1)
+cross_up_2 = use_hma2 and ta.crossover(close, h2)
+long_sig   = allow_long and (cross_up_1 or cross_up_2)
+
+// SHORT : close croise HMA par le haut (conditions inversées)
+cross_dn_1 = use_hma1 and ta.crossunder(close, h1)
+cross_dn_2 = use_hma2 and ta.crossunder(close, h2)
+short_sig  = allow_short and (cross_dn_1 or cross_dn_2)
+
+// Niveau HMA actif au signal (priorité HMA1 si les deux croisent)
+hma_long  = cross_up_1 ? h1 : h2
+hma_short = cross_dn_1 ? h1 : h2
+
+// ══════════════════════════════════════════════════════
+//  CALCUL ENTRÉE / SL / TP
+// ══════════════════════════════════════════════════════
+// ── LONG ──
+// Entrée  : niveau du HMA au croisement
+// SL      : bas de la bougie de croisement
+// Distance: Entrée − SL
+// TP      : Entrée + Distance + Slippage  (1:1 net après slippage)
+entry_l = hma_long
+sl_l    = low
+dist_l  = entry_l - sl_l
+tp_l    = entry_l + dist_l + slip_pts   // gain brut = SL dist + compense slippage sortie
+
+// ── SHORT (symétrique) ──
+entry_s = hma_short
+sl_s    = high
+dist_s  = sl_s - entry_s
+tp_s    = entry_s - dist_s - slip_pts
+
+// ── FILTRE ATR ──
+// On ne prend le trade que si la distance SL > atr_filt × ATR
+long_ok  = long_sig  and (dist_l > atr_filt * atr_val) and (dist_l > 0.0)
+short_ok = short_sig and (dist_s > atr_filt * atr_val) and (dist_s > 0.0)
+
+// ══════════════════════════════════════════════════════
+//  LABOUCHÈRE INVERSÉE  [1-1-1-1]  COMPOUND
+// ──────────────────────────────────────────────────────
+//  Mise courante = seq[0] + seq[dernière]
+//  Gain  → ajouter la mise à la fin de la séquence
+//  Perte → retirer seq[0] et seq[dernière]
+//  Séquence vide ou réduite à 0 → reset [1,1,1,1]
+// ══════════════════════════════════════════════════════
+var float[] seq     = array.from(1.0, 1.0, 1.0, 1.0)
+var int     closed_n = 0
+
+// Lecture de la mise sans effet de bord
+f_bet() =>
+    n = array.size(seq)
+    n <= 0 ? 2.0 : n == 1 ? array.get(seq, 0) : array.get(seq, 0) + array.get(seq, n - 1)
+
+// Mise à jour de la séquence
+f_update(won, bet) =>
+    if won
+        array.push(seq, bet)                         // Gain  → allonger
+    else
+        n = array.size(seq)
+        if n >= 2
+            array.remove(seq, 0)
+            array.remove(seq, array.size(seq) - 1)  // Perte → raccourcir
+        // Si n <= 1 après perte → reset
+        if array.size(seq) == 0
+            array.push(seq, 1.0), array.push(seq, 1.0)
+            array.push(seq, 1.0), array.push(seq, 1.0)
+
+// Détection de clôture de trade (1 seul trade ouvert à la fois grâce à pyramiding=1)
+if strategy.closedtrades > closed_n
+    pnl  = strategy.closedtrades.profit(strategy.closedtrades - 1)
+    bet  = f_bet()
+    f_update(pnl > 0.0, bet)
+    closed_n := strategy.closedtrades
+
+// Calcul de la quantité (unités)
+//   Risque $ = mise × base × risk_pct%
+//   Quantité = Risque $ / Distance SL
+f_qty(sl_dist) =>
+    bet  = f_bet()
+    base = compound ? strategy.equity : strategy.initial_capital
+    risk = bet * base * risk_pct / 100.0
+    math.max(risk / sl_dist, 0.0)
+
+// ══════════════════════════════════════════════════════
+//  GESTION DES POSITIONS
+// ══════════════════════════════════════════════════════
+var float active_sl = na
+var float active_tp = na
+
+// Entrée LONG (ordre limite au niveau du HMA)
+if long_ok and strategy.position_size == 0
+    qty      = f_qty(dist_l)
+    strategy.entry("Long", strategy.long, qty=qty, limit=entry_l,
+         comment="▲ HMA" + str.tostring(cross_up_1 ? hma1_len : hma2_len))
+    active_sl := sl_l
+    active_tp := tp_l
+
+// Entrée SHORT
+if short_ok and strategy.position_size == 0
+    qty      = f_qty(dist_s)
+    strategy.entry("Short", strategy.short, qty=qty, limit=entry_s,
+         comment="▼ HMA" + str.tostring(cross_dn_1 ? hma1_len : hma2_len))
+    active_sl := sl_s
+    active_tp := tp_s
+
+// Sorties SL + TP
+if strategy.position_size > 0
+    strategy.exit("L-Exit", "Long",  stop=active_sl, limit=active_tp)
+if strategy.position_size < 0
+    strategy.exit("S-Exit", "Short", stop=active_sl, limit=active_tp)
+
+// ══════════════════════════════════════════════════════
+//  AFFICHAGE GRAPHIQUE
+// ══════════════════════════════════════════════════════
+// HMAs
+plot(h1, "HMA " + str.tostring(hma1_len), color=color.new(color.blue,   0), linewidth=2)
+plot(h2, "HMA " + str.tostring(hma2_len), color=color.new(color.orange, 0), linewidth=2)
+
+// ── Signaux validés ──
+plotshape(long_ok,  "Long ✓",  shape.triangleup,   location.belowbar, color.new(color.lime, 0),  size=size.small)
+plotshape(short_ok, "Short ✓", shape.triangledown, location.abovebar, color.new(color.red,  0),  size=size.small)
+
+// ── Signaux rejetés par le filtre ATR ──
+plotshape(long_sig  and not long_ok,  "Long ✗",  shape.xcross, location.belowbar, color.new(color.gray, 40), size=size.tiny)
+plotshape(short_sig and not short_ok, "Short ✗", shape.xcross, location.abovebar, color.new(color.gray, 40), size=size.tiny)
+
+// ── Niveaux SL / TP de la position active ──
+plot(strategy.position_size != 0 ? active_sl : na, "SL actif",
+     color=color.new(color.red,   0), style=plot.style_linebr, linewidth=1)
+plot(strategy.position_size != 0 ? active_tp : na, "TP actif",
+     color=color.new(color.lime,  0), style=plot.style_linebr, linewidth=1)
+
+// ══════════════════════════════════════════════════════
+//  TABLEAU LABOUCHÈRE (coin haut droit)
+// ══════════════════════════════════════════════════════
+var table t = table.new(position.top_right, 2, 8,
+     bgcolor       = color.new(color.black, 72),
+     border_color  = color.new(color.gray,  50), border_width = 1,
+     frame_color   = color.new(color.gray,  50), frame_width  = 1)
+
+// Construire la chaîne séquence : 1-1-1-1-2-3...
+seq_str = ""
+for i = 0 to array.size(seq) - 1
+    seq_str += str.tostring(math.round(array.get(seq, i) * 100) / 100.0)
+    if i < array.size(seq) - 1
+        seq_str += "-"
+
+bet_cur   = f_bet()
+base_cur  = compound ? strategy.equity : strategy.initial_capital
+risk_cur  = bet_cur * base_cur * risk_pct / 100.0
+pnl_col   = strategy.netprofit >= 0.0 ? color.lime : color.red
+win_rate  = strategy.closedtrades > 0 
+         ? strategy.wintrades / strategy.closedtrades * 100 : 0.0
+
+table.cell(t, 0, 0, "LABOUCHÈRE INV.",  text_color=color.white,  bgcolor=color.new(color.navy, 25), text_size=size.small, text_halign=text.align_center)
+table.cell(t, 1, 0, "● COMPOUND",       text_color=color.yellow, bgcolor=color.new(color.navy, 25), text_size=size.small, text_halign=text.align_center)
+table.cell(t, 0, 1, "Séquence",         text_color=color.silver, text_size=size.tiny)
+table.cell(t, 1, 1, seq_str,            text_color=color.yellow, text_size=size.tiny)
+table.cell(t, 0, 2, "Mise (units)",     text_color=color.silver, text_size=size.tiny)
+table.cell(t, 1, 2, str.tostring(bet_cur, "#.##"),   text_color=color.white, text_size=size.small)
+table.cell(t, 0, 3, "Risque ($)",       text_color=color.silver, text_size=size.tiny)
+table.cell(t, 1, 3, str.tostring(risk_cur, "#.##"),  text_color=color.white, text_size=size.small)
+table.cell(t, 0, 4, "Equity",           text_color=color.silver, text_size=size.tiny)
+table.cell(t, 1, 4, str.tostring(strategy.equity,     "#.##"), text_color=pnl_col, text_size=size.small)
+table.cell(t, 0, 5, "Net P&L",          text_color=color.silver, text_size=size.tiny)
+table.cell(t, 1, 5, str.tostring(strategy.netprofit,  "#.##"), text_color=pnl_col, text_size=size.small)
+table.cell(t, 0, 6, "Win Rate",         text_color=color.silver, text_size=size.tiny)
+table.cell(t, 1, 6, str.tostring(win_rate, "#.#") + "%",        text_color=color.white, text_size=size.small)
+table.cell(t, 0, 7, "Trades clôturés",  text_color=color.silver, text_size=size.tiny)
+table.cell(t, 1, 7, str.tostring(strategy.closedtrades),         text_color=color.white, text_size=size.small)
