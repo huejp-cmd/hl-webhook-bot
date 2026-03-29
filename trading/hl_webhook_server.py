@@ -65,6 +65,9 @@ TRADE_LOG_MAX  = 500   # entrées max conservées en mémoire/fichier
 # Log en mémoire (Railway : /tmp peut être éphémère)
 _trade_log_memory: list = []
 
+# Positions virtuelles DRY_RUN (coin -> {entry, qty, side, capital, tp, sl, ts})
+_dry_positions: dict = {}
+
 # True  = Mainnet Hyperliquid (argent reel)
 # False = Testnet (test sans risque)
 MAINNET = True
@@ -466,17 +469,19 @@ def close_position_market(coin: str) -> dict:
     Ferme immediatement la position ouverte sur ce coin au marche.
     Appele quand Pine v5.4 envoie action="close" (TP atteint sur la bougie).
     """
+    if DRY_RUN:
+        pos = _dry_positions.pop(coin, None)
+        szi = pos["qty"] if pos else 0
+        result = {"status": "dry_run_close", "coin": coin, "szi": szi, "virtual_pos": pos}
+        log.info(f"  [DRY RUN CLOSE] {result}")
+        return result
+
     szi = get_open_position(coin)
     if szi == 0:
         log.warning(f"  close_position_market({coin}) : aucune position ouverte")
         return {"status": "no_position", "coin": coin}
 
     log.info(f"  Fermeture marche {coin} (position={szi})")
-
-    if DRY_RUN:
-        result = {"status": "dry_run_close", "coin": coin, "szi": szi}
-        log.info(f"  [DRY RUN] {result}")
-        return result
 
     try:
         result = exchange.market_close(coin)
@@ -609,6 +614,12 @@ def place_order(signal: dict) -> dict:
             "dual_tf":      dual_tf,
         }
         log.info(f"  [DRY RUN]\n{json.dumps(result, indent=4)}")
+        # Tracker la position virtuelle pour log quand elle ferme
+        _dry_positions[coin] = {
+            "entry": entry_px, "qty": qty, "side": side,
+            "capital": capital, "tp": tp_price, "sl": sl_price,
+            "ts": datetime.utcnow().isoformat() + "Z"
+        }
         return result
 
     # -- Levier + isolated margin --
