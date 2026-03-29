@@ -153,8 +153,8 @@ if strategy.position_size < 0
     strategy.exit("S-Exit", "Short", stop=slact, limit=tpact)
 
 // --- AFFICHAGE ---
-plot(h1, "HMA" + str.tostring(hma1_len), color=color.new(color.blue,   0), linewidth=2)
-plot(h2, "HMA" + str.tostring(hma2_len), color=color.new(color.orange, 0), linewidth=2)
+plot(h1, "HMA1", color=color.new(color.blue,   0), linewidth=2)
+plot(h2, "HMA2", color=color.new(color.orange, 0), linewidth=2)
 plotshape(long_ok  and tradeon, "Long",  shape.triangleup,   location.belowbar, color.lime, size=size.small)
 plotshape(short_ok and tradeon, "Short", shape.triangledown, location.abovebar, color.red,  size=size.small)
 plot(strategy.position_size != 0 ? slact : na, "SL", color=color.red,  style=plot.style_linebr, linewidth=1)
