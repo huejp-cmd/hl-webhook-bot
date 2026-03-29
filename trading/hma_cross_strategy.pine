@@ -1,8 +1,8 @@
 //@version=5
-strategy("HMA Cross + Labouchère Inversée 🐢", 
-         overlay                 = true, 
+strategy("HMA Cross + Labouchère Inversée 🐢",
+         overlay                 = true,
          pyramiding              = 1,
-         process_orders_on_close = true,   // ← exécution sur la MÊME bougie que le signal
+         process_orders_on_close = true,
          initial_capital         = 10000,
          default_qty_type        = strategy.cash,
          default_qty_value       = 100,
@@ -10,253 +10,244 @@ strategy("HMA Cross + Labouchère Inversée 🐢",
          commission_value        = 0.05,
          slippage                = 2)
 
-// ══════════════════════════════════════════════════════
+// ══════════════════════════════════════════════
 //  PARAMÈTRES
-// ══════════════════════════════════════════════════════
-var string G_HMA  = "━━ Hull Moving Averages ━━"
-var string G_RISK = "━━ Gestion du risque ━━"
-var string G_DIR  = "━━ Direction ━━"
+// ══════════════════════════════════════════════
+hma1_len   = input.int  (20,    "HMA 1 (période)",            group="HMA", minval=2)
+hma2_len   = input.int  (50,    "HMA 2 (période)",            group="HMA", minval=2)
+use_hma1   = input.bool (true,  "Activer HMA 1",              group="HMA")
+use_hma2   = input.bool (true,  "Activer HMA 2",              group="HMA")
 
-// HMA
-hma1_len  = input.int  (20,    "HMA 1 (période)",               group=G_HMA,  minval=2)
-hma2_len  = input.int  (50,    "HMA 2 (période)",               group=G_HMA,  minval=2)
-use_hma1  = input.bool (true,  "Activer HMA 1",                 group=G_HMA)
-use_hma2  = input.bool (true,  "Activer HMA 2",                 group=G_HMA)
+atr_len    = input.int  (10,    "ATR (période)",              group="Risque", minval=1)
+atr_filt   = input.float(0.5,   "Filtre ATR (× ATR)",        group="Risque", step=0.1, minval=0.0)
+risk_pct   = input.float(1.0,   "Risque unitaire (% equity)",group="Risque", step=0.1, minval=0.01)
+compound   = input.bool (true,  "Compound",                   group="Risque")
+slip_pts   = input.float(0.0,   "Slippage (points prix)",    group="Risque", step=0.00001, minval=0.0)
+dd_max_pct = input.float(15.0,  "DD Maximum (%)",             group="Risque", step=0.5, minval=1.0, maxval=100.0)
+cap_mult   = input.float(2.0,   "Plafond capital (×)",       group="Risque", step=0.5, minval=1.1)
 
-// Risque & filtres
-atr_len      = input.int  (10,    "ATR (période)",                     group=G_RISK, minval=1)
-atr_filt     = input.float(0.5,   "Filtre ATR minimum (× ATR)",        group=G_RISK, step=0.1,  minval=0.0)
-risk_pct     = input.float(1.0,   "Risque unitaire (% equity)",        group=G_RISK, step=0.1,  minval=0.01)
-compound     = input.bool (true,  "Compound (réinvestissement)",        group=G_RISK)
-slip_pts     = input.float(0.0,   "Slippage estimé (points prix)",     group=G_RISK, step=0.0001, minval=0.0)
-dd_max_pct   = input.float(15.0,  "DD Maximum (%)",                    group=G_RISK, step=0.5,  minval=1.0, maxval=100.0)
-cap_mult     = input.float(2.0,   "Plafond capital (×)",               group=G_RISK, step=0.5,  minval=1.1)
+allow_long  = input.bool(true,  "Activer LONGS",              group="Direction")
+allow_short = input.bool(true,  "Activer SHORTS",             group="Direction")
 
-// Direction
-allow_long  = input.bool(true, "Activer LONGS",  group=G_DIR)
-allow_short = input.bool(true, "Activer SHORTS", group=G_DIR)
-
-// ══════════════════════════════════════════════════════
-//  HULL MOVING AVERAGE
-//  HMA(n) = WMA( 2×WMA(n/2) − WMA(n), √n )
-// ══════════════════════════════════════════════════════
+// ══════════════════════════════════════════════
+//  HMA  →  WMA( 2×WMA(n/2) − WMA(n), √n )
+// ══════════════════════════════════════════════
 hma(src, len) =>
-    h = math.round(len / 2)
-    s = math.round(math.sqrt(float(len)))
-    ta.wma(2.0 * ta.wma(src, h) - ta.wma(src, len), s)
+    half = math.round(len / 2)
+    sq   = math.round(math.sqrt(float(len)))
+    ta.wma(2.0 * ta.wma(src, half) - ta.wma(src, len), sq)
 
-h1 = hma(close, hma1_len)
-h2 = hma(close, hma2_len)
-
-// ══════════════════════════════════════════════════════
-//  ATR
-// ══════════════════════════════════════════════════════
+h1      = hma(close, hma1_len)
+h2      = hma(close, hma2_len)
 atr_val = ta.atr(atr_len)
 
-// ══════════════════════════════════════════════════════
-//  SIGNAUX
-// ══════════════════════════════════════════════════════
-cross_up_1 = use_hma1 and ta.crossover (close, h1)
-cross_up_2 = use_hma2 and ta.crossover (close, h2)
-long_sig   = allow_long  and (cross_up_1 or cross_up_2)
+// ══════════════════════════════════════════════
+//  SIGNAUX DE CROISEMENT
+// ══════════════════════════════════════════════
+cup1 = use_hma1 and ta.crossover (close, h1)   // traverse HMA1 par le bas
+cup2 = use_hma2 and ta.crossover (close, h2)   // traverse HMA2 par le bas
+cdn1 = use_hma1 and ta.crossunder(close, h1)   // traverse HMA1 par le haut
+cdn2 = use_hma2 and ta.crossunder(close, h2)   // traverse HMA2 par le haut
 
-cross_dn_1 = use_hma1 and ta.crossunder(close, h1)
-cross_dn_2 = use_hma2 and ta.crossunder(close, h2)
-short_sig  = allow_short and (cross_dn_1 or cross_dn_2)
+long_sig  = allow_long  and (cup1 or cup2)
+short_sig = allow_short and (cdn1 or cdn2)
 
-hma_long  = cross_up_1 ? h1 : h2
-hma_short = cross_dn_1 ? h1 : h2
+hma_l = cup1 ? h1 : h2    // HMA active au signal long
+hma_s = cdn1 ? h1 : h2    // HMA active au signal short
 
-// ══════════════════════════════════════════════════════
-//  ENTRÉE / SL / TP
-// ══════════════════════════════════════════════════════
-// LONG
-entry_l = hma_long
+// ══════════════════════════════════════════════
+//  NIVEAUX  ENTRY / SL / TP
+//  Long  : Entrée = HMA | SL = bas bougie  | dist = HMA − bas | TP = HMA + dist
+//  Short : Entrée = HMA | SL = haut bougie | dist = haut − HMA | TP = HMA − dist
+// ══════════════════════════════════════════════
+entry_l = hma_l
 sl_l    = low
 dist_l  = entry_l - sl_l
-tp_l    = entry_l + dist_l + slip_pts   // 1:1 net après slippage
+tp_l    = entry_l + dist_l + slip_pts
 
-// SHORT
-entry_s = hma_short
+entry_s = hma_s
 sl_s    = high
 dist_s  = sl_s - entry_s
 tp_s    = entry_s - dist_s - slip_pts
 
-// Filtre ATR
-long_ok  = long_sig  and (dist_l > atr_filt * atr_val) and (dist_l > 0.0)
-short_ok = short_sig and (dist_s > atr_filt * atr_val) and (dist_s > 0.0)
+// Filtre : dist SL > atr_filt × ATR (élimine les micro-croisements)
+long_ok  = long_sig  and dist_l > atr_filt * atr_val and dist_l > 0.0
+short_ok = short_sig and dist_s > atr_filt * atr_val and dist_s > 0.0
 
-// ══════════════════════════════════════════════════════
+// ══════════════════════════════════════════════
 //  GESTION DU CAPITAL
-//  ┌─ DD MAX 15%  → STOP trading si perte depuis pic > seuil
-//  └─ PLAFOND ×2  → NOUVEAU DÉPART (reset Labouchère + pic)
-// ══════════════════════════════════════════════════════
-var float peak_equity    = strategy.initial_capital
-var float capital_floor  = strategy.initial_capital          // base du cycle en cours
-var float capital_target = strategy.initial_capital * cap_mult
-var bool  trading_on     = true
-var int   cycle_count    = 0
+//  DD MAX  → stoppe tout si perte depuis le pic > seuil
+//  Plafond → nouveau départ quand equity × cap_mult atteint
+// ══════════════════════════════════════════════
+var float peak_eq   = strategy.initial_capital
+var float cap_floor = strategy.initial_capital
+var float cap_tgt   = strategy.initial_capital * cap_mult
+var bool  trade_on  = true
+var int   cycles    = 0
 
-// Mise à jour du pic
-peak_equity := math.max(peak_equity, strategy.equity)
+peak_eq := math.max(peak_eq, strategy.equity)
+dd_cur   = (peak_eq - strategy.equity) / peak_eq * 100.0
 
-// Calcul drawdown depuis le pic du cycle
-dd_cur = (peak_equity - strategy.equity) / peak_equity * 100.0
+if trade_on and dd_cur >= dd_max_pct
+    strategy.close_all(comment="DD MAX")
+    trade_on := false
 
-// ── DD MAX atteint ──
-if trading_on and dd_cur >= dd_max_pct
-    strategy.close_all(comment="🛑 DD MAX " + str.tostring(dd_cur, "#.#") + "%")
-    trading_on := false
-
-// ══════════════════════════════════════════════════════
+// ══════════════════════════════════════════════
 //  LABOUCHÈRE INVERSÉE  [1-1-1-1]  COMPOUND
-// ══════════════════════════════════════════════════════
-var float[] seq      = array.from(1.0, 1.0, 1.0, 1.0)
-var int     closed_n = 0
+//  Gain  → ajouter la mise en fin de séquence
+//  Perte → retirer premier et dernier
+//  Vide  → reset [1-1-1-1]
+// ══════════════════════════════════════════════
+var float[] seq     = array.from(1.0, 1.0, 1.0, 1.0)
+var int     nclosed = 0
 
-f_reset_lab() =>
+// ⚠️ Une instruction par ligne — PAS de virgules entre les array.push
+lab_reset() =>
     array.clear(seq)
-    array.push(seq, 1.0), array.push(seq, 1.0)
-    array.push(seq, 1.0), array.push(seq, 1.0)
+    array.push(seq, 1.0)
+    array.push(seq, 1.0)
+    array.push(seq, 1.0)
+    array.push(seq, 1.0)
 
-f_bet() =>
+lab_bet() =>
     n = array.size(seq)
-    n <= 0 ? 2.0 : n == 1 ? array.get(seq, 0) : array.get(seq, 0) + array.get(seq, n - 1)
+    if n <= 0
+        2.0
+    else if n == 1
+        array.get(seq, 0)
+    else
+        array.get(seq, 0) + array.get(seq, n - 1)
 
-f_update(won, bet) =>
+lab_update(won, bet) =>
     if won
         array.push(seq, bet)
     else
-        n = array.size(seq)
-        if n >= 2
+        if array.size(seq) >= 2
             array.remove(seq, 0)
             array.remove(seq, array.size(seq) - 1)
         if array.size(seq) == 0
-            f_reset_lab()
+            lab_reset()
 
-// ── PLAFOND ×CAP_MULT atteint → Nouveau départ ──
-if trading_on and strategy.equity >= capital_target
-    strategy.close_all(comment="🏆 CYCLE ×" + str.tostring(cap_mult) + " → RESET")
-    f_reset_lab()
-    capital_floor  := strategy.equity
-    capital_target := strategy.equity * cap_mult
-    peak_equity    := strategy.equity   // DD repart de zéro
-    trading_on     := true
-    cycle_count    += 1
+// Plafond atteint → nouveau cycle
+if trade_on and strategy.equity >= cap_tgt
+    strategy.close_all(comment="CYCLE x" + str.tostring(cap_mult))
+    lab_reset()
+    cap_floor := strategy.equity
+    cap_tgt   := strategy.equity * cap_mult
+    peak_eq   := strategy.equity
+    trade_on  := true
+    cycles    += 1
 
-// Détecter clôture de trade
-if strategy.closedtrades > closed_n
-    pnl  = strategy.closedtrades.profit(strategy.closedtrades - 1)
-    bet  = f_bet()
-    f_update(pnl > 0.0, bet)
-    closed_n := strategy.closedtrades
+// Mise à jour séquence après chaque trade clôturé
+if strategy.closedtrades > nclosed
+    last_pnl = strategy.closedtrades.profit(strategy.closedtrades - 1)
+    bet_was  = lab_bet()
+    lab_update(last_pnl > 0.0, bet_was)
+    nclosed := strategy.closedtrades
 
-// Taille de position
-f_qty(sl_dist) =>
-    bet  = f_bet()
-    base = compound ? strategy.equity : capital_floor
-    risk = bet * base * risk_pct / 100.0
-    math.max(risk / sl_dist, 0.0)
+// Taille de position (risque en $)
+qty_calc(sl_dist) =>
+    bet  = lab_bet()
+    base = compound ? strategy.equity : cap_floor
+    math.max(bet * base * risk_pct / 100.0 / sl_dist, 0.0)
 
-// ══════════════════════════════════════════════════════
-//  GESTION DES POSITIONS
-//  process_orders_on_close=true → exécution sur la MÊME bougie
-//  Entrée au niveau du HMA (croisement), SL = bas bougie, TP 1:1
-// ══════════════════════════════════════════════════════
-var float active_sl = na
-var float active_tp = na
+// ══════════════════════════════════════════════
+//  ENTRÉES / SORTIES
+// ══════════════════════════════════════════════
+var float sl_act = na
+var float tp_act = na
 
-if trading_on
-    // LONG — ordre marché, fill à la clôture de la bougie de signal
+if trade_on
     if long_ok and strategy.position_size == 0
-        strategy.entry("Long", strategy.long, qty=f_qty(dist_l),
-             comment="▲ HMA" + str.tostring(cross_up_1 ? hma1_len : hma2_len))
-        active_sl := sl_l    // SL = bas de la bougie de croisement
-        active_tp := tp_l    // TP = HMA + dist (1:1 + slippage)
+        strategy.entry("Long", strategy.long,
+             qty     = qty_calc(dist_l),
+             comment = "HMA" + str.tostring(cup1 ? hma1_len : hma2_len) + " ▲")
+        sl_act := sl_l
+        tp_act := tp_l
 
-    // SHORT — conditions inversées
     if short_ok and strategy.position_size == 0
-        strategy.entry("Short", strategy.short, qty=f_qty(dist_s),
-             comment="▼ HMA" + str.tostring(cross_dn_1 ? hma1_len : hma2_len))
-        active_sl := sl_s    // SL = haut de la bougie de croisement
-        active_tp := tp_s    // TP = HMA − dist (1:1 + slippage)
+        strategy.entry("Short", strategy.short,
+             qty     = qty_calc(dist_s),
+             comment = "HMA" + str.tostring(cdn1 ? hma1_len : hma2_len) + " ▼")
+        sl_act := sl_s
+        tp_act := tp_s
 
-// Sorties SL + TP (niveaux calculés sur la bougie de signal)
-if strategy.position_size > 0 and not na(active_sl)
-    strategy.exit("L-Exit", "Long",  stop=active_sl, limit=active_tp)
+if strategy.position_size > 0 and not na(sl_act)
+    strategy.exit("L-SL/TP", "Long",  stop=sl_act, limit=tp_act)
 
-if strategy.position_size < 0 and not na(active_sl)
-    strategy.exit("S-Exit", "Short", stop=active_sl, limit=active_tp)
+if strategy.position_size < 0 and not na(sl_act)
+    strategy.exit("S-SL/TP", "Short", stop=sl_act, limit=tp_act)
 
-// ══════════════════════════════════════════════════════
-//  AFFICHAGE GRAPHIQUE
-// ══════════════════════════════════════════════════════
-plot(h1, "HMA " + str.tostring(hma1_len), color=color.new(color.blue,   0), linewidth=2)
-plot(h2, "HMA " + str.tostring(hma2_len), color=color.new(color.orange, 0), linewidth=2)
+// ══════════════════════════════════════════════
+//  AFFICHAGE
+// ══════════════════════════════════════════════
+plot(h1, "HMA" + str.tostring(hma1_len), color=color.new(color.blue,   0), linewidth=2)
+plot(h2, "HMA" + str.tostring(hma2_len), color=color.new(color.orange, 0), linewidth=2)
 
-plotshape(long_ok  and trading_on, "Long ✓",  shape.triangleup,   location.belowbar, color.new(color.lime, 0),  size=size.small)
-plotshape(short_ok and trading_on, "Short ✓", shape.triangledown, location.abovebar, color.new(color.red,  0),  size=size.small)
-plotshape(long_sig  and not long_ok,  "Long ✗",  shape.xcross, location.belowbar, color.new(color.gray, 40), size=size.tiny)
-plotshape(short_sig and not short_ok, "Short ✗", shape.xcross, location.abovebar, color.new(color.gray, 40), size=size.tiny)
+// Signaux validés
+plotshape(long_ok  and trade_on, "Long ✓",
+     shape.triangleup,   location.belowbar, color.lime, size=size.small)
+plotshape(short_ok and trade_on, "Short ✓",
+     shape.triangledown, location.abovebar, color.red,  size=size.small)
 
-// Signal bloqué par DD ou pause
-plotshape(not trading_on and (long_sig or short_sig), "Bloqué 🛑",
-     shape.square, location.abovebar, color.new(color.red, 30), size=size.tiny)
+// Signaux filtrés par ATR (petits x gris)
+plotshape(long_sig  and not long_ok,  "Long filtré",
+     shape.xcross, location.belowbar, color.new(color.gray, 40), size=size.tiny)
+plotshape(short_sig and not short_ok, "Short filtré",
+     shape.xcross, location.abovebar, color.new(color.gray, 40), size=size.tiny)
 
-// SL et TP actifs (niveaux fixes calculés sur la bougie de signal)
-plot(strategy.position_size != 0 ? active_sl : na, "SL",
-     color=color.new(color.red,  0), style=plot.style_linebr, linewidth=1)
-plot(strategy.position_size != 0 ? active_tp : na, "TP",
-     color=color.new(color.lime, 0), style=plot.style_linebr, linewidth=1)
+// Signaux bloqués DD
+plotshape(not trade_on and (long_sig or short_sig), "STOP",
+     shape.square, location.abovebar, color.new(color.red, 20), size=size.tiny)
 
-// ══════════════════════════════════════════════════════
-//  TABLEAU LABOUCHÈRE + CAPITAL CONTROL
-// ══════════════════════════════════════════════════════
+// SL et TP de la position active
+plot(strategy.position_size != 0 ? sl_act : na,
+     "SL", color=color.new(color.red,  0), style=plot.style_linebr, linewidth=1)
+plot(strategy.position_size != 0 ? tp_act : na,
+     "TP", color=color.new(color.lime, 0), style=plot.style_linebr, linewidth=1)
+
+// ══════════════════════════════════════════════
+//  TABLEAU INFO
+// ══════════════════════════════════════════════
 var table t = table.new(position.top_right, 2, 11,
      bgcolor      = color.new(color.black, 72),
      border_color = color.new(color.gray,  50), border_width = 1,
      frame_color  = color.new(color.gray,  50), frame_width  = 1)
 
-// Séquence Labouchère en string
 seq_str = ""
 for i = 0 to array.size(seq) - 1
-    seq_str += str.tostring(math.round(array.get(seq, i) * 100) / 100.0)
+    seq_str += str.tostring(math.round(array.get(seq, i) * 100.0) / 100.0)
     if i < array.size(seq) - 1
         seq_str += "-"
 
-bet_cur    = f_bet()
-base_cur   = compound ? strategy.equity : capital_floor
-risk_cur   = bet_cur * base_cur * risk_pct / 100.0
-pnl_col    = strategy.netprofit >= 0.0 ? color.lime : color.red
-dd_col     = dd_cur >= dd_max_pct * 0.8 ? color.red : dd_cur >= dd_max_pct * 0.5 ? color.orange : color.lime
-state_str  = not trading_on ? "🛑 DD MAX — STOP" : strategy.equity >= capital_target * 0.95 ? "⚡ Proche ×" + str.tostring(cap_mult) : "✅ Actif (Cycle " + str.tostring(cycle_count + 1) + ")"
-state_col  = not trading_on ? color.red : color.lime
-win_rate   = strategy.closedtrades > 0 ? strategy.wintrades / strategy.closedtrades * 100.0 : 0.0
+bet_now  = lab_bet()
+base_now = compound ? strategy.equity : cap_floor
+risk_now = bet_now * base_now * risk_pct / 100.0
+pnl_col  = strategy.netprofit >= 0.0 ? color.lime : color.red
+dd_col   = dd_cur >= dd_max_pct * 0.8 ? color.red : dd_cur >= dd_max_pct * 0.5 ? color.orange : color.lime
+win_rate = strategy.closedtrades > 0 ? strategy.wintrades / strategy.closedtrades * 100.0 : 0.0
+st_str   = not trade_on ? "STOP — DD MAX" : strategy.equity >= cap_tgt * 0.95 ? "Proche x" + str.tostring(cap_mult, "#.#") : "Actif — Cycle " + str.tostring(cycles + 1)
+st_col   = not trade_on ? color.red : color.lime
 
-// En-tête
-table.cell(t, 0, 0, "LABOUCHÈRE INV.",   text_color=color.white,  bgcolor=color.new(color.navy, 25), text_size=size.small, text_halign=text.align_center)
-table.cell(t, 1, 0, "COMPOUND",           text_color=color.yellow, bgcolor=color.new(color.navy, 25), text_size=size.small, text_halign=text.align_center)
-
-// Labouchère
-table.cell(t, 0, 1, "Séquence",           text_color=color.silver, text_size=size.tiny)
-table.cell(t, 1, 1, seq_str,              text_color=color.yellow, text_size=size.tiny)
-table.cell(t, 0, 2, "Mise (units)",       text_color=color.silver, text_size=size.tiny)
-table.cell(t, 1, 2, str.tostring(bet_cur, "#.##"), text_color=color.white, text_size=size.small)
-table.cell(t, 0, 3, "Risque ($)",         text_color=color.silver, text_size=size.tiny)
-table.cell(t, 1, 3, str.tostring(risk_cur, "#.##"), text_color=color.white, text_size=size.small)
-
-// Capital
-table.cell(t, 0, 4, "━━ Capital ━━",    text_color=color.white,  bgcolor=color.new(color.maroon, 40), text_size=size.tiny, text_halign=text.align_center)
-table.cell(t, 1, 4, "━━ Contrôle ━━",  text_color=color.white,  bgcolor=color.new(color.maroon, 40), text_size=size.tiny, text_halign=text.align_center)
-table.cell(t, 0, 5, "Equity",            text_color=color.silver, text_size=size.tiny)
-table.cell(t, 1, 5, str.tostring(strategy.equity, "#.##"), text_color=pnl_col, text_size=size.small)
-table.cell(t, 0, 6, "Net P&L",           text_color=color.silver, text_size=size.tiny)
-table.cell(t, 1, 6, str.tostring(strategy.netprofit, "#.##"), text_color=pnl_col, text_size=size.small)
-table.cell(t, 0, 7, "DD actuel",          text_color=color.silver, text_size=size.tiny)
-table.cell(t, 1, 7, str.tostring(dd_cur, "#.##") + "% / " + str.tostring(dd_max_pct) + "%", text_color=dd_col, text_size=size.small)
-table.cell(t, 0, 8, "Objectif ×" + str.tostring(cap_mult), text_color=color.silver, text_size=size.tiny)
-table.cell(t, 1, 8, str.tostring(capital_target, "#.##"), text_color=color.aqua, text_size=size.small)
-table.cell(t, 0, 9, "Cycles complétés", text_color=color.silver, text_size=size.tiny)
-table.cell(t, 1, 9, str.tostring(cycle_count) + "  |  WR: " + str.tostring(win_rate, "#.#") + "%", text_color=color.white, text_size=size.small)
-table.cell(t, 0, 10, "État",             text_color=color.silver, text_size=size.tiny)
-table.cell(t, 1, 10, state_str,          text_color=state_col,    text_size=size.small)
+table.cell(t, 0, 0,  "LABOUCHERE INV.", text_color=color.white,  bgcolor=color.new(color.navy, 25), text_size=size.small, text_halign=text.align_center)
+table.cell(t, 1, 0,  "COMPOUND",        text_color=color.yellow, bgcolor=color.new(color.navy, 25), text_size=size.small, text_halign=text.align_center)
+table.cell(t, 0, 1,  "Sequence",        text_color=color.silver, text_size=size.tiny)
+table.cell(t, 1, 1,  seq_str,           text_color=color.yellow, text_size=size.tiny)
+table.cell(t, 0, 2,  "Mise (units)",    text_color=color.silver, text_size=size.tiny)
+table.cell(t, 1, 2,  str.tostring(bet_now,  "#.##"), text_color=color.white, text_size=size.small)
+table.cell(t, 0, 3,  "Risque ($)",      text_color=color.silver, text_size=size.tiny)
+table.cell(t, 1, 3,  str.tostring(risk_now, "#.##"), text_color=color.white, text_size=size.small)
+table.cell(t, 0, 4,  "--- Capital ---", text_color=color.white,  bgcolor=color.new(color.maroon, 40), text_size=size.tiny, text_halign=text.align_center)
+table.cell(t, 1, 4,  "--- Controle ---",text_color=color.white,  bgcolor=color.new(color.maroon, 40), text_size=size.tiny, text_halign=text.align_center)
+table.cell(t, 0, 5,  "Equity",          text_color=color.silver, text_size=size.tiny)
+table.cell(t, 1, 5,  str.tostring(strategy.equity,     "#.##"), text_color=pnl_col, text_size=size.small)
+table.cell(t, 0, 6,  "Net P&L",         text_color=color.silver, text_size=size.tiny)
+table.cell(t, 1, 6,  str.tostring(strategy.netprofit,  "#.##"), text_color=pnl_col, text_size=size.small)
+table.cell(t, 0, 7,  "DD actuel",       text_color=color.silver, text_size=size.tiny)
+table.cell(t, 1, 7,  str.tostring(dd_cur, "#.##") + "% / " + str.tostring(dd_max_pct) + "%", text_color=dd_col, text_size=size.small)
+table.cell(t, 0, 8,  "Objectif",        text_color=color.silver, text_size=size.tiny)
+table.cell(t, 1, 8,  str.tostring(cap_tgt, "#.##"), text_color=color.aqua, text_size=size.small)
+table.cell(t, 0, 9,  "Cycles | WR",     text_color=color.silver, text_size=size.tiny)
+table.cell(t, 1, 9,  str.tostring(cycles) + " | " + str.tostring(win_rate, "#.#") + "%", text_color=color.white, text_size=size.small)
+table.cell(t, 0, 10, "Etat",            text_color=color.silver, text_size=size.tiny)
+table.cell(t, 1, 10, st_str,            text_color=st_col, text_size=size.small)
