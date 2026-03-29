@@ -786,8 +786,13 @@ def webhook():
                 entry_f    = float(entry) if entry not in ("?", None, "") else 0.0
                 exit_f     = float(exit_) if exit_ not in ("?", None, "") else 0.0
                 pnl_pct_f  = float(pnl)   if pnl   not in ("?", None, "") else 0.0
-                lab_state  = labouch.get_status(coin)
-                capital_f  = float(lab_state.get("active_capital", 0.0))
+                # Capital : depuis position virtuelle DRY_RUN, ou labouch state (lecture locale)
+                equity_f   = float(data.get("equity", 0.0) or 0.0)
+                dry_pos    = result.get("virtual_pos") or {}
+                capital_f  = float(dry_pos.get("capital", 0.0)) if dry_pos else 0.0
+                lab_state  = labouch.get_status(coin)  # lecture locale uniquement
+                if capital_f <= 0:
+                    capital_f = float(lab_state.get("active_capital", 0.0)) or equity_f or 1000.0
                 pnl_usdc_f = capital_f * pnl_pct_f / 100.0
                 msg_lower  = msg.lower()
                 if "tp" in msg_lower or "take profit" in msg_lower or "profit" in msg_lower:
