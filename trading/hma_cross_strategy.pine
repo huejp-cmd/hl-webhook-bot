@@ -160,28 +160,32 @@ f_qty(sl_dist) =>
 // ══════════════════════════════════════════════════════
 //  GESTION DES POSITIONS
 // ══════════════════════════════════════════════════════
+// SL mémorisé au moment du signal (bas de la bougie de croisement)
 var float active_sl = na
-var float active_tp = na
 
 if trading_on
+    // LONG — ordre marché, exécution à l'ouverture de la bougie suivante
     if long_ok and strategy.position_size == 0
-        qty = f_qty(dist_l)
-        strategy.entry("Long", strategy.long, qty=qty, limit=entry_l,
+        strategy.entry("Long", strategy.long, qty=f_qty(dist_l),
              comment="▲ HMA" + str.tostring(cross_up_1 ? hma1_len : hma2_len))
-        active_sl := sl_l
-        active_tp := tp_l
+        active_sl := sl_l   // SL = bas de la bougie de croisement
 
+    // SHORT — conditions inversées
     if short_ok and strategy.position_size == 0
-        qty = f_qty(dist_s)
-        strategy.entry("Short", strategy.short, qty=qty, limit=entry_s,
+        strategy.entry("Short", strategy.short, qty=f_qty(dist_s),
              comment="▼ HMA" + str.tostring(cross_dn_1 ? hma1_len : hma2_len))
-        active_sl := sl_s
-        active_tp := tp_s
+        active_sl := sl_s   // SL = haut de la bougie de croisement
 
-if strategy.position_size > 0
-    strategy.exit("L-Exit", "Long",  stop=active_sl, limit=active_tp)
-if strategy.position_size < 0
-    strategy.exit("S-Exit", "Short", stop=active_sl, limit=active_tp)
+// Sorties SL + TP calculés depuis le prix d'entrée RÉEL après fill
+if strategy.position_size > 0 and not na(active_sl)
+    ep  = strategy.opentrades.entry_price(0)
+    atp = ep + (ep - active_sl) + slip_pts   // TP 1:1 + compensation slippage
+    strategy.exit("L-Exit", "Long",  stop=active_sl, limit=atp)
+
+if strategy.position_size < 0 and not na(active_sl)
+    ep  = strategy.opentrades.entry_price(0)
+    atp = ep - (active_sl - ep) - slip_pts   // TP 1:1 + compensation slippage
+    strategy.exit("S-Exit", "Short", stop=active_sl, limit=atp)
 
 // ══════════════════════════════════════════════════════
 //  AFFICHAGE GRAPHIQUE
@@ -198,10 +202,17 @@ plotshape(short_sig and not short_ok, "Short ✗", shape.xcross, location.aboveb
 plotshape(not trading_on and (long_sig or short_sig), "Bloqué 🛑",
      shape.square, location.abovebar, color.new(color.red, 30), size=size.tiny)
 
+// SL actif
 plot(strategy.position_size != 0 ? active_sl : na, "SL",
      color=color.new(color.red,  0), style=plot.style_linebr, linewidth=1)
-plot(strategy.position_size != 0 ? active_tp : na, "TP",
-     color=color.new(color.lime, 0), style=plot.style_linebr, linewidth=1)
+
+// TP dynamique (recalculé à chaque barre depuis l'entrée réelle)
+dyn_tp = strategy.position_size > 0 and not na(active_sl)
+     ? strategy.opentrades.entry_price(0) + (strategy.opentrades.entry_price(0) - active_sl) + slip_pts
+     : strategy.position_size < 0 and not na(active_sl)
+     ? strategy.opentrades.entry_price(0) - (active_sl - strategy.opentrades.entry_price(0)) - slip_pts
+     : na
+plot(dyn_tp, "TP", color=color.new(color.lime, 0), style=plot.style_linebr, linewidth=1)
 
 // Ligne DD max (niveau plancher de sécurité)
 dd_floor_price = na   // pas de sens sur le graphique prix — géré dans le tableau
