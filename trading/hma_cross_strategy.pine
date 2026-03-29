@@ -26,26 +26,34 @@ cap_mult   = input.float(2.0,   "Plafond capital x", group="Risque",    step=0.5
 allow_long  = input.bool(true,  "Activer LONGS",      group="Direction")
 allow_short = input.bool(true,  "Activer SHORTS",     group="Direction")
 
-// ══ FONCTION HMA (seule fonction, calcul pur) ═══════
+// ══ FONCTION HMA ════════════════════════════════════
 hma(src, len) =>
     half = math.round(len / 2)
     sq   = math.round(math.sqrt(float(len)))
     ta.wma(2.0 * ta.wma(src, half) - ta.wma(src, len), sq)
 
-// ══ TOUTES LES VAR EN PREMIER ════════════════════════
-// Labouchere
-var seq     = array.new_float(4, 1.0)
-var nclosed = 0
-var bet_cur = 2.0
-// Capital
-var peak_eq   = strategy.initial_capital
-var cap_floor = strategy.initial_capital
-var cap_tgt   = strategy.initial_capital * cap_mult
+// ══ TOUTES LES VAR ══════════════════════════════════
+// array.new_float(0) = syntaxe 1 argument, garantie v5
+var seq       = array.new_float(0)
+var nclosed   = 0
+var bet_cur   = 2.0
+var peak_eq   = 0.0
+var cap_floor = 0.0
+var cap_tgt   = 0.0
 var trade_on  = true
 var cycles    = 0
-// Positions
-var sl_act = 0.0
-var tp_act = 0.0
+var sl_act    = 0.0
+var tp_act    = 0.0
+
+// ══ INITIALISATION (1ère barre uniquement) ═══════════
+if barstate.isfirst
+    array.push(seq, 1.0)
+    array.push(seq, 1.0)
+    array.push(seq, 1.0)
+    array.push(seq, 1.0)
+    peak_eq   := strategy.initial_capital
+    cap_floor := strategy.initial_capital
+    cap_tgt   := strategy.initial_capital * cap_mult
 
 // ══ CALCULS HMA / ATR / SIGNAUX ══════════════════════
 h1      = hma(close, hma1_len)
@@ -76,7 +84,7 @@ tp_s    = entry_s - dist_s - slip_pts
 long_ok  = long_sig  and dist_l > atr_filt * atr_val and dist_l > 0.0
 short_ok = short_sig and dist_s > atr_filt * atr_val and dist_s > 0.0
 
-// ══ MISE À JOUR BET COURANT (seq[0] + seq[last]) ═════
+// ══ BET COURANT ══════════════════════════════════════
 sz = array.size(seq)
 if sz == 1
     bet_cur := array.get(seq, 0)
@@ -91,7 +99,7 @@ if trade_on and dd_cur >= dd_max_pct
     strategy.close_all(comment="DD MAX")
     trade_on := false
 
-// ══ PLAFOND × cap_mult → NOUVEAU CYCLE ═══════════════
+// ══ PLAFOND CAPITAL ═══════════════════════════════════
 if trade_on and strategy.equity >= cap_tgt
     strategy.close_all(comment="CYCLE x" + str.tostring(cap_mult, "#.#"))
     array.clear(seq)
@@ -105,7 +113,7 @@ if trade_on and strategy.equity >= cap_tgt
     trade_on  := true
     cycles    += 1
 
-// ══ MISE À JOUR LABOUCHERE APRES CLOTURE ═════════════
+// ══ LABOUCHERE UPDATE ════════════════════════════════
 if strategy.closedtrades > nclosed
     last_pnl = strategy.closedtrades.profit(strategy.closedtrades - 1)
     if last_pnl > 0.0
@@ -138,7 +146,7 @@ if trade_on and short_ok and strategy.position_size == 0
     sl_act := sl_s
     tp_act := tp_s
 
-// ══ SORTIES SL + TP ═══════════════════════════════════
+// ══ SORTIES ═══════════════════════════════════════════
 if strategy.position_size > 0
     strategy.exit("L-Exit", "Long",  stop=sl_act, limit=tp_act)
 if strategy.position_size < 0
