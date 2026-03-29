@@ -12,19 +12,19 @@ strategy("HMA Cross + Labouchere Inverse",
          slippage                = 2)
 
 // ══ INPUTS ══════════════════════════════════════════
-hma1_len   = input.int  (20,    "HMA 1",             group="HMA",       minval=2)
-hma2_len   = input.int  (50,    "HMA 2",             group="HMA",       minval=2)
-use_hma1   = input.bool (true,  "Activer HMA 1",     group="HMA")
-use_hma2   = input.bool (true,  "Activer HMA 2",     group="HMA")
-atr_len    = input.int  (10,    "ATR",               group="Risque",    minval=1)
-atr_filt   = input.float(0.5,   "Filtre ATR (x)",    group="Risque",    step=0.1,     minval=0.0)
-risk_pct   = input.float(1.0,   "Risque % equity",   group="Risque",    step=0.1,     minval=0.01)
-compound   = input.bool (true,  "Compound",           group="Risque")
-slip_pts   = input.float(0.0,   "Slippage (points)", group="Risque",    step=0.00001, minval=0.0)
-dd_max_pct = input.float(15.0,  "DD Maximum %",       group="Risque",    step=0.5,     minval=1.0, maxval=100.0)
-cap_mult   = input.float(2.0,   "Plafond capital x", group="Risque",    step=0.5,     minval=1.1)
-allow_long  = input.bool(true,  "Activer LONGS",      group="Direction")
-allow_short = input.bool(true,  "Activer SHORTS",     group="Direction")
+hma1_len    = input.int  (20,   "HMA 1",             group="HMA",      minval=2)
+hma2_len    = input.int  (50,   "HMA 2",             group="HMA",      minval=2)
+use_hma1    = input.bool (true, "Activer HMA 1",     group="HMA")
+use_hma2    = input.bool (true, "Activer HMA 2",     group="HMA")
+atr_len     = input.int  (10,   "ATR",               group="Risque",   minval=1)
+atr_filt    = input.float(0.5,  "Filtre ATR (x)",    group="Risque",   step=0.1,  minval=0.0)
+risk_pct    = input.float(1.0,  "Risque % equity",   group="Risque",   step=0.1,  minval=0.01)
+compound    = input.bool (true, "Compound",           group="Risque")
+slip_pts    = input.float(0.0,  "Slippage pts",      group="Risque",   step=0.001, minval=0.0)
+dd_max_pct  = input.float(15.0, "DD Maximum %",       group="Risque",   step=0.5,  minval=1.0, maxval=100.0)
+cap_mult    = input.float(2.0,  "Plafond capital x", group="Risque",   step=0.5,  minval=1.1)
+allow_long  = input.bool (true, "Activer LONGS",      group="Direction")
+allow_short = input.bool (true, "Activer SHORTS",     group="Direction")
 
 // ══ FONCTION HMA ════════════════════════════════════
 hma(src, len) =>
@@ -33,7 +33,6 @@ hma(src, len) =>
     ta.wma(2.0 * ta.wma(src, half) - ta.wma(src, len), sq)
 
 // ══ TOUTES LES VAR ══════════════════════════════════
-// array.new_float(0) = syntaxe 1 argument, garantie v5
 var seq       = array.new_float(0)
 var nclosed   = 0
 var bet_cur   = 2.0
@@ -44,8 +43,9 @@ var trade_on  = true
 var cycles    = 0
 var sl_act    = 0.0
 var tp_act    = 0.0
+var table tbl = table.new(position.top_right, 2, 9, bgcolor=color.new(color.black, 70), border_width=1)
 
-// ══ INITIALISATION (1ère barre uniquement) ═══════════
+// ══ INIT 1ère BARRE ═══════════════════════════════════
 if barstate.isfirst
     array.push(seq, 1.0)
     array.push(seq, 1.0)
@@ -55,7 +55,7 @@ if barstate.isfirst
     cap_floor := strategy.initial_capital
     cap_tgt   := strategy.initial_capital * cap_mult
 
-// ══ CALCULS HMA / ATR / SIGNAUX ══════════════════════
+// ══ CALCULS ════════════════════════════════════════
 h1      = hma(close, hma1_len)
 h2      = hma(close, hma2_len)
 atr_val = ta.atr(atr_len)
@@ -68,23 +68,18 @@ cdn2 = use_hma2 and ta.crossunder(close, h2)
 long_sig  = allow_long  and (cup1 or cup2)
 short_sig = allow_short and (cdn1 or cdn2)
 
-hma_l = cup1 ? h1 : h2
-hma_s = cdn1 ? h1 : h2
+hma_ref_l = cup1 ? h1 : h2
+hma_ref_s = cdn1 ? h1 : h2
 
-entry_l = hma_l
-sl_l    = low
-dist_l  = entry_l - sl_l
-tp_l    = entry_l + dist_l + slip_pts
-
-entry_s = hma_s
-sl_s    = high
-dist_s  = sl_s - entry_s
-tp_s    = entry_s - dist_s - slip_pts
+dist_l = hma_ref_l - low
+dist_s = high - hma_ref_s
+tp_l   = hma_ref_l + dist_l + slip_pts
+tp_s   = hma_ref_s - dist_s - slip_pts
 
 long_ok  = long_sig  and dist_l > atr_filt * atr_val and dist_l > 0.0
 short_ok = short_sig and dist_s > atr_filt * atr_val and dist_s > 0.0
 
-// ══ BET COURANT ══════════════════════════════════════
+// ══ BET LABOUCHERE ══════════════════════════════════
 sz = array.size(seq)
 if sz == 1
     bet_cur := array.get(seq, 0)
@@ -93,15 +88,15 @@ if sz >= 2
 
 // ══ DD MAX ════════════════════════════════════════════
 peak_eq := math.max(peak_eq, strategy.equity)
-dd_cur   = (peak_eq - strategy.equity) / peak_eq * 100.0
+dd_cur   = peak_eq > 0.0 ? (peak_eq - strategy.equity) / peak_eq * 100.0 : 0.0
 
 if trade_on and dd_cur >= dd_max_pct
     strategy.close_all(comment="DD MAX")
     trade_on := false
 
-// ══ PLAFOND CAPITAL ═══════════════════════════════════
-if trade_on and strategy.equity >= cap_tgt
-    strategy.close_all(comment="CYCLE x" + str.tostring(cap_mult, "#.#"))
+// ══ PLAFOND ═══════════════════════════════════════════
+if trade_on and strategy.equity >= cap_tgt and cap_tgt > 0.0
+    strategy.close_all(comment="CYCLE FIN")
     array.clear(seq)
     array.push(seq, 1.0)
     array.push(seq, 1.0)
@@ -111,7 +106,7 @@ if trade_on and strategy.equity >= cap_tgt
     cap_tgt   := strategy.equity * cap_mult
     peak_eq   := strategy.equity
     trade_on  := true
-    cycles    += 1
+    cycles    := cycles + 1
 
 // ══ LABOUCHERE UPDATE ════════════════════════════════
 if strategy.closedtrades > nclosed
@@ -129,82 +124,62 @@ if strategy.closedtrades > nclosed
             array.push(seq, 1.0)
     nclosed := strategy.closedtrades
 
-// ══ ENTRÉES ═══════════════════════════════════════════
+// ══ ENTREES LONG ══════════════════════════════════════
 if trade_on and long_ok and strategy.position_size == 0
-    base  = compound ? strategy.equity : cap_floor
-    qty   = math.max(bet_cur * base * risk_pct / 100.0 / dist_l, 0.0)
-    strategy.entry("Long", strategy.long, qty=qty,
-         comment="HMA" + str.tostring(cup1 ? hma1_len : hma2_len) + " UP")
-    sl_act := sl_l
+    b = compound ? strategy.equity : cap_floor
+    q = math.max(bet_cur * b * risk_pct / 100.0 / dist_l, 0.0)
+    strategy.entry("Long", strategy.long, qty=q)
+    sl_act := low
     tp_act := tp_l
 
+// ══ ENTREES SHORT ═════════════════════════════════════
 if trade_on and short_ok and strategy.position_size == 0
-    base  = compound ? strategy.equity : cap_floor
-    qty   = math.max(bet_cur * base * risk_pct / 100.0 / dist_s, 0.0)
-    strategy.entry("Short", strategy.short, qty=qty,
-         comment="HMA" + str.tostring(cdn1 ? hma1_len : hma2_len) + " DN")
-    sl_act := sl_s
+    b = compound ? strategy.equity : cap_floor
+    q = math.max(bet_cur * b * risk_pct / 100.0 / dist_s, 0.0)
+    strategy.entry("Short", strategy.short, qty=q)
+    sl_act := high
     tp_act := tp_s
 
 // ══ SORTIES ═══════════════════════════════════════════
 if strategy.position_size > 0
-    strategy.exit("L-Exit", "Long",  stop=sl_act, limit=tp_act)
+    strategy.exit("L-Exit", "Long", stop=sl_act, limit=tp_act)
 if strategy.position_size < 0
     strategy.exit("S-Exit", "Short", stop=sl_act, limit=tp_act)
 
 // ══ AFFICHAGE ═════════════════════════════════════════
 plot(h1, "HMA" + str.tostring(hma1_len), color=color.new(color.blue,   0), linewidth=2)
 plot(h2, "HMA" + str.tostring(hma2_len), color=color.new(color.orange, 0), linewidth=2)
-
-plotshape(long_ok  and trade_on,                    "Long OK",  shape.triangleup,   location.belowbar, color.lime,                size=size.small)
-plotshape(short_ok and trade_on,                    "Short OK", shape.triangledown, location.abovebar, color.red,                 size=size.small)
-plotshape(long_sig  and not long_ok,                "L filt",   shape.xcross,       location.belowbar, color.new(color.gray, 40), size=size.tiny)
-plotshape(short_sig and not short_ok,               "S filt",   shape.xcross,       location.abovebar, color.new(color.gray, 40), size=size.tiny)
-plotshape(not trade_on and (long_sig or short_sig), "STOP",     shape.square,       location.abovebar, color.new(color.red,  20), size=size.tiny)
-
+plotshape(long_ok  and trade_on, "Long",  shape.triangleup,   location.belowbar, color.lime, size=size.small)
+plotshape(short_ok and trade_on, "Short", shape.triangledown, location.abovebar, color.red,  size=size.small)
 plot(strategy.position_size != 0 ? sl_act : na, "SL", color=color.red,  style=plot.style_linebr, linewidth=1)
 plot(strategy.position_size != 0 ? tp_act : na, "TP", color=color.lime, style=plot.style_linebr, linewidth=1)
 
 // ══ TABLEAU ═══════════════════════════════════════════
-var table t = table.new(position.top_right, 2, 11,
-     bgcolor=color.new(color.black, 72), border_color=color.new(color.gray, 50),
-     border_width=1, frame_color=color.new(color.gray, 50), frame_width=1)
+sz_t     = array.size(seq)
+f_v      = sz_t > 0 ? array.get(seq, 0) : 1.0
+l_v      = sz_t > 1 ? array.get(seq, sz_t - 1) : f_v
+seq_disp = str.tostring(f_v, "#.#") + ".." + str.tostring(l_v, "#.#") + " [" + str.tostring(sz_t) + "]"
+b_now    = compound ? strategy.equity : cap_floor
+pnl_c    = strategy.netprofit >= 0.0 ? color.lime : color.red
+dd_c     = dd_cur >= dd_max_pct * 0.8 ? color.red : color.lime
+on_c     = trade_on ? color.lime : color.red
+on_s     = trade_on ? "ACTIF" : "STOP DD"
 
-seq_str = ""
-for i = 0 to array.size(seq) - 1
-    seq_str += str.tostring(math.round(array.get(seq, i) * 10.0) / 10.0)
-    if i < array.size(seq) - 1
-        seq_str += "-"
-
-sz2      = array.size(seq)
-bet_disp = sz2 <= 1 ? bet_cur : array.get(seq, 0) + array.get(seq, sz2 - 1)
-base_now = compound ? strategy.equity : cap_floor
-risk_now = bet_disp * base_now * risk_pct / 100.0
-pnl_col  = strategy.netprofit >= 0.0 ? color.lime : color.red
-dd_col   = dd_cur >= dd_max_pct * 0.8 ? color.red : dd_cur >= dd_max_pct * 0.5 ? color.orange : color.lime
-win_rate = strategy.closedtrades > 0 ? strategy.wintrades / strategy.closedtrades * 100.0 : 0.0
-st_str   = not trade_on ? "STOP DD MAX" : strategy.equity >= cap_tgt * 0.95 ? "Proche x" + str.tostring(cap_mult, "#.#") : "Actif Cycle " + str.tostring(cycles + 1)
-st_col   = not trade_on ? color.red : color.lime
-
-table.cell(t, 0, 0,  "LABOUCHERE INV.", text_color=color.white,  bgcolor=color.new(color.navy, 25), text_size=size.small, text_halign=text.align_center)
-table.cell(t, 1, 0,  "COMPOUND",        text_color=color.yellow, bgcolor=color.new(color.navy, 25), text_size=size.small, text_halign=text.align_center)
-table.cell(t, 0, 1,  "Sequence",        text_color=color.silver, text_size=size.tiny)
-table.cell(t, 1, 1,  seq_str,           text_color=color.yellow, text_size=size.tiny)
-table.cell(t, 0, 2,  "Mise (units)",    text_color=color.silver, text_size=size.tiny)
-table.cell(t, 1, 2,  str.tostring(bet_disp, "#.##"), text_color=color.white, text_size=size.small)
-table.cell(t, 0, 3,  "Risque ($)",      text_color=color.silver, text_size=size.tiny)
-table.cell(t, 1, 3,  str.tostring(risk_now, "#.##"), text_color=color.white, text_size=size.small)
-table.cell(t, 0, 4,  "-- Capital --",   text_color=color.white,  bgcolor=color.new(color.maroon, 40), text_size=size.tiny, text_halign=text.align_center)
-table.cell(t, 1, 4,  "-- Controle --",  text_color=color.white,  bgcolor=color.new(color.maroon, 40), text_size=size.tiny, text_halign=text.align_center)
-table.cell(t, 0, 5,  "Equity",          text_color=color.silver, text_size=size.tiny)
-table.cell(t, 1, 5,  str.tostring(strategy.equity,    "#.##"), text_color=pnl_col, text_size=size.small)
-table.cell(t, 0, 6,  "Net P&L",         text_color=color.silver, text_size=size.tiny)
-table.cell(t, 1, 6,  str.tostring(strategy.netprofit, "#.##"), text_color=pnl_col, text_size=size.small)
-table.cell(t, 0, 7,  "DD actuel",       text_color=color.silver, text_size=size.tiny)
-table.cell(t, 1, 7,  str.tostring(dd_cur, "#.##") + "% / " + str.tostring(dd_max_pct) + "%", text_color=dd_col, text_size=size.small)
-table.cell(t, 0, 8,  "Objectif",        text_color=color.silver, text_size=size.tiny)
-table.cell(t, 1, 8,  str.tostring(cap_tgt, "#.##"), text_color=color.aqua, text_size=size.small)
-table.cell(t, 0, 9,  "Cycles | WR",     text_color=color.silver, text_size=size.tiny)
-table.cell(t, 1, 9,  str.tostring(cycles) + " | " + str.tostring(win_rate, "#.#") + "%", text_color=color.white, text_size=size.small)
-table.cell(t, 0, 10, "Etat",            text_color=color.silver, text_size=size.tiny)
-table.cell(t, 1, 10, st_str,            text_color=st_col,       text_size=size.small)
+table.cell(tbl, 0, 0, "Seq",      text_color=color.silver,  text_size=size.tiny)
+table.cell(tbl, 1, 0, seq_disp,   text_color=color.yellow,  text_size=size.tiny)
+table.cell(tbl, 0, 1, "Mise",     text_color=color.silver,  text_size=size.tiny)
+table.cell(tbl, 1, 1, str.tostring(bet_cur, "#.##"),          text_color=color.white,  text_size=size.small)
+table.cell(tbl, 0, 2, "Equity",   text_color=color.silver,  text_size=size.tiny)
+table.cell(tbl, 1, 2, str.tostring(strategy.equity, "#.##"),  text_color=pnl_c,        text_size=size.small)
+table.cell(tbl, 0, 3, "P&L Net",  text_color=color.silver,  text_size=size.tiny)
+table.cell(tbl, 1, 3, str.tostring(strategy.netprofit, "#.##"), text_color=pnl_c,      text_size=size.small)
+table.cell(tbl, 0, 4, "DD %",     text_color=color.silver,  text_size=size.tiny)
+table.cell(tbl, 1, 4, str.tostring(dd_cur, "#.##") + " / " + str.tostring(dd_max_pct, "#"), text_color=dd_c, text_size=size.small)
+table.cell(tbl, 0, 5, "Objectif", text_color=color.silver,  text_size=size.tiny)
+table.cell(tbl, 1, 5, str.tostring(cap_tgt, "#.##"),          text_color=color.aqua,   text_size=size.small)
+table.cell(tbl, 0, 6, "Cycles",   text_color=color.silver,  text_size=size.tiny)
+table.cell(tbl, 1, 6, str.tostring(cycles),                   text_color=color.white,  text_size=size.small)
+table.cell(tbl, 0, 7, "WR %",     text_color=color.silver,  text_size=size.tiny)
+table.cell(tbl, 1, 7, strategy.closedtrades > 0 ? str.tostring(strategy.wintrades / strategy.closedtrades * 100.0, "#.#") : "n/a", text_color=color.white, text_size=size.small)
+table.cell(tbl, 0, 8, "Etat",     text_color=color.silver,  text_size=size.tiny)
+table.cell(tbl, 1, 8, on_s,       text_color=on_c,          text_size=size.small)
