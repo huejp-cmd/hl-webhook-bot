@@ -56,13 +56,22 @@ labouch = LabouchManager()
 PRIVATE_KEY   = os.environ.get("PRIVATE_KEY", "")
 WEBHOOK_TOKEN = os.environ.get("WEBHOOK_TOKEN", "jp_bot_secret_2026")
 
+# =============================================================================
+#  TRADE LOG
+# =============================================================================
+TRADE_LOG_FILE = os.environ.get("TRADE_LOG_FILE", "/tmp/trade_log.json")
+TRADE_LOG_MAX  = 500   # entrées max conservées en mémoire/fichier
+
+# Log en mémoire (Railway : /tmp peut être éphémère)
+_trade_log_memory: list = []
+
 # True  = Mainnet Hyperliquid (argent reel)
 # False = Testnet (test sans risque)
 MAINNET = True
 
 # True  = simule sans envoyer d'ordre reel
 # False = ordres reels sur Hyperliquid
-DRY_RUN = True   # ← mode TEST actif
+DRY_RUN = os.environ.get("DRY_RUN", "true").lower() == "true"  # env ou True par défaut
 
 # =============================================================================
 #  TIMEOUTS LIMIT -> MARKET
@@ -109,7 +118,7 @@ log = logging.getLogger(__name__)
 app = Flask(__name__)
 
 # --- Init Hyperliquid (lazy) ---
-account  = Account.from_key(PRIVATE_KEY)
+account  = Account.from_key(PRIVATE_KEY) if PRIVATE_KEY else None
 base_url = constants.MAINNET_API_URL if MAINNET else constants.TESTNET_API_URL
 
 _info     = None
@@ -143,6 +152,82 @@ log.info(f"Mode    : {'DRY_RUN (simulation)' if DRY_RUN else 'LIVE (ordres reels
 # =============================================================================
 #  UTILITAIRES
 # =============================================================================
+
+# =============================================================================
+#  LOGGING DES TRADES
+# =============================================================================
+
+def log_trade_result(symbol: str, side: str, entry_price: float, exit_price: float,
+                     pnl_usdc: float, pnl_pct: float, reason: str, labouch_state: dict):
+    """
+    Enregistre le résultat d'un trade fermé dans le log JSON persistant.
+
+    Args:
+        symbol      : "ETH", "SOL", etc.
+        side        : "buy" (long fermé) ou "sell" (short fermé)
+        entry_price : prix d'entrée
+        exit_price  : prix de sortie
+        pnl_usdc    : PnL net en USDC (estimé si non fourni)
+        pnl_pct     : PnL en pourcentage
+        reason      : "tp", "sl", "close", "manual", "ceiling", etc.
+        labouch_state : dict retourné par labouch.get_status(symbol)
+    """
+    global _trade_log_memory
+    try:
+        lab = labouch_state or {}
+        entry = {
+            "ts":         datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S"),
+            "symbol":     symbol,
+            "side":       side,
+            "entry":      round(entry_price, 6) if entry_price else 0.0,
+            "exit":       round(exit_price, 6) if exit_price else 0.0,
+            "pnl_usdc":   round(pnl_usdc, 2),
+            "pnl_pct":    round(pnl_pct, 4),
+            "reason":     reason,
+            "series":     lab.get("series_number", 0),
+            "sequence":   lab.get("sequence", []),
+            "multiplier": lab.get("multiplier", 1.0),
+            "capital":    round(float(lab.get("active_capital", 0.0)), 2),
+        }
+
+        # 1. Stocker en mémoire (survit tant que le process tourne)
+        _trade_log_memory.append(entry)
+        if len(_trade_log_memory) > TRADE_LOG_MAX:
+            _trade_log_memory = _trade_log_memory[-TRADE_LOG_MAX:]
+
+        # 2. Persister sur disque (/tmp ou chemin configuré)
+        try:
+            existing = []
+            if os.path.exists(TRADE_LOG_FILE):
+                with open(TRADE_LOG_FILE, "r") as f:
+                    existing = json.load(f)
+            existing.append(entry)
+            if len(existing) > TRADE_LOG_MAX:
+                existing = existing[-TRADE_LOG_MAX:]
+            with open(TRADE_LOG_FILE, "w") as f:
+                json.dump(existing, f, indent=2)
+        except Exception as disk_err:
+            log.warning(f"[trade_log] Écriture disque impossible : {disk_err} — log mémoire OK")
+
+        log.info(f"[trade_log] {symbol} {side.upper()} {reason.upper()} "
+                 f"entry={entry_price} exit={exit_price} "
+                 f"PnL={pnl_usdc:+.2f} USDC ({pnl_pct:+.2f}%)")
+    except Exception as e:
+        log.error(f"[trade_log] Erreur log_trade_result : {e}")
+
+
+def _get_trade_log(n: int = 50) -> list:
+    """Retourne les N derniers trades (mémoire + disque fusionnés)."""
+    combined = list(_trade_log_memory)
+    # Essayer de compléter depuis le disque si mémoire vide (redémarrage)
+    if not combined and os.path.exists(TRADE_LOG_FILE):
+        try:
+            with open(TRADE_LOG_FILE, "r") as f:
+                combined = json.load(f)
+        except Exception:
+            pass
+    return combined[-n:]
+
 
 def round_price(x: float) -> float:
     """Arrondit un prix à 5 chiffres significatifs (exigence Hyperliquid)."""
@@ -683,6 +768,29 @@ def webhook():
             result = close_position_market(coin)
             result["pnl_pct"] = pnl
             result["msg"] = msg
+
+            # --- Log trade result ---
+            try:
+                side_str   = data.get("side", "?")
+                entry_f    = float(entry) if entry not in ("?", None, "") else 0.0
+                exit_f     = float(exit_) if exit_ not in ("?", None, "") else 0.0
+                pnl_pct_f  = float(pnl)   if pnl   not in ("?", None, "") else 0.0
+                lab_state  = labouch.get_status(coin)
+                capital_f  = float(lab_state.get("active_capital", 0.0))
+                pnl_usdc_f = capital_f * pnl_pct_f / 100.0
+                msg_lower  = msg.lower()
+                if "tp" in msg_lower or "take profit" in msg_lower or "profit" in msg_lower:
+                    trade_reason = "tp"
+                elif "sl" in msg_lower or "stop loss" in msg_lower or "stop" in msg_lower:
+                    trade_reason = "sl"
+                else:
+                    trade_reason = data.get("reason", "close")
+                log_trade_result(coin, side_str, entry_f, exit_f,
+                                 pnl_usdc_f, pnl_pct_f, trade_reason, lab_state)
+            except Exception as le:
+                log.warning(f"[trade_log] Échec log action close : {le}")
+            # --- Fin log ---
+
             return jsonify(result), 200
         except Exception as e:
             log.error(f"Erreur close : {e}", exc_info=True)
@@ -1060,6 +1168,24 @@ def labouch_status():
     return jsonify(labouch.get_all_status())
 
 
+@app.route("/trade_log", methods=["GET"])
+def trade_log_endpoint():
+    """
+    Retourne les 50 derniers trades loggés.
+    ?limit=N pour changer la limite (max 200).
+    """
+    try:
+        limit = min(int(request.args.get("limit", 50)), 200)
+        trades = _get_trade_log(limit)
+        return jsonify({
+            "count":  len(trades),
+            "trades": trades,
+        }), 200
+    except Exception as e:
+        log.error(f"[trade_log] endpoint error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/status", methods=["GET"])
 def status():
     """Sante du serveur -- solde + positions ouvertes"""
@@ -1146,4 +1272,5 @@ if __name__ == "__main__":
     log.info(f"DRY_RUN={DRY_RUN}  MAINNET={MAINNET}")
     log.info(f"Entry timeout   : {ENTRY_LIMIT_TIMEOUT}s")
     log.info(f"TP timeout      : {TP_LIMIT_TIMEOUT}s")
-    app.run(host="0.0.0.0", port=80, debug=False)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, debug=False)
