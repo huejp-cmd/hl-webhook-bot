@@ -12,31 +12,46 @@ strategy("HMA Cross + Labouchere Inverse",
          slippage                = 2)
 
 // ══ INPUTS ══════════════════════════════════════════
-hma1_len   = input.int  (20,    "HMA 1",              group="HMA",       minval=2)
-hma2_len   = input.int  (50,    "HMA 2",              group="HMA",       minval=2)
-use_hma1   = input.bool (true,  "Activer HMA 1",      group="HMA")
-use_hma2   = input.bool (true,  "Activer HMA 2",      group="HMA")
-atr_len    = input.int  (10,    "ATR",                group="Risque",    minval=1)
-atr_filt   = input.float(0.5,   "Filtre ATR (x)",     group="Risque",    step=0.1,     minval=0.0)
-risk_pct   = input.float(1.0,   "Risque % equity",    group="Risque",    step=0.1,     minval=0.01)
-compound   = input.bool (true,  "Compound",            group="Risque")
-slip_pts   = input.float(0.0,   "Slippage (points)",  group="Risque",    step=0.00001, minval=0.0)
-dd_max_pct = input.float(15.0,  "DD Maximum %",        group="Risque",    step=0.5,     minval=1.0, maxval=100.0)
-cap_mult   = input.float(2.0,   "Plafond capital x",  group="Risque",    step=0.5,     minval=1.1)
-allow_long  = input.bool(true,  "Activer LONGS",       group="Direction")
-allow_short = input.bool(true,  "Activer SHORTS",      group="Direction")
+hma1_len   = input.int  (20,    "HMA 1",             group="HMA",       minval=2)
+hma2_len   = input.int  (50,    "HMA 2",             group="HMA",       minval=2)
+use_hma1   = input.bool (true,  "Activer HMA 1",     group="HMA")
+use_hma2   = input.bool (true,  "Activer HMA 2",     group="HMA")
+atr_len    = input.int  (10,    "ATR",               group="Risque",    minval=1)
+atr_filt   = input.float(0.5,   "Filtre ATR (x)",    group="Risque",    step=0.1,     minval=0.0)
+risk_pct   = input.float(1.0,   "Risque % equity",   group="Risque",    step=0.1,     minval=0.01)
+compound   = input.bool (true,  "Compound",           group="Risque")
+slip_pts   = input.float(0.0,   "Slippage (points)", group="Risque",    step=0.00001, minval=0.0)
+dd_max_pct = input.float(15.0,  "DD Maximum %",       group="Risque",    step=0.5,     minval=1.0, maxval=100.0)
+cap_mult   = input.float(2.0,   "Plafond capital x", group="Risque",    step=0.5,     minval=1.1)
+allow_long  = input.bool(true,  "Activer LONGS",      group="Direction")
+allow_short = input.bool(true,  "Activer SHORTS",     group="Direction")
 
-// ══ HMA (seule fonction, calcul pur) ════════════════
+// ══ FONCTION HMA (seule fonction, calcul pur) ═══════
 hma(src, len) =>
     half = math.round(len / 2)
     sq   = math.round(math.sqrt(float(len)))
     ta.wma(2.0 * ta.wma(src, half) - ta.wma(src, len), sq)
 
+// ══ TOUTES LES VAR EN PREMIER ════════════════════════
+// Labouchere
+var seq     = array.new_float(4, 1.0)
+var nclosed = 0
+var bet_cur = 2.0
+// Capital
+var peak_eq   = strategy.initial_capital
+var cap_floor = strategy.initial_capital
+var cap_tgt   = strategy.initial_capital * cap_mult
+var trade_on  = true
+var cycles    = 0
+// Positions
+var sl_act = 0.0
+var tp_act = 0.0
+
+// ══ CALCULS HMA / ATR / SIGNAUX ══════════════════════
 h1      = hma(close, hma1_len)
 h2      = hma(close, hma2_len)
 atr_val = ta.atr(atr_len)
 
-// ══ SIGNAUX ══════════════════════════════════════════
 cup1 = use_hma1 and ta.crossover (close, h1)
 cup2 = use_hma2 and ta.crossover (close, h2)
 cdn1 = use_hma1 and ta.crossunder(close, h1)
@@ -48,7 +63,6 @@ short_sig = allow_short and (cdn1 or cdn2)
 hma_l = cup1 ? h1 : h2
 hma_s = cdn1 ? h1 : h2
 
-// ══ NIVEAUX ══════════════════════════════════════════
 entry_l = hma_l
 sl_l    = low
 dist_l  = entry_l - sl_l
@@ -62,13 +76,14 @@ tp_s    = entry_s - dist_s - slip_pts
 long_ok  = long_sig  and dist_l > atr_filt * atr_val and dist_l > 0.0
 short_ok = short_sig and dist_s > atr_filt * atr_val and dist_s > 0.0
 
-// ══ CAPITAL ══════════════════════════════════════════
-var peak_eq   = strategy.initial_capital
-var cap_floor = strategy.initial_capital
-var cap_tgt   = strategy.initial_capital * cap_mult
-var trade_on  = true
-var cycles    = 0
+// ══ MISE À JOUR BET COURANT (seq[0] + seq[last]) ═════
+sz = array.size(seq)
+if sz == 1
+    bet_cur := array.get(seq, 0)
+if sz >= 2
+    bet_cur := array.get(seq, 0) + array.get(seq, sz - 1)
 
+// ══ DD MAX ════════════════════════════════════════════
 peak_eq := math.max(peak_eq, strategy.equity)
 dd_cur   = (peak_eq - strategy.equity) / peak_eq * 100.0
 
@@ -76,16 +91,7 @@ if trade_on and dd_cur >= dd_max_pct
     strategy.close_all(comment="DD MAX")
     trade_on := false
 
-// ══ LABOUCHERE INVERSEE [1-1-1-1] ════════════════════
-// Initialisation via new_float — syntaxe garantie v5
-var seq     = array.new_float(4, 1.0)
-var nclosed = 0
-
-// Mise courante : seq[0] + seq[dernier]
-sz = array.size(seq)
-bet_cur = sz < 2 ? array.get(seq, 0) : array.get(seq, 0) + array.get(seq, sz - 1)
-
-// Plafond atteint → nouveau cycle
+// ══ PLAFOND × cap_mult → NOUVEAU CYCLE ═══════════════
 if trade_on and strategy.equity >= cap_tgt
     strategy.close_all(comment="CYCLE x" + str.tostring(cap_mult, "#.#"))
     array.clear(seq)
@@ -99,7 +105,7 @@ if trade_on and strategy.equity >= cap_tgt
     trade_on  := true
     cycles    += 1
 
-// Mise à jour après clôture — deux if séparés (pas de if/else)
+// ══ MISE À JOUR LABOUCHERE APRES CLOTURE ═════════════
 if strategy.closedtrades > nclosed
     last_pnl = strategy.closedtrades.profit(strategy.closedtrades - 1)
     if last_pnl > 0.0
@@ -115,33 +121,24 @@ if strategy.closedtrades > nclosed
             array.push(seq, 1.0)
     nclosed := strategy.closedtrades
 
-// ══ POSITIONS ════════════════════════════════════════
-var sl_act = 0.0
-var tp_act = 0.0
-var in_pos = false
+// ══ ENTRÉES ═══════════════════════════════════════════
+if trade_on and long_ok and strategy.position_size == 0
+    base  = compound ? strategy.equity : cap_floor
+    qty   = math.max(bet_cur * base * risk_pct / 100.0 / dist_l, 0.0)
+    strategy.entry("Long", strategy.long, qty=qty,
+         comment="HMA" + str.tostring(cup1 ? hma1_len : hma2_len) + " UP")
+    sl_act := sl_l
+    tp_act := tp_l
 
-if trade_on
-    if long_ok and strategy.position_size == 0
-        base  = compound ? strategy.equity : cap_floor
-        qty   = math.max(bet_cur * base * risk_pct / 100.0 / dist_l, 0.0)
-        strategy.entry("Long", strategy.long, qty=qty,
-             comment="HMA" + str.tostring(cup1 ? hma1_len : hma2_len) + " UP")
-        sl_act := sl_l
-        tp_act := tp_l
-        in_pos := true
+if trade_on and short_ok and strategy.position_size == 0
+    base  = compound ? strategy.equity : cap_floor
+    qty   = math.max(bet_cur * base * risk_pct / 100.0 / dist_s, 0.0)
+    strategy.entry("Short", strategy.short, qty=qty,
+         comment="HMA" + str.tostring(cdn1 ? hma1_len : hma2_len) + " DN")
+    sl_act := sl_s
+    tp_act := tp_s
 
-    if short_ok and strategy.position_size == 0
-        base  = compound ? strategy.equity : cap_floor
-        qty   = math.max(bet_cur * base * risk_pct / 100.0 / dist_s, 0.0)
-        strategy.entry("Short", strategy.short, qty=qty,
-             comment="HMA" + str.tostring(cdn1 ? hma1_len : hma2_len) + " DN")
-        sl_act := sl_s
-        tp_act := tp_s
-        in_pos := true
-
-if strategy.position_size == 0
-    in_pos := false
-
+// ══ SORTIES SL + TP ═══════════════════════════════════
 if strategy.position_size > 0
     strategy.exit("L-Exit", "Long",  stop=sl_act, limit=tp_act)
 if strategy.position_size < 0
@@ -172,7 +169,7 @@ for i = 0 to array.size(seq) - 1
         seq_str += "-"
 
 sz2      = array.size(seq)
-bet_disp = sz2 < 2 ? array.get(seq, 0) : array.get(seq, 0) + array.get(seq, sz2 - 1)
+bet_disp = sz2 <= 1 ? bet_cur : array.get(seq, 0) + array.get(seq, sz2 - 1)
 base_now = compound ? strategy.equity : cap_floor
 risk_now = bet_disp * base_now * risk_pct / 100.0
 pnl_col  = strategy.netprofit >= 0.0 ? color.lime : color.red
