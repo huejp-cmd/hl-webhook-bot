@@ -34,11 +34,9 @@ g_test   = "[config] Mode"
 testMode = input.bool(false, "[TEST] MODE TEST ? desactive les alertes webhook", group=g_test,
            tooltip="TRUE = DRY RUN Pine Script, aucun signal envoye au bot.")
 
-// ?? Coin cible ???????????????????????????????????????????????????
-g_hl     = "Hyperliquid"
-hlCoin   = input.string("ETH", "Coin cible HL", options=["SOL","ETH","BTC","ARB","OP","AVAX"], group=g_hl,
-           tooltip="Symbole envoye au bot Hyperliquid dans le webhook.")
-whSymbol = hlCoin + "USDT.P"
+// ?? Coin cible — FIXE ETH (ne pas modifier) ???????????????????
+hlCoin   = "ETH"
+whSymbol = "ETHUSDT.P"
 
 // ?? Labouchere ???????????????????????????????????????????????????
 g_lab            = " Labouchere"
@@ -339,6 +337,7 @@ if entryLong
          + ',"capital":'    + str.tostring(startCapitalLab)
          + ',"bet_units":'  + str.tostring(int(math.round(bet_units)))
          + ',"mult_lab":'   + str.tostring(math.round(mult_lab, 2))
+         + ',"tf":"'         + timeframe.period + '"'
          + '}',
          alert.freq_once_per_bar_close)
 
@@ -370,6 +369,7 @@ if entryShort
          + ',"capital":'    + str.tostring(startCapitalLab)
          + ',"bet_units":'  + str.tostring(int(math.round(bet_units)))
          + ',"mult_lab":'   + str.tostring(math.round(mult_lab, 2))
+         + ',"tf":"'         + timeframe.period + '"'
          + '}',
          alert.freq_once_per_bar_close)
 
