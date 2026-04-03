@@ -40,13 +40,24 @@ HL_API_URL = "https://api.hyperliquid.xyz/info"
 # 45m et 3h n'existent pas → on les agrège depuis des intervalles plus fins
 TF_CONFIG = {
     #  TF     interval_HL  agg_mult  lookback_days
-    "30M": ("30m", 1,  90),
+    "30M": ("30m", 1, 365),
     "45M": ("15m", 3,  52),   # 15m data disponible ~52j max
-    "1H":  ("1h",  1,  90),
-    "2H":  ("2h",  1,  90),
-    "3H":  ("1h",  3,  90),
-    "4H":  ("4h",  1,  90),
+    "1H":  ("1h",  1, 365),
+    "2H":  ("2h",  1, 365),
+    "3H":  ("1h",  3, 365),
+    "4H":  ("4h",  1, 365),
 }
+
+# Nombre de bougies par jour par TF (pour calculer les fenêtres 30J/90J/1Y)
+TF_BARS_PER_DAY = {
+    "30M": 48,
+    "45M": 32,
+    "1H":  24,
+    "2H":  12,
+    "3H":   8,
+    "4H":   6,
+}
+WINDOWS = {"30D": 30, "90D": 90, "1Y": 365}
 TIMEFRAMES = ["30M", "45M", "1H", "2H", "3H", "4H"]
 COINS = ["SOL", "ETH"]
 
@@ -180,6 +191,11 @@ def aggregate_candles(candles: list, mult: int) -> dict:
         "close":  np.array([b["c"] for b in sorted_b]),
         "volume": np.array([b["v"] for b in sorted_b]),
     }
+
+
+def slice_ohlcv(ohlcv: dict, n_bars: int) -> dict:
+    """Retourne les n dernières bougies du dataset."""
+    return {k: v[-n_bars:] for k, v in ohlcv.items()}
 
 
 # ─────────────────────────────────────────────
@@ -450,36 +466,69 @@ def sample_combos(grid: dict, n: int, seed: int = 42) -> list:
 
 def optimize_tf_coin(raw_candles: list, tf: str, coin: str, combos: list) -> list:
     """
-    Lance len(combos) backtests pour un TF/coin.
+    Lance len(combos) backtests pour un TF/coin sur 3 fenêtres : 30D, 90D, 1Y.
+    Le score final = min(score_30D, score_90D, score_1Y) → robustesse.
     Retourne les résultats triés par score desc.
     """
     _, agg_mult, _ = TF_CONFIG[tf]
-    ohlcv = aggregate_candles(raw_candles, agg_mult)
-    n_bars = len(ohlcv["close"])
+    ohlcv_full = aggregate_candles(raw_candles, agg_mult)
+    n_bars_full = len(ohlcv_full["close"])
+    bars_per_day = TF_BARS_PER_DAY.get(tf, 24)
 
-    if n_bars < 80:
-        print(f"  [WARN] {coin} {tf}: trop peu de bougies ({n_bars}) après agrégation")
+    if n_bars_full < 80:
+        print(f"  [WARN] {coin} {tf}: trop peu de bougies ({n_bars_full}) après agrégation")
         return []
 
-    print(f"  [INFO] {coin} {tf}: {n_bars} bougies — {len(combos)} backtests")
+    # Préparer les 3 sous-ensembles de données
+    windows_data = {}
+    for label, days in WINDOWS.items():
+        n = min(days * bars_per_day, n_bars_full)
+        windows_data[label] = slice_ohlcv(ohlcv_full, n)
+
+    actual_days = {lbl: len(d["close"]) // bars_per_day for lbl, d in windows_data.items()}
+    print(
+        f"  [INFO] {coin} {tf}: {n_bars_full} bougies totales | "
+        f"30D≈{actual_days['30D']}j  90D≈{actual_days['90D']}j  1Y≈{actual_days['1Y']}j "
+        f"— {len(combos)} backtests"
+    )
 
     results = []
     for idx, params in enumerate(combos, 1):
-        metrics = run_backtest(ohlcv, params)
-        if not metrics:
+        window_metrics = {}
+        valid = True
+        for label, ohlcv_w in windows_data.items():
+            m = run_backtest(ohlcv_w, params)
+            if not m:
+                valid = False
+                break
+            window_metrics[label] = m
+
+        if not valid:
             continue
+
+        # Score robustesse = min score sur les 3 périodes
+        score_robust = min(window_metrics[lbl]["score"] for lbl in WINDOWS)
 
         # Log de progression
         if idx % 25 == 0 or idx == len(combos):
+            m1y = window_metrics["1Y"]
             print(
                 f"  [TF={tf} | {coin} | combo {idx}/{len(combos)}] "
-                f"WR={metrics['win_rate']*100:.1f}% "
-                f"DD={metrics['max_drawdown_pct']:.1f}% "
-                f"PF={metrics['profit_factor']:.2f} "
-                f"Score={metrics['score']:.2f}"
+                f"Score(robust)={score_robust:.2f} "
+                f"WR_1Y={m1y['win_rate']*100:.1f}% "
+                f"DD_1Y={m1y['max_drawdown_pct']:.1f}% "
             )
 
-        results.append({"timeframe": tf, "coin": coin, "params": params, **metrics})
+        results.append({
+            "timeframe": tf,
+            "coin": coin,
+            "params": params,
+            "score": round(score_robust, 4),
+            # Métriques par fenêtre
+            "30D": window_metrics["30D"],
+            "90D": window_metrics["90D"],
+            "1Y":  window_metrics["1Y"],
+        })
 
     results.sort(key=lambda x: x["score"], reverse=True)
     return results
@@ -490,9 +539,9 @@ def optimize_tf_coin(raw_candles: list, tf: str, coin: str, combos: list) -> lis
 # ─────────────────────────────────────────────
 
 def print_top3(all_results: list, coins: list, tfs: list):
-    print("\n" + "═" * 72)
-    print("  TOP 3 PAR TIMEFRAME / COIN")
-    print("═" * 72)
+    print("\n" + "═" * 80)
+    print("  TOP 3 PAR TIMEFRAME / COIN  (score = robustesse sur 30D + 90D + 1Y)")
+    print("═" * 80)
     for coin in coins:
         for tf in tfs:
             subset = [r for r in all_results if r["coin"] == coin and r["timeframe"] == tf]
@@ -501,15 +550,24 @@ def print_top3(all_results: list, coins: list, tfs: list):
             print(f"\n  {coin} — {tf}  ({len(subset)} résultats valides)")
             for rank, r in enumerate(subset[:3], 1):
                 p = r["params"]
+                def wline(lbl):
+                    w = r.get(lbl, {})
+                    if not w: return ""
+                    return (f"WR={w['win_rate']*100:.1f}% "
+                            f"DD={w['max_drawdown_pct']:.1f}% "
+                            f"Ret={w['total_return_pct']:+.1f}% "
+                            f"PF={w['profit_factor']:.2f} "
+                            f"T={w['num_trades']}")
                 print(
                     f"    #{rank}  hma_f={p['hma_fast']} hma_s={p['hma_slow']} "
                     f"tp={p['tp_mult']} adx={p['adx_thresh']} "
                     f"rsi=[{p['rsi_low']},{p['rsi_high']}]  "
-                    f"Score={r['score']:.2f}  WR={r['win_rate']*100:.1f}%  "
-                    f"DD={r['max_drawdown_pct']:.1f}%  PF={r['profit_factor']:.2f}  "
-                    f"Trades={r['num_trades']}"
+                    f"Score(robust)={r['score']:.2f}"
                 )
-    print("═" * 72)
+                print(f"        30D → {wline('30D')}")
+                print(f"        90D → {wline('90D')}")
+                print(f"         1Y → {wline('1Y')}")
+    print("═" * 80)
 
 
 def generate_report(all_results: list, run_date: str, coins: list, tfs: list) -> str:
@@ -533,19 +591,26 @@ def generate_report(all_results: list, run_date: str, coins: list, tfs: list) ->
                 f"tp_mult={p['tp_mult']}, adx_thresh={p['adx_thresh']}, "
                 f"rsi_low={p['rsi_low']}, rsi_high={p['rsi_high']}"
             )
-            lines.append(
-                f"  WR={best['win_rate']*100:.1f}%, DD={best['max_drawdown_pct']:.1f}%, "
-                f"PF={best['profit_factor']:.2f}, Score={best['score']:.2f}, "
-                f"Trades={best['num_trades']}, Return={best['total_return_pct']:.1f}%"
-            )
+            def wline2(r, lbl):
+                w = r.get(lbl, {})
+                if not w: return f"{lbl}: N/A"
+                return (f"{lbl}: WR={w['win_rate']*100:.1f}% "
+                        f"DD={w['max_drawdown_pct']:.1f}% "
+                        f"Ret={w['total_return_pct']:+.1f}% "
+                        f"PF={w['profit_factor']:.2f} "
+                        f"T={w['num_trades']}")
+            lines.append(f"  Score robustesse={best['score']:.2f}")
+            lines.append(f"  {wline2(best, '30D')}")
+            lines.append(f"  {wline2(best, '90D')}")
+            lines.append(f"  {wline2(best, '1Y')}")
             lines.append("  Top 3 :")
             for rank, r in enumerate(tf_res[:3], 1):
                 p2 = r["params"]
                 lines.append(
                     f"    #{rank}  hma_fast={p2['hma_fast']}, hma_slow={p2['hma_slow']}, "
                     f"tp_mult={p2['tp_mult']}, adx_thresh={p2['adx_thresh']}  "
-                    f"→ Score={r['score']:.2f}  WR={r['win_rate']*100:.1f}%  "
-                    f"DD={r['max_drawdown_pct']:.1f}%"
+                    f"→ Score(robust)={r['score']:.2f}  "
+                    f"{wline2(r, '30D')}  |  {wline2(r, '90D')}  |  {wline2(r, '1Y')}"
                 )
             lines.append("")
         lines.append("")
@@ -607,12 +672,13 @@ def main():
                 all_results.extend(tf_res)
                 if tf_res:
                     best = tf_res[0]
+                    b1y = best.get("1Y", {})
                     print(
-                        f"  ✅ {coin} {tf}: Score={best['score']:.2f}  "
-                        f"WR={best['win_rate']*100:.1f}%  "
-                        f"DD={best['max_drawdown_pct']:.1f}%  "
-                        f"PF={best['profit_factor']:.2f}  "
-                        f"Trades={best['num_trades']}"
+                        f"  ✅ {coin} {tf}: Score(robust)={best['score']:.2f}  "
+                        f"WR_1Y={b1y.get('win_rate',0)*100:.1f}%  "
+                        f"DD_1Y={b1y.get('max_drawdown_pct',0):.1f}%  "
+                        f"Ret_1Y={b1y.get('total_return_pct',0):+.1f}%  "
+                        f"Trades_1Y={b1y.get('num_trades',0)}"
                     )
 
     elapsed = time.time() - t_start
