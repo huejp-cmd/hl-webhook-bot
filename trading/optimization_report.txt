@@ -1,0 +1,11 @@
+=== RAPPORT OPTIMISATION — SOL ===
+Date : 2026-04-03 11:48
+
+TF 1H — Best combo :
+  hma_fast=15, hma_slow=60, tp_mult=5.0, adx_thresh=25, rsi_low=40, rsi_high=60
+  WR=41.7%, DD=5.9%, PF=3.25, Score=0.23, Trades=12, Return=39.8%
+  Top 3 :
+    #1  hma_fast=15, hma_slow=60, tp_mult=5.0, adx_thresh=25  → Score=0.23  WR=41.7%  DD=5.9%
+    #2  hma_fast=15, hma_slow=40, tp_mult=3.0, adx_thresh=30  → Score=0.19  WR=46.7%  DD=5.9%
+    #3  hma_fast=15, hma_slow=50, tp_mult=3.0, adx_thresh=30  → Score=0.08  WR=38.1%  DD=7.8%
+

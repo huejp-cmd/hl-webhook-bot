@@ -1,0 +1,176 @@
+{
+  "run_date": "2026-04-03 11:48",
+  "config": {
+    "coins": [
+      "SOL"
+    ],
+    "timeframes": [
+      "1H"
+    ],
+    "combos": 10
+  },
+  "results": [
+    {
+      "timeframe": "1H",
+      "coin": "SOL",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 60,
+        "tp_mult": 5.0,
+        "adx_thresh": 25,
+        "rsi_low": 40,
+        "rsi_high": 60
+      },
+      "win_rate": 0.4167,
+      "profit_factor": 3.247,
+      "max_drawdown_pct": 5.881,
+      "total_return_pct": 39.812,
+      "num_trades": 12,
+      "score": 0.23
+    },
+    {
+      "timeframe": "1H",
+      "coin": "SOL",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 40,
+        "tp_mult": 3.0,
+        "adx_thresh": 30,
+        "rsi_low": 45,
+        "rsi_high": 65
+      },
+      "win_rate": 0.4667,
+      "profit_factor": 2.436,
+      "max_drawdown_pct": 5.881,
+      "total_return_pct": 27.923,
+      "num_trades": 15,
+      "score": 0.1933
+    },
+    {
+      "timeframe": "1H",
+      "coin": "SOL",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 50,
+        "tp_mult": 3.0,
+        "adx_thresh": 30,
+        "rsi_low": 40,
+        "rsi_high": 70
+      },
+      "win_rate": 0.381,
+      "profit_factor": 1.724,
+      "max_drawdown_pct": 7.763,
+      "total_return_pct": 22.57,
+      "num_trades": 21,
+      "score": 0.0846
+    },
+    {
+      "timeframe": "1H",
+      "coin": "SOL",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 50,
+        "tp_mult": 4.0,
+        "adx_thresh": 20,
+        "rsi_low": 45,
+        "rsi_high": 60
+      },
+      "win_rate": 0.3333,
+      "profit_factor": 1.864,
+      "max_drawdown_pct": 11.416,
+      "total_return_pct": 29.161,
+      "num_trades": 21,
+      "score": 0.0544
+    },
+    {
+      "timeframe": "1H",
+      "coin": "SOL",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 60,
+        "tp_mult": 3.0,
+        "adx_thresh": 20,
+        "rsi_low": 45,
+        "rsi_high": 60
+      },
+      "win_rate": 0.2857,
+      "profit_factor": 1.153,
+      "max_drawdown_pct": 7.763,
+      "total_return_pct": 3.154,
+      "num_trades": 14,
+      "score": 0.0424
+    },
+    {
+      "timeframe": "1H",
+      "coin": "SOL",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 60,
+        "tp_mult": 4.0,
+        "adx_thresh": 25,
+        "rsi_low": 45,
+        "rsi_high": 70
+      },
+      "win_rate": 0.2,
+      "profit_factor": 0.953,
+      "max_drawdown_pct": 11.416,
+      "total_return_pct": -1.906,
+      "num_trades": 25,
+      "score": 0.0167
+    },
+    {
+      "timeframe": "1H",
+      "coin": "SOL",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 40,
+        "tp_mult": 3.0,
+        "adx_thresh": 20,
+        "rsi_low": 45,
+        "rsi_high": 65
+      },
+      "win_rate": 0.2188,
+      "profit_factor": 0.806,
+      "max_drawdown_pct": 11.416,
+      "total_return_pct": -9.261,
+      "num_trades": 32,
+      "score": 0.0155
+    },
+    {
+      "timeframe": "1H",
+      "coin": "SOL",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 40,
+        "tp_mult": 4.0,
+        "adx_thresh": 25,
+        "rsi_low": 35,
+        "rsi_high": 70
+      },
+      "win_rate": 0.1923,
+      "profit_factor": 0.909,
+      "max_drawdown_pct": 11.416,
+      "total_return_pct": -3.868,
+      "num_trades": 26,
+      "score": 0.0153
+    },
+    {
+      "timeframe": "1H",
+      "coin": "SOL",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 50,
+        "tp_mult": 5.0,
+        "adx_thresh": 20,
+        "rsi_low": 45,
+        "rsi_high": 65
+      },
+      "win_rate": 0.1852,
+      "profit_factor": 1.069,
+      "max_drawdown_pct": 18.293,
+      "total_return_pct": 3.261,
+      "num_trades": 27,
+      "score": 0.0108
+    }
+  ]
+}
