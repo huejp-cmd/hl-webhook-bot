@@ -8,7 +8,7 @@ detects signals (trend + explosive), sizes via Labouchere INVERSÉ,
 and places orders on Hyperliquid perpetuals.
 
 Coins     : SOL, ETH
-Timeframe : 29M
+Timeframe : 45M
 Capital   : 500 USDC each
 Mode      : DRY_RUN=true by default (logs orders without placing them)
 """
@@ -32,8 +32,8 @@ from labouch_manager import LabouchManager
 #  CONFIGURATION
 # ==============================================================
 COINS       = ["SOL", "ETH"]
-TF_MINUTES  = 29
-BARS_NEEDED = 220          # 29m bars to fetch (covers RSI-100 + warmup)
+TF_MINUTES  = 45
+BARS_NEEDED = 160          # 45m bars to fetch (covers RSI-100 + warmup)
 
 CAPITAL = {"SOL": 500.0, "ETH": 500.0}
 
@@ -50,15 +50,15 @@ RSI_LEN     = 100
 BB_LEN      = 20
 BB_MULT     = 2.0
 VOL_SMA_LEN = 20
-HMA_FAST    = 20
-HMA_SLOW    = 50
+HMA_FAST    = 20  # SOL default (ETH uses 25 via COINS config)
+HMA_SLOW    = 60  # SOL default (ETH uses 40 via COINS config)
 VP_K        = 0.75   # VWAP band offset (×ATR)
 VOL_MULT    = 1.4    # volume threshold vs SMA
 VWAP_BARS   = 24     # rolling window for VWAP/VAH/VAL
 ATR_SMA_LEN = 20     # SMA of ATR for volHigh detection
 
-TP_MULT_TREND = 4.0
-TP_MULT_EXPLO = 3.3
+TP_MULT_TREND = 5.0
+TP_MULT_EXPLO = 4.5
 
 # Fallback coin precision if SDK not available
 COIN_PRECISION_DEFAULT = {"SOL": 3, "ETH": 4, "BTC": 5}
@@ -435,9 +435,9 @@ def detect_signal(coin: str, bars: list) -> tuple:
     vol_high    = cur_atr > cur_atr_sma * 1.5
     vol_up      = v > cur_vol_sma * VOL_MULT
     explosive   = vol_high and (cur_rsi > 75 or cur_rsi < 25) and vol_up
-    is_trending = cur_adx > 25 and not explosive
-    is_ranging  = cur_adx < 20 and not (cur_adx > 25 or explosive)
-    is_explosive = explosive and not (cur_adx > 25 or is_ranging)
+    is_trending = cur_adx > 20 and not explosive
+    is_ranging  = cur_adx < 15 and not (cur_adx > 20 or explosive)
+    is_explosive = explosive and not (cur_adx > 20 or is_ranging)
 
     regime_str = ("TREND"     if is_trending  else
                   "EXPLOSIVE" if is_explosive else
@@ -445,7 +445,7 @@ def detect_signal(coin: str, bars: list) -> tuple:
 
     # ── LONG CONDITIONS ──
     bull_trend    = cur_di_plus > cur_di_minus and c > cur_hma50
-    pullback_long = l <= cur_hma20 and c > cur_hma20 and 40 < cur_rsi < 65
+    pullback_long = l <= cur_hma20 and c > cur_hma20 and 35 < cur_rsi < 60
     entry_lt      = is_trending and bull_trend and pullback_long
 
     vah_ok      = not math.isnan(cur_vah)
@@ -455,7 +455,7 @@ def detect_signal(coin: str, bars: list) -> tuple:
 
     # ── SHORT CONDITIONS ──
     bear_trend     = cur_di_minus > cur_di_plus and c < cur_hma50
-    pullback_short = h >= cur_hma20 and c < cur_hma20 and 35 < cur_rsi < 60
+    pullback_short = h >= cur_hma20 and c < cur_hma20 and 40 < cur_rsi < 65
     entry_st       = is_trending and bear_trend and pullback_short
 
     val_ok        = not math.isnan(cur_val)
@@ -925,5 +925,8 @@ def run():
 
 
 # ==============================================================
+def main():
+    run()
+
 if __name__ == "__main__":
     run()
