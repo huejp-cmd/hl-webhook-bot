@@ -1,0 +1,5 @@
+flask
+hyperliquid-python-sdk
+eth-account
+requests
+numpy
