@@ -1281,7 +1281,7 @@ def _init_labouch_if_needed():
 
 _init_labouch_if_needed()
 
-if __name__ == "__main__":
+def main():
     log.info("Webhook Hyperliquid demarre -> http://0.0.0.0:5000")
     log.info("Coins supportes : SOL, ETH (et tout coin Hyperliquid)")
     log.info("Margin type     : ISOLATED par coin")
@@ -1290,3 +1290,6 @@ if __name__ == "__main__":
     log.info(f"TP timeout      : {TP_LIMIT_TIMEOUT}s")
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
+
+if __name__ == "__main__":
+    main()
