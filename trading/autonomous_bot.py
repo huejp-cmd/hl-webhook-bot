@@ -27,6 +27,7 @@ from datetime import datetime, timezone, timedelta
 # ── Add script directory to sys.path so labouch_manager is importable ──
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from labouch_manager import LabouchManager
+import trade_journal
 
 # ==============================================================
 #  CONFIGURATION
@@ -636,6 +637,17 @@ def monitor_position(coin: str, current_price: float):
         f"PnL={pnl_usdc:+.2f} USDC ({pnl_pct:+.2f}%)"
     )
 
+    # ── Record exit in trade journal ──
+    journal_id = pos.get("journal_id")
+    if journal_id:
+        trade_journal.record_exit(
+            trade_id=journal_id,
+            exit_price=current_price,
+            exit_reason=hit,
+            pnl_usdc=pnl_usdc,
+            pnl_pct=pnl_pct,
+        )
+
     labouch.on_close(coin, current_price, cap_after)
     del _positions[coin]
 
@@ -700,10 +712,23 @@ def open_position(coin: str, side: str,
             "capital": capital,
             "ts":      datetime.now(timezone.utc).isoformat(),
         }
+        # ── Record entry in trade journal ──
+        journal_id = trade_journal.record_entry(
+            coin=coin,
+            side=side,
+            entry_price=entry_px,
+            qty=qty,
+            sl=sl_px,
+            tp=tp_px,
+            regime=meta.get("regime", "UNKNOWN"),
+            capital=capital,
+            lab_mult=lab_mult,
+        )
+        _positions[coin]["journal_id"] = journal_id
         labouch.on_entry(coin, entry_px, qty, side, capital)
         log.info(
             f"[{coin}] [DRY RUN] Simulated {side.upper()} {qty} @ {entry_px} | "
-            f"SL={sl_px} TP={tp_px}"
+            f"SL={sl_px} TP={tp_px} | journal_id={journal_id[:8]}"
         )
         log.info(f"[{coin}] Labouchere: {labouch.get_status(coin)}")
         return

@@ -48,6 +48,7 @@ from hyperliquid.utils import constants
 from eth_account import Account
 
 from labouch_manager import LabouchManager
+import trade_journal
 labouch = LabouchManager()
 
 # =============================================================================
@@ -1259,6 +1260,46 @@ def manual_close(coin):
     c      = coin.upper()
     result = close_position_market(c)
     return jsonify(result), 200
+
+
+# =============================================================================
+#  JOURNAL & STATS ENDPOINTS  (autonomous bot DRY_RUN trades)
+# =============================================================================
+
+@app.route("/journal", methods=["GET"])
+def journal_endpoint():
+    """
+    GET /journal
+    Retourne tous les trades enregistrés par l'autonomous bot.
+    ?limit=N pour limiter le nombre de trades retournés (défaut: tous).
+    """
+    try:
+        all_trades = trade_journal.get_all()
+        limit = request.args.get("limit")
+        if limit is not None:
+            try:
+                limit = int(limit)
+                all_trades = all_trades[-limit:]
+            except ValueError:
+                pass
+        return jsonify({"count": len(all_trades), "trades": all_trades}), 200
+    except Exception as e:
+        log.error(f"[journal] endpoint error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/stats", methods=["GET"])
+def stats_endpoint():
+    """
+    GET /stats
+    Retourne les statistiques de performance calculées depuis le journal.
+    """
+    try:
+        stats = trade_journal.get_stats()
+        return jsonify(stats), 200
+    except Exception as e:
+        log.error(f"[stats] endpoint error: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 # --- Init Labouchère si premier démarrage ---
