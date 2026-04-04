@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
 """
 NAS100 Reversal Strategy — Candle Exhaustion + Indecision Breakout
-Timeframe : 10M (backtest sur 1H proxy + validation 5M→10M)
-Instrument : QQQ (proxy NASDAQ ETF)
+Instrument : NQ E-mini Futures (1 point = 20$) — simulé via NQ=F / QQQ proxy
+Compte    : Apex Funding 50 000$ — règles intégrées
+Timeframe : 10M (backtest sur 1H proxy RTH, validation 5M→10M)
 
 Flow en 6 étapes :
-  1. Détecter le pattern d'épuisement (2 bougies alternées avec pentes)
-  2. Attendre un candle d'indécision (doji/spinning top) — max `max_wait_bars` barres
-  3. Entrer sur le breakout du candle d'indécision
-  4. SL = taille du corps du candle signal (filtré 0.5$–1.5$ QQQ ≈ 10–30 pts NQ)
+  1. Pattern d'épuisement (2 bougies alternées avec pentes)
+  2. Attendre candle d'indécision (corps < body_pct × range, mèches des 2 côtés)
+  3. Entrée sur breakout du candle d'indécision
+  4. SL = corps du candle signal en pts NQ (filtre strict : 10–20 pts)
   5. TP = SL × rr_ratio
-  6. Sortie alternative : signal opposé ou fin de session
+  6. Sortie : signal opposé OU fin de session RTH OU règles Apex
+
+Règles Apex intégrées :
+  - Daily loss limit   : -1 000$/jour (= -2% × 50k)
+  - Trailing max DD    : -4 000$ depuis le pic (= -8%)
+  - Profit target      : +4 000$ (= +8%, indicatif)
+  - Filtre sessions    : RTH uniquement 9h30–16h00 ET
 
 Usage :
   python trading/nasdaq_strategy.py --mode backtest
@@ -21,7 +28,7 @@ Usage :
 
 import argparse
 import warnings
-import sys
+from collections import defaultdict
 from datetime import datetime, timedelta
 from itertools import product
 
@@ -36,89 +43,134 @@ import yfinance as yf
 warnings.filterwarnings('ignore')
 
 # ─────────────────────────────────────────────────────────────
-# CONSTANTES
+# CONSTANTES APEX / NQ
 # ─────────────────────────────────────────────────────────────
-CAPITAL_INITIAL = 10_000.0   # USDC
-FRAIS_ALLER     = 0.0005     # 0.05% par sens
-FRAIS_TOTAL     = FRAIS_ALLER * 2  # 0.10% aller-retour
+ACCOUNT_SIZE      = 50_000.0   # $ — compte Apex standard
+POINT_VALUE       = 20.0       # $/point pour NQ E-mini
+N_CONTRACTS       = 1          # 1 contrat NQ fixe
+FRAIS_RT          = 5.0        # $ aller-retour (commissions + frais CME estimés)
 
-TICKER          = "QQQ"
+# Règles Apex
+DAILY_LOSS_LIMIT  = -1_000.0   # $ — arrêt journalier si atteint (-2% × 50k)
+MAX_DD_LIMIT      = -4_000.0   # $ — arrêt définitif trailing (-8%)
+PROFIT_TARGET     =  4_000.0   # $ — objectif challenge (+8%)
 
-# Filtrage SL : corps du candle signal entre 10 et 30 pts NQ
-# 1 pt NQ ≈ 0.05$ sur QQQ  →  10 pts = 0.50$, 30 pts = 1.50$
-MIN_SL_QQQ = 0.50
-MAX_SL_QQQ = 1.50
+# Filtre SL : corps du candle signal en points NQ
+SL_MIN_PTS = 10   # Corps minimum valide
+SL_MAX_PTS = 20   # Corps maximum valide (SL max = 20 × 20$ = 400$)
 
-# États de la machine à états du backtest
-IDLE                = 0   # En attente d'un pattern d'épuisement
-WAITING_INDECISION  = 1   # Pattern trouvé, attente d'un candle d'indécision
-WAITING_BREAKOUT    = 2   # Indécision trouvée, attente du breakout
-IN_POSITION         = 3   # Position ouverte
+# Sessions RTH : 9h30–16h00 ET
+RTH_START_H, RTH_START_M = 9, 30
+RTH_END_H,   RTH_END_M   = 16,  0
 
 # Grille d'optimisation par défaut
 PARAM_GRID_DEFAULT = {
-    "body_pct":      [0.20, 0.25, 0.30, 0.35, 0.40],  # % range totale → indécision
-    "rr_ratio":      [1.0, 1.5, 2.0, 3.0],              # Risk/Reward TP
-    "max_wait_bars": [2, 3, 5],                          # Barres max d'attente
+    "body_pct":      [0.20, 0.25, 0.30, 0.35],  # % range → indécision
+    "rr_ratio":      [1.5, 2.0, 3.0],            # Risk/Reward TP
+    "max_wait_bars": [2, 3, 5],                   # Barres max d'attente
 }
 
+# États machine à états
+IDLE               = 0
+WAIT_INDECISION    = 1
+WAIT_BREAKOUT      = 2
+IN_POSITION        = 3
+
 
 # ─────────────────────────────────────────────────────────────
-# 1. TÉLÉCHARGEMENT DES DONNÉES
+# 1. TÉLÉCHARGEMENT — NQ=F en priorité, QQQ en fallback
 # ─────────────────────────────────────────────────────────────
-def download_data(ticker: str = TICKER, interval: str = "1h",
-                  period: str = "2y") -> pd.DataFrame:
+def download_data(interval: str = "1h", period: str = "2y") -> tuple[pd.DataFrame, float]:
     """
-    Télécharge les données OHLCV via yfinance.
-    Essaie QQQ → NQ=F → ^NDX en cas d'échec.
-    Retourne un DataFrame propre avec colonnes : open, high, low, close, volume
-    """
-    tickers_to_try = [ticker, "NQ=F", "^NDX"] if ticker == TICKER else [ticker]
+    Télécharge les données OHLCV.
+    Retourne (df, conversion_factor) où :
+      - conversion_factor = 1.0   si données en points NQ directs (NQ=F)
+      - conversion_factor = 40.0  si données en $ QQQ (1 pt QQQ ≈ 40 pts NQ)
 
-    for tk in tickers_to_try:
+    Ordre d'essai : NQ=F → ^NDX → QQQ
+    """
+    candidates = [
+        ("NQ=F",  1.0),    # Futures NQ directs (corps en pts NQ)
+        ("^NDX",  1.0),    # Index NDX (même échelle que NQ)
+        ("QQQ",  40.0),    # ETF proxy : 1$ QQQ ≈ 40 pts NQ
+    ]
+
+    for ticker, conv in candidates:
         try:
-            print(f"  📥 Téléchargement {tk} [{interval}, {period}]...")
-            df = yf.download(tk, interval=interval, period=period,
+            print(f"  📥 Téléchargement {ticker} [{interval}, {period}]...")
+            df = yf.download(ticker, interval=interval, period=period,
                              progress=False, auto_adjust=True)
             if df.empty:
-                print(f"  ⚠️  Données vides pour {tk}, essai suivant...")
+                print(f"  ⚠️  Vide pour {ticker}, essai suivant...")
                 continue
 
-            # Aplatir les colonnes multi-index (yfinance v0.2+)
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
-
             df.columns = [c.lower() for c in df.columns]
             df = df[['open', 'high', 'low', 'close', 'volume']].copy()
             df.dropna(subset=['open', 'high', 'low', 'close'], inplace=True)
             df = df[df['close'] > 0].copy()
 
-            print(f"  ✅ {tk} : {len(df)} bougies "
-                  f"({df.index[0].date()} → {df.index[-1].date()})")
-            return df
+            print(f"  ✅ {ticker} : {len(df)} bougies "
+                  f"({df.index[0].date()} → {df.index[-1].date()})  "
+                  f"[conv={conv}×]")
+            return df, conv
 
         except Exception as e:
-            print(f"  ❌ Erreur pour {tk} : {e}")
-            continue
+            print(f"  ❌ {ticker} : {e}")
 
-    raise RuntimeError(
-        f"Impossible de télécharger les données pour {ticker} et ses alternatives.")
+    raise RuntimeError("Impossible de télécharger les données.")
 
 
 # ─────────────────────────────────────────────────────────────
-# 2. RESAMPLE 5M → 10M
+# 2. FILTRE SESSIONS RTH (9h30–16h00 ET)
+# ─────────────────────────────────────────────────────────────
+def filter_rth(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Conserve uniquement les barres des heures de marché régulières
+    (Regular Trading Hours) : 9h30–16h00 heure de New York.
+    Élimine le pré-market, l'after-hours et les week-ends.
+    """
+    try:
+        idx = df.index
+        # Ajouter timezone UTC si absente
+        if idx.tz is None:
+            idx = idx.tz_localize('UTC')
+
+        # Convertir en heure de New York (gère EDT/EST automatiquement)
+        idx_et = idx.tz_convert('America/New_York')
+
+        # Filtre : lundi-vendredi, 9h30 ≤ heure < 16h00
+        in_rth = (
+            (idx_et.dayofweek < 5) &
+            (
+                (idx_et.hour > RTH_START_H) |
+                ((idx_et.hour == RTH_START_H) & (idx_et.minute >= RTH_START_M))
+            ) &
+            (idx_et.hour < RTH_END_H)
+        )
+
+        # in_rth peut être un np.ndarray ou un pandas array selon la version
+        mask   = np.asarray(in_rth, dtype=bool)
+        df_rth = df.iloc[mask].copy()
+        removed = len(df) - len(df_rth)
+        print(f"  🕐 Filtre RTH : {len(df_rth)} barres conservées "
+              f"({removed} hors-session retirées)")
+        return df_rth
+
+    except Exception as e:
+        print(f"  ⚠️  Filtre RTH impossible ({e}) — toutes les barres conservées")
+        return df
+
+
+# ─────────────────────────────────────────────────────────────
+# 3. RESAMPLE 5M → 10M
 # ─────────────────────────────────────────────────────────────
 def resample_5m_to_10m(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Resample 5 minutes → 10 minutes.
-    OHLCV : open=first, high=max, low=min, close=last, volume=sum
-    """
+    """Resample 5M → 10M (OHLCV correct)."""
     df_r = df.resample('10min').agg({
-        'open':   'first',
-        'high':   'max',
-        'low':    'min',
-        'close':  'last',
-        'volume': 'sum',
+        'open': 'first', 'high': 'max',
+        'low':  'min',   'close': 'last', 'volume': 'sum',
     })
     df_r.dropna(subset=['open', 'high', 'low', 'close'], inplace=True)
     df_r = df_r[df_r['close'] > 0].copy()
@@ -127,10 +179,10 @@ def resample_5m_to_10m(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ─────────────────────────────────────────────────────────────
-# 3. CALCUL ATR (utilisé pour référence dans le rapport)
+# 4. ATR (référence)
 # ─────────────────────────────────────────────────────────────
 def compute_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
-    """ATR via méthode Wilder (EWM)."""
+    """ATR Wilder (EWM). Résultat en unités natives du ticker."""
     h, l, c = df['high'], df['low'], df['close']
     pc = c.shift(1)
     tr = pd.concat([(h - l), (h - pc).abs(), (l - pc).abs()], axis=1).max(axis=1)
@@ -138,134 +190,114 @@ def compute_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
 
 
 # ─────────────────────────────────────────────────────────────
-# 4. DÉTECTION DU PATTERN D'ÉPUISEMENT
+# 5. DÉTECTION DU PATTERN D'ÉPUISEMENT
 # ─────────────────────────────────────────────────────────────
-def detect_exhaustion(df: pd.DataFrame) -> pd.DataFrame:
+def detect_exhaustion(df: pd.DataFrame, conv: float = 1.0) -> pd.DataFrame:
     """
-    Détecte les patterns d'épuisement directionnel sur 2 bougies consécutives.
+    Détecte les patterns d'épuisement sur 2 bougies consécutives.
 
     SELL bias (SHORT) :
-      - Candle [i]   = VERT  (close > open)
-      - Candle [i-1] = ROUGE (close < open)
-      - HIGH[i] > HIGH[i-1]  (hauts croissants)
-      - LOW[i]  > LOW[i-1]   (bas croissants)
-      → Épuisement haussier → on va chercher un SHORT
+      Candle[i] = VERT, Candle[i-1] = ROUGE
+      HIGH[i] > HIGH[i-1]  et  LOW[i] > LOW[i-1]
 
     BUY bias (LONG) :
-      - Candle [i]   = ROUGE (close < open)
-      - Candle [i-1] = VERT  (close > open)
-      - LOW[i]  < LOW[i-1]   (bas décroissants)
-      - HIGH[i] < HIGH[i-1]  (hauts décroissants)
-      → Épuisement baissier → on va chercher un LONG
+      Candle[i] = ROUGE, Candle[i-1] = VERT
+      LOW[i]  < LOW[i-1]  et  HIGH[i] < HIGH[i-1]
 
-    Ajoute les colonnes :
-      - 'bias'         : +1 (long), -1 (short), 0 (neutre)
-      - 'signal_body'  : taille du corps du candle signal (pour le SL)
+    Ajoute :
+      'bias'         : +1 LONG | -1 SHORT | 0 neutre
+      'signal_pts'   : corps du candle signal en POINTS NQ
+                       (abs(close-open) × conv)
+      'signal_valid' : True si 10 ≤ corps ≤ 20 pts NQ
     """
     df = df.copy()
 
-    # Corps et direction de chaque bougie
-    df['body']     = (df['close'] - df['open']).abs()
-    df['is_green'] = df['close'] > df['open']
-    df['is_red']   = df['close'] < df['open']
+    df['body']      = (df['close'] - df['open']).abs()
+    df['is_green']  = df['close'] > df['open']
+    df['is_red']    = df['close'] < df['open']
 
-    # Valeurs du candle précédent
-    df['prev_high']     = df['high'].shift(1)
-    df['prev_low']      = df['low'].shift(1)
-    df['prev_is_green'] = df['is_green'].shift(1)
-    df['prev_is_red']   = df['is_red'].shift(1)
-    df['prev_body']     = df['body'].shift(1)
+    ph  = df['high'].shift(1)
+    pl  = df['low'].shift(1)
+    pig = df['is_green'].shift(1)
+    pir = df['is_red'].shift(1)
 
-    # ── SELL bias ──
     cond_short = (
-        df['is_green']
-        & df['prev_is_red']
-        & (df['high'] > df['prev_high'])
-        & (df['low']  > df['prev_low'])
+        df['is_green'] & pir &
+        (df['high'] > ph) & (df['low'] > pl)
     )
-
-    # ── BUY bias ──
     cond_long = (
-        df['is_red']
-        & df['prev_is_green']
-        & (df['low']  < df['prev_low'])
-        & (df['high'] < df['prev_high'])
+        df['is_red'] & pig &
+        (df['low'] < pl) & (df['high'] < ph)
     )
 
     df['bias'] = 0
     df.loc[cond_long,  'bias'] = 1
     df.loc[cond_short, 'bias'] = -1
 
-    # Corps du candle signal (= candle courant dans les deux cas)
-    df['signal_body'] = df['body']
+    # Corps en points NQ (× facteur de conversion si QQQ)
+    df['signal_pts']   = df['body'] * conv
+    df['signal_valid'] = (
+        (df['bias'] != 0) &
+        (df['signal_pts'] >= SL_MIN_PTS) &
+        (df['signal_pts'] <= SL_MAX_PTS)
+    )
 
-    # Nettoyage colonnes temporaires
-    df.drop(columns=['prev_high', 'prev_low', 'prev_is_green',
-                     'prev_is_red', 'prev_body'], inplace=True, errors='ignore')
     return df
 
 
 # ─────────────────────────────────────────────────────────────
-# 5. TEST D'INDÉCISION
+# 6. TEST D'INDÉCISION
 # ─────────────────────────────────────────────────────────────
 def is_indecision(row: pd.Series, body_pct: float = 0.30) -> bool:
     """
-    Vérifie si une bougie est un candle d'indécision (doji/spinning top) :
+    Doji / Spinning Top :
       - Corps < body_pct × range totale (high-low)
-      - Mèche haute > 0  (upper_wick > 0)
-      - Mèche basse > 0  (lower_wick > 0)
-
-    body_pct par défaut = 0.30 (corps < 30% de la range)
+      - Mèche haute > 0  ET  Mèche basse > 0
     """
     total_range = row['high'] - row['low']
     if total_range <= 0:
         return False
-
     body        = abs(row['close'] - row['open'])
     upper_wick  = row['high'] - max(row['open'], row['close'])
     lower_wick  = min(row['open'], row['close']) - row['low']
-
-    corps_ok    = body < body_pct * total_range
-    mèche_haute = upper_wick > 0
-    mèche_basse = lower_wick > 0
-
-    return corps_ok and mèche_haute and mèche_basse
+    return (body < body_pct * total_range) and (upper_wick > 0) and (lower_wick > 0)
 
 
 # ─────────────────────────────────────────────────────────────
-# 6. BACKTEST — MACHINE À ÉTATS
+# 7. BACKTEST — machine à états + règles Apex
 # ─────────────────────────────────────────────────────────────
-def backtest(df: pd.DataFrame, rr_ratio: float = 2.0,
-             body_pct: float = 0.30, max_wait_bars: int = 3) -> dict:
+def backtest(df: pd.DataFrame, conv: float = 1.0,
+             rr_ratio: float = 2.0, body_pct: float = 0.30,
+             max_wait_bars: int = 3) -> dict:
     """
-    Simule les trades avec la stratégie en 6 étapes :
+    Simule les trades avec règles Apex intégrées.
 
-    Capital initial : 10 000 USDC — 100% exposé par trade
-    Frais : 0.05% aller + 0.05% retour = 0.10% aller-retour
-
-    Machine à états :
-      IDLE → WAITING_INDECISION → WAITING_BREAKOUT → IN_POSITION → IDLE
-
-    SL = corps du candle signal (filtré 0.5$–1.5$ QQQ)
-    TP = SL × rr_ratio
+    Compte : 50 000$ / 1 contrat NQ / 1 pt = 20$
+    Frais  : 5$ aller-retour
+    Apex   : daily loss limit -1 000$/jour, trailing DD -4 000$
+    Filtre : SL 10–20 pts NQ, sessions RTH uniquement
     """
-    df = detect_exhaustion(df)
+    df = detect_exhaustion(df, conv=conv)
     df = df.dropna(subset=['bias']).copy()
-    df_arr = df.values
-    cols = {c: i for i, c in enumerate(df.columns)}
+    n  = len(df)
 
-    # Vérifier les colonnes nécessaires
-    for col in ['open', 'high', 'low', 'close', 'bias', 'signal_body']:
-        if col not in cols:
-            raise ValueError(f"Colonne manquante : {col}")
+    # ── Compte ──
+    account   = ACCOUNT_SIZE
+    peak_acct = ACCOUNT_SIZE   # Pour trailing drawdown
+    halted    = False          # True si trailing DD atteint
 
-    capital    = CAPITAL_INITIAL
-    state      = IDLE
-    bias       = 0        # +1 LONG, -1 SHORT
-    sl_size    = 0.0      # Corps du candle signal (taille du SL)
-    wait_count = 0        # Barres attendues dans l'état courant
-    indc_high  = 0.0      # High du candle d'indécision
-    indc_low   = 0.0      # Low du candle d'indécision
+    # ── Suivi journalier ──
+    daily_pnl      = 0.0       # PnL du jour en cours (en $)
+    daily_stopped  = False     # True si daily limit atteint ce jour
+    current_date   = None      # Date ET de la session en cours
+
+    # ── Machine à états ──
+    state       = IDLE
+    bias        = 0
+    sl_pts      = 0.0    # Taille du SL en points NQ
+    wait_count  = 0
+    indc_high   = 0.0
+    indc_low    = 0.0
     entry_price = 0.0
     sl_price    = 0.0
     tp_price    = 0.0
@@ -274,25 +306,57 @@ def backtest(df: pd.DataFrame, rr_ratio: float = 2.0,
 
     trades       = []
     equity_curve = []
+    daily_stats  = []   # Une entrée par jour de trading
 
-    n = len(df)
+    # Convertir l'index en ET pour la gestion des sessions
+    try:
+        idx = df.index
+        if idx.tz is None:
+            idx_et = idx.tz_localize('UTC').tz_convert('America/New_York')
+        else:
+            idx_et = idx.tz_convert('America/New_York')
+    except Exception:
+        idx_et = df.index  # Fallback sans timezone
 
     for i in range(n):
         row       = df.iloc[i]
         timestamp = df.index[i]
 
-        # ── Détection de fin de session (jour suivant = fermeture forcée) ──
-        is_last_bar_of_day = False
+        # Récupérer la date ET de cette barre
+        try:
+            bar_date = idx_et[i].date()
+        except Exception:
+            bar_date = timestamp.date()
+
+        # ── Détection changement de journée ──
+        if bar_date != current_date:
+            # Sauvegarder les stats du jour précédent
+            if current_date is not None:
+                daily_stats.append({
+                    'date':     current_date,
+                    'pnl':      daily_pnl,
+                    'stopped':  daily_stopped,
+                })
+            # Nouveau jour : reset compteurs journaliers
+            current_date  = bar_date
+            daily_pnl     = 0.0
+            daily_stopped = False
+
+        # ── Vérifier si trading autorisé ──
+        trading_allowed = (not halted) and (not daily_stopped)
+
+        # ── Dernière barre de la session RTH ──
+        next_is_new_day = False
         if i + 1 < n:
-            next_date = df.index[i + 1].date()
-            curr_date = timestamp.date()
-            if next_date != curr_date:
-                is_last_bar_of_day = True
+            try:
+                next_is_new_day = (idx_et[i + 1].date() != bar_date)
+            except Exception:
+                next_is_new_day = (df.index[i + 1].date() != timestamp.date())
         else:
-            is_last_bar_of_day = True  # Dernière barre du dataset
+            next_is_new_day = True
 
         # ────────────────────────────────────────────
-        # ÉTAT : IN_POSITION — gérer la position ouverte
+        # ÉTAT : IN_POSITION
         # ────────────────────────────────────────────
         if state == IN_POSITION:
             hit_sl = False
@@ -302,47 +366,54 @@ def backtest(df: pd.DataFrame, rr_ratio: float = 2.0,
 
             if bias == 1:   # LONG
                 if row['low'] <= sl_price:
-                    hit_sl = True
-                    exit_price = sl_price
+                    hit_sl = True;  exit_price = sl_price
                 elif row['high'] >= tp_price:
-                    hit_tp = True
-                    exit_price = tp_price
+                    hit_tp = True;  exit_price = tp_price
             else:            # SHORT
                 if row['high'] >= sl_price:
-                    hit_sl = True
-                    exit_price = sl_price
+                    hit_sl = True;  exit_price = sl_price
                 elif row['low'] <= tp_price:
-                    hit_tp = True
-                    exit_price = tp_price
+                    hit_tp = True;  exit_price = tp_price
 
-            # Sortie sur signal opposé (avant SL/TP)
-            opposite_signal = (bias == 1 and row['bias'] == -1) or \
-                              (bias == -1 and row['bias'] == 1)
-            if not hit_sl and not hit_tp and opposite_signal:
+            # Signal opposé → sortie
+            opp = (bias == 1 and row['signal_valid'] and row['bias'] == -1) or \
+                  (bias == -1 and row['signal_valid'] and row['bias'] == 1)
+            if not hit_sl and not hit_tp and opp:
                 exit_price = row['close']
                 raison = 'Signal opposé'
 
-            # Sortie forcée en fin de session
-            if not hit_sl and not hit_tp and not opposite_signal and is_last_bar_of_day:
+            # Fin de session RTH → sortie forcée
+            force_close = (not hit_sl and not hit_tp and
+                           raison != 'Signal opposé' and next_is_new_day)
+            if force_close:
                 exit_price = row['close']
                 raison = 'Fin session'
 
-            # Clôturer la position si une sortie est déclenchée
-            if hit_sl or hit_tp or opposite_signal or (raison == 'Fin session'):
-                if hit_sl:
-                    raison = 'SL'
-                elif hit_tp:
-                    raison = 'TP'
+            if hit_sl or hit_tp or opp or force_close:
+                if hit_sl:  raison = 'SL'
+                elif hit_tp: raison = 'TP'
 
+                # PnL en points puis en $
                 if bias == 1:
-                    pnl_pct = (exit_price - entry_price) / entry_price
+                    pnl_pts = (exit_price - entry_price) * conv
                 else:
-                    pnl_pct = (entry_price - exit_price) / entry_price
+                    pnl_pts = (entry_price - exit_price) * conv
+                pnl_usd = pnl_pts * POINT_VALUE * N_CONTRACTS - FRAIS_RT
+                account    += pnl_usd
+                daily_pnl  += pnl_usd
 
-                pnl_net  = pnl_pct - FRAIS_TOTAL
-                pnl_usdc = capital * pnl_net
-                capital += pnl_usdc
-                duree    = i - entry_bar
+                # Mettre à jour le pic pour le trailing DD
+                if account > peak_acct:
+                    peak_acct = account
+
+                # Vérifier trailing drawdown (règle Apex)
+                dd_from_peak = account - peak_acct
+                if dd_from_peak <= MAX_DD_LIMIT:
+                    halted = True
+
+                # Vérifier daily loss limit (règle Apex)
+                if daily_pnl <= DAILY_LOSS_LIMIT:
+                    daily_stopped = True
 
                 trades.append({
                     'entry_time':   entry_time,
@@ -352,12 +423,14 @@ def backtest(df: pd.DataFrame, rr_ratio: float = 2.0,
                     'exit_price':   exit_price,
                     'sl_price':     sl_price,
                     'tp_price':     tp_price,
-                    'sl_size':      sl_size,
-                    'pnl_pct':      pnl_net * 100,
-                    'pnl_usdc':     pnl_usdc,
-                    'capital':      capital,
+                    'sl_pts':       sl_pts,
+                    'sl_usd':       sl_pts * POINT_VALUE,
+                    'pnl_pts':      pnl_pts,
+                    'pnl_usd':      pnl_usd,
+                    'account':      account,
                     'raison':       raison,
-                    'duree_bars':   duree,
+                    'duree_bars':   i - entry_bar,
+                    'daily_pnl':    daily_pnl,
                 })
 
                 state      = IDLE
@@ -365,224 +438,271 @@ def backtest(df: pd.DataFrame, rr_ratio: float = 2.0,
                 wait_count = 0
 
         # ────────────────────────────────────────────
-        # ÉTAT : WAITING_BREAKOUT — chercher le breakout
+        # ÉTAT : WAIT_BREAKOUT
         # ────────────────────────────────────────────
-        elif state == WAITING_BREAKOUT:
+        elif state == WAIT_BREAKOUT and trading_allowed:
             entered = False
 
-            # Sortie du range du candle d'indécision par le bas → SHORT confirmé
             if bias == -1 and row['close'] < indc_low:
                 entry_price = row['close']
-                sl_price    = entry_price + sl_size   # SL au-dessus de l'entrée
-                tp_price    = entry_price - sl_size * rr_ratio
+                sl_price    = entry_price + (sl_pts / conv)   # SL en prix natif
+                tp_price    = entry_price - (sl_pts * rr_ratio / conv)
                 entered     = True
 
-            # Sortie du range du candle d'indécision par le haut → LONG confirmé
             elif bias == 1 and row['close'] > indc_high:
-                entry_price = entry_price = row['close']
-                sl_price    = entry_price - sl_size   # SL en dessous de l'entrée
-                tp_price    = entry_price + sl_size * rr_ratio
+                entry_price = row['close']
+                sl_price    = entry_price - (sl_pts / conv)
+                tp_price    = entry_price + (sl_pts * rr_ratio / conv)
                 entered     = True
 
             if entered:
-                capital    -= capital * FRAIS_ALLER   # Frais d'entrée
-                entry_time  = timestamp
-                entry_bar   = i
-                state       = IN_POSITION
-                wait_count  = 0
+                entry_time = timestamp
+                entry_bar  = i
+                state      = IN_POSITION
+                wait_count = 0
+                daily_pnl -= FRAIS_RT / 2  # Frais d'entrée (moitié A/R)
             else:
                 wait_count += 1
-                # Timeout : on abandonne si le breakout ne vient pas
-                if wait_count > max_wait_bars:
-                    state      = IDLE
-                    bias       = 0
-                    wait_count = 0
+                if wait_count > max_wait_bars or next_is_new_day:
+                    state = IDLE; bias = 0; wait_count = 0
 
         # ────────────────────────────────────────────
-        # ÉTAT : WAITING_INDECISION — chercher le doji/spinning top
+        # ÉTAT : WAIT_INDECISION
         # ────────────────────────────────────────────
-        elif state == WAITING_INDECISION:
+        elif state == WAIT_INDECISION and trading_allowed:
             if is_indecision(row, body_pct):
-                # Candle d'indécision trouvé → mémoriser son range pour le breakout
-                indc_high   = row['high']
-                indc_low    = row['low']
-                state       = WAITING_BREAKOUT
-                wait_count  = 0
+                indc_high  = row['high']
+                indc_low   = row['low']
+                state      = WAIT_BREAKOUT
+                wait_count = 0
             else:
                 wait_count += 1
-                if wait_count > max_wait_bars:
-                    state      = IDLE
-                    bias       = 0
-                    wait_count = 0
+                if wait_count > max_wait_bars or next_is_new_day:
+                    state = IDLE; bias = 0; wait_count = 0
 
         # ────────────────────────────────────────────
-        # ÉTAT : IDLE — chercher un pattern d'épuisement
+        # ÉTAT : IDLE — chercher épuisement
         # ────────────────────────────────────────────
-        if state == IDLE:
-            detected_bias = row['bias']
-            if detected_bias != 0:
-                # Filtrer le signal par la taille du corps (10–30 pts NQ)
-                sb = row['signal_body']
-                if MIN_SL_QQQ <= sb <= MAX_SL_QQQ:
-                    bias       = detected_bias
-                    sl_size    = sb
-                    state      = WAITING_INDECISION
-                    wait_count = 0
+        if state == IDLE and trading_allowed:
+            if row['signal_valid']:
+                bias       = int(row['bias'])
+                sl_pts     = float(row['signal_pts'])
+                state      = WAIT_INDECISION
+                wait_count = 0
 
-        # Enregistrer l'equity à chaque barre
-        equity_curve.append({'time': timestamp, 'capital': capital})
+        # Equity à chaque barre
+        equity_curve.append({'time': timestamp, 'account': account})
 
-    # ── Fermer toute position encore ouverte (fin de données) ──
+    # Fermer toute position ouverte en fin de données
     if state == IN_POSITION:
         exit_price = df.iloc[-1]['close']
         if bias == 1:
-            pnl_pct = (exit_price - entry_price) / entry_price
+            pnl_pts = (exit_price - entry_price) * conv
         else:
-            pnl_pct = (entry_price - exit_price) / entry_price
-        pnl_net  = pnl_pct - FRAIS_ALLER
-        pnl_usdc = capital * pnl_net
-        capital += pnl_usdc
+            pnl_pts = (entry_price - exit_price) * conv
+        pnl_usd = pnl_pts * POINT_VALUE - FRAIS_RT / 2
+        account += pnl_usd
         trades.append({
-            'entry_time':   entry_time,
-            'exit_time':    df.index[-1],
-            'direction':    'LONG' if bias == 1 else 'SHORT',
-            'entry_price':  entry_price,
-            'exit_price':   exit_price,
-            'sl_price':     sl_price,
-            'tp_price':     tp_price,
-            'sl_size':      sl_size,
-            'pnl_pct':      pnl_net * 100,
-            'pnl_usdc':     pnl_usdc,
-            'capital':      capital,
-            'raison':       'Fin données',
-            'duree_bars':   n - entry_bar,
+            'entry_time': entry_time, 'exit_time': df.index[-1],
+            'direction': 'LONG' if bias == 1 else 'SHORT',
+            'entry_price': entry_price, 'exit_price': exit_price,
+            'sl_price': sl_price, 'tp_price': tp_price,
+            'sl_pts': sl_pts, 'sl_usd': sl_pts * POINT_VALUE,
+            'pnl_pts': pnl_pts, 'pnl_usd': pnl_usd,
+            'account': account, 'raison': 'Fin données',
+            'duree_bars': n - entry_bar, 'daily_pnl': daily_pnl,
         })
 
-    stats = compute_stats(trades, equity_curve)
+    # Dernier jour
+    if current_date is not None:
+        daily_stats.append({'date': current_date, 'pnl': daily_pnl,
+                            'stopped': daily_stopped})
+
+    eq_df  = (pd.DataFrame(equity_curve).set_index('time')
+              if equity_curve else pd.DataFrame())
+    stats  = compute_stats(trades, equity_curve, daily_stats, halted, account)
     stats['params'] = {
-        'rr_ratio': rr_ratio,
-        'body_pct': body_pct,
+        'rr_ratio': rr_ratio, 'body_pct': body_pct,
         'max_wait_bars': max_wait_bars,
     }
 
     return {
         'trades':       trades,
-        'equity_curve': (pd.DataFrame(equity_curve).set_index('time')
-                         if equity_curve else pd.DataFrame()),
+        'equity_curve': eq_df,
+        'daily_stats':  daily_stats,
         'stats':        stats,
+        'halted':       halted,
     }
 
 
 # ─────────────────────────────────────────────────────────────
-# 7. STATISTIQUES
+# 8. STATISTIQUES
 # ─────────────────────────────────────────────────────────────
-def compute_stats(trades: list, equity_curve: list) -> dict:
+def compute_stats(trades: list, equity_curve: list,
+                  daily_stats: list = None, halted: bool = False,
+                  final_account: float = None) -> dict:
     """
-    Calcule les métriques de performance à partir de la liste de trades.
+    Calcule toutes les métriques : trading classiques + métriques Apex.
     """
+    empty = {k: 0 for k in [
+        'n_trades', 'win_rate', 'profit_factor', 'sharpe',
+        'max_dd_usd', 'max_dd_pct', 'total_pnl_usd', 'avg_trade_usd',
+        'avg_bars', 'trades_per_day', 'avg_sl_pts', 'avg_sl_usd',
+        'max_sl_usd', 'avg_risk_usd', 'trades_before_daily_limit',
+        'pct_days_stopped', 'apex_halted', 'final_account',
+        'profit_toward_target_pct',
+    ]}
     if not trades:
-        return {k: 0 for k in [
-            'n_trades', 'win_rate', 'profit_factor', 'sharpe',
-            'max_dd', 'total_pnl', 'avg_trade', 'avg_bars',
-            'trades_per_month', 'final_capital',
-        ]}
+        return empty
 
-    pnls  = [t['pnl_usdc'] for t in trades]
+    pnls  = [t['pnl_usd'] for t in trades]
     wins  = [p for p in pnls if p > 0]
     loss  = [p for p in pnls if p <= 0]
 
-    win_rate      = len(wins) / len(pnls) * 100
-    profit_factor = (sum(wins) / abs(sum(loss))) if loss else float('inf')
-    total_pnl     = sum(pnls)
-    avg_trade     = float(np.mean(pnls))
-    avg_bars      = float(np.mean([t['duree_bars'] for t in trades]))
+    win_rate = len(wins) / len(pnls) * 100
+    pf       = (sum(wins) / abs(sum(loss))) if loss else float('inf')
+    total_pnl = sum(pnls)
+    avg_trade = float(np.mean(pnls))
+    avg_bars  = float(np.mean([t['duree_bars'] for t in trades]))
 
-    # Durée totale en mois
+    # Durée en jours
     def to_dt(x):
-        return x.to_pydatetime() if hasattr(x, 'to_pydatetime') else x
+        if hasattr(x, 'to_pydatetime'):
+            return x.to_pydatetime().replace(tzinfo=None)
+        return x
 
     t0       = to_dt(trades[0]['entry_time'])
     t1       = to_dt(trades[-1]['exit_time'])
-    n_months = max(1, (t1 - t0).days / 30)
-    trades_pm = len(pnls) / n_months
+    n_days   = max(1, (t1 - t0).days)
+    n_weeks  = max(1, n_days / 5)   # Jours de trading (approx 5/sem)
+    trades_day = len(pnls) / max(1, n_days * 5 / 7)   # Trading days only
 
-    # Sharpe annualisé sur les PnL % par trade
-    pnl_pcts = [t['pnl_pct'] for t in trades]
-    if len(pnl_pcts) > 1 and np.std(pnl_pcts) > 0:
-        sharpe = (np.mean(pnl_pcts) / np.std(pnl_pcts)) * np.sqrt(252)
+    # Sharpe annualisé sur les PnL $
+    if len(pnls) > 1 and np.std(pnls) > 0:
+        sharpe = (np.mean(pnls) / np.std(pnls)) * np.sqrt(252)
     else:
         sharpe = 0.0
 
-    # Max drawdown
-    max_dd = 0.0
-    if equity_curve:
-        peak = CAPITAL_INITIAL
-        for e in equity_curve:
-            c = e['capital']
-            if c > peak:
-                peak = c
-            dd = (peak - c) / peak * 100
-            if dd > max_dd:
-                max_dd = dd
+    # Max drawdown en $ et %
+    max_dd_usd = 0.0
+    peak = ACCOUNT_SIZE
+    for e in equity_curve:
+        a = e['account']
+        if a > peak:
+            peak = a
+        dd = a - peak
+        if dd < max_dd_usd:
+            max_dd_usd = dd
+    max_dd_pct = abs(max_dd_usd) / ACCOUNT_SIZE * 100
+
+    # Métriques risque
+    sl_pts_list = [t['sl_pts'] for t in trades]
+    avg_sl_pts  = float(np.mean(sl_pts_list)) if sl_pts_list else 0
+    avg_sl_usd  = avg_sl_pts * POINT_VALUE
+    max_sl_usd  = max(sl_pts_list, default=0) * POINT_VALUE
+
+    # Fréquence (trades par jour de trading)
+    trade_dates = defaultdict(int)
+    for t in trades:
+        d = to_dt(t['entry_time'])
+        trade_dates[d.date() if hasattr(d, 'date') else d] += 1
+    avg_trades_day = np.mean(list(trade_dates.values())) if trade_dates else 0
+
+    # Apex : jours stoppés
+    pct_days_stopped = 0.0
+    if daily_stats:
+        n_stopped = sum(1 for d in daily_stats if d['stopped'])
+        pct_days_stopped = n_stopped / len(daily_stats) * 100
+
+    # Combien de trades perdants max avant daily limit ?
+    if avg_sl_usd > 0:
+        trades_before_limit = abs(DAILY_LOSS_LIMIT) / avg_sl_usd
+    else:
+        trades_before_limit = 0.0
+
+    # Progression vers l'objectif Apex
+    fa = final_account if final_account is not None else ACCOUNT_SIZE
+    profit_toward_target = ((fa - ACCOUNT_SIZE) / PROFIT_TARGET * 100)
 
     return {
-        'n_trades':         len(trades),
-        'win_rate':         win_rate,
-        'profit_factor':    profit_factor,
-        'sharpe':           sharpe,
-        'max_dd':           max_dd,
-        'total_pnl':        total_pnl,
-        'avg_trade':        avg_trade,
-        'avg_bars':         avg_bars,
-        'trades_per_month': trades_pm,
-        'final_capital':    trades[-1]['capital'],
+        'n_trades':                  len(trades),
+        'win_rate':                  win_rate,
+        'profit_factor':             pf,
+        'sharpe':                    sharpe,
+        'max_dd_usd':                max_dd_usd,
+        'max_dd_pct':                max_dd_pct,
+        'total_pnl_usd':             total_pnl,
+        'avg_trade_usd':             avg_trade,
+        'avg_bars':                  avg_bars,
+        'trades_per_day':            avg_trades_day,
+        'avg_sl_pts':                avg_sl_pts,
+        'avg_sl_usd':                avg_sl_usd,
+        'max_sl_usd':                max_sl_usd,
+        'avg_risk_usd':              avg_sl_usd,     # = avg_sl car 1 contrat NQ
+        'trades_before_daily_limit': trades_before_limit,
+        'pct_days_stopped':          pct_days_stopped,
+        'apex_halted':               halted,
+        'final_account':             fa,
+        'profit_toward_target_pct':  profit_toward_target,
     }
 
 
 # ─────────────────────────────────────────────────────────────
-# 8. OPTIMISATION
+# 9. OPTIMISATION
 # ─────────────────────────────────────────────────────────────
-def optimize(df: pd.DataFrame, param_grid: dict = None) -> dict:
+def optimize(df: pd.DataFrame, conv: float = 1.0,
+             param_grid: dict = None) -> dict:
     """
-    Grid search sur tous les paramètres.
-    Score composite = Sharpe × (1 + WR/100) × max(PF, 0)
-    Retourne best_params, best_score, ranking (DataFrame trié)
+    Grid search.
+    Score = profit_factor × (win_rate/100) × freq_bonus
+    freq_bonus = 1.0 si 4–6 signaux/jour, 0.85 si 3–8, 0.70 sinon
     """
     if param_grid is None:
         param_grid = PARAM_GRID_DEFAULT
 
     keys   = list(param_grid.keys())
-    values = list(param_grid.values())
-    combos = list(product(*values))
+    combos = list(product(*param_grid.values()))
     total  = len(combos)
-    print(f"\n🔍 Optimisation en cours... ({total} combinaisons)")
+    print(f"\n🔍 Optimisation... ({total} combinaisons)")
 
     results = []
     for idx, combo in enumerate(combos):
         params = dict(zip(keys, combo))
         try:
-            res = backtest(df, **params)
+            res = backtest(df, conv=conv, **params)
             s   = res['stats']
             if s['n_trades'] < 5:
                 continue
-            score = (s['sharpe']
-                     * (1 + s['win_rate'] / 100)
-                     * max(s['profit_factor'], 0))
-            results.append({**params, **s, 'score': score})
+
+            # Bonus fréquence
+            tpd = s['trades_per_day']
+            if 4 <= tpd <= 6:
+                freq_bonus = 1.00
+            elif 3 <= tpd <= 8:
+                freq_bonus = 0.85
+            else:
+                freq_bonus = 0.70
+
+            pf = max(s['profit_factor'], 0)
+            wr = s['win_rate'] / 100
+            score = pf * wr * freq_bonus
+
+            results.append({**params, **s, 'score': score,
+                             'freq_bonus': freq_bonus})
         except Exception:
             continue
 
-        if (idx + 1) % 20 == 0 or idx + 1 == total:
+        if (idx + 1) % 10 == 0 or idx + 1 == total:
             print(f"  ... {idx+1}/{total} ({(idx+1)/total*100:.0f}%)")
 
     if not results:
-        print("  ⚠️  Aucun résultat valide (trop peu de trades).")
+        print("  ⚠️  Aucun résultat valide (trop peu de trades ou conv trop stricte).")
         return {'best_params': {}, 'best_score': 0, 'ranking': pd.DataFrame()}
 
     ranking = (pd.DataFrame(results)
                .sort_values('score', ascending=False)
                .reset_index(drop=True))
-    best = ranking.iloc[0]
+    best        = ranking.iloc[0]
     best_params = {k: best[k] for k in keys}
 
     print(f"\n✅ Meilleurs paramètres :")
@@ -592,42 +712,40 @@ def optimize(df: pd.DataFrame, param_grid: dict = None) -> dict:
     print(f"   Win Rate: {best['win_rate']:.1f}% | "
           f"PF: {best['profit_factor']:.2f} | "
           f"Sharpe: {best['sharpe']:.2f} | "
-          f"Max DD: -{best['max_dd']:.1f}%")
-    print(f"   Total trades: {best['n_trades']} | "
-          f"Avg/mois: {best['trades_per_month']:.2f}")
+          f"Trades/jour: {best['trades_per_day']:.1f}")
+    print(f"   Risque moy: ${best['avg_sl_usd']:.0f}/trade | "
+          f"DD max: -${abs(best['max_dd_usd']):.0f} "
+          f"({best['max_dd_pct']:.1f}%)")
+    print(f"   Jours stoppés: {best['pct_days_stopped']:.1f}%")
 
-    return {'best_params': best_params, 'best_score': float(best['score']),
-            'ranking': ranking}
+    return {'best_params': best_params,
+            'best_score':  float(best['score']),
+            'ranking':     ranking}
 
 
 # ─────────────────────────────────────────────────────────────
-# 9. WALK-FORWARD
+# 10. WALK-FORWARD
 # ─────────────────────────────────────────────────────────────
-def walk_forward(df: pd.DataFrame, train_days: int = 180,
-                 test_days: int = 30, step_days: int = 30) -> dict:
+def walk_forward(df: pd.DataFrame, conv: float = 1.0,
+                 train_days: int = 180, test_days: int = 30,
+                 step_days: int = 30) -> dict:
     """
     Walk-forward (fenêtre glissante) :
-    - Train sur train_days → optimise les paramètres (mini grille)
-    - Test sur les test_days suivants avec ces paramètres
-    - Avance de step_days → recommence
-    Retourne equity WF, params par période, résumé comparatif
+    Train → optimise → Test → avance → recommence.
     """
-    print(f"\n🧠 Walk-forward (auto-learning)...")
-    print(f"   train={train_days}j  test={test_days}j  pas={step_days}j")
+    print(f"\n🧠 Walk-forward... train={train_days}j  test={test_days}j  pas={step_days}j")
 
-    # Grille réduite pour vitesse
     mini_grid = {
-        "body_pct":      [0.25, 0.30, 0.35],
-        "rr_ratio":      [1.5, 2.0, 3.0],
+        "body_pct":      [0.25, 0.30],
+        "rr_ratio":      [2.0, 3.0],
         "max_wait_bars": [3, 5],
     }
 
-    dates = df.index.normalize().unique()
-
+    dates      = df.index.normalize().unique()
     periods    = []
     wf_trades  = []
-    wf_equity  = [{'time': df.index[0], 'capital': CAPITAL_INITIAL}]
-    wf_capital = CAPITAL_INITIAL
+    wf_equity  = [{'time': df.index[0], 'account': ACCOUNT_SIZE}]
+    wf_account = ACCOUNT_SIZE
     period_num = 0
     start_idx  = 0
 
@@ -635,390 +753,481 @@ def walk_forward(df: pd.DataFrame, train_days: int = 180,
         if start_idx >= len(dates):
             break
 
-        train_start    = dates[start_idx]
-        train_end_date = train_start + timedelta(days=train_days)
-        test_end_date  = train_end_date + timedelta(days=test_days)
+        train_start = dates[start_idx]
+        train_end   = train_start + timedelta(days=train_days)
+        test_end    = train_end   + timedelta(days=test_days)
 
         df_train = df[(df.index.normalize() >= train_start) &
-                      (df.index.normalize() <  train_end_date)]
-        df_test  = df[(df.index.normalize() >= train_end_date) &
-                      (df.index.normalize() <  test_end_date)]
+                      (df.index.normalize() <  train_end)]
+        df_test  = df[(df.index.normalize() >= train_end) &
+                      (df.index.normalize() <  test_end)]
 
-        if len(df_train) < 80 or len(df_test) < 10:
+        if len(df_train) < 60 or len(df_test) < 5:
             break
 
-        # ── Optimisation sur la fenêtre d'entraînement ──
-        opt = optimize(df_train, param_grid=mini_grid)
+        opt = optimize(df_train, conv=conv, param_grid=mini_grid)
         if not opt['best_params']:
             break
-        best_params  = opt['best_params']
 
-        train_res    = backtest(df_train, **best_params)
-        train_stats  = train_res['stats']
-        test_res     = backtest(df_test,  **best_params)
-        test_stats   = test_res['stats']
+        bp          = opt['best_params']
+        train_res   = backtest(df_train, conv=conv, **bp)
+        test_res    = backtest(df_test,  conv=conv, **bp)
+        ts, trs     = test_res['stats'], train_res['stats']
 
-        # Rebase le PnL de la phase test sur le capital WF courant
+        # Rebaser le PnL test sur le compte WF courant
         if test_res['trades']:
-            scale = wf_capital / CAPITAL_INITIAL
-            for trade in test_res['trades']:
-                t = trade.copy()
-                t['pnl_usdc'] = trade['pnl_usdc'] * scale
-                wf_capital   += t['pnl_usdc']
-                t['capital']  = wf_capital
-                wf_trades.append(t)
-            wf_equity.append({'time': df_test.index[-1], 'capital': wf_capital})
+            scale = wf_account / ACCOUNT_SIZE
+            for t in test_res['trades']:
+                tc              = t.copy()
+                tc['pnl_usd']   = t['pnl_usd'] * scale
+                wf_account     += tc['pnl_usd']
+                tc['account']   = wf_account
+                wf_trades.append(tc)
+            wf_equity.append({'time': df_test.index[-1],
+                               'account': wf_account})
 
         period_num += 1
-        print(f"  Période {period_num} "
-              f"({train_start.strftime('%Y-%m')} → "
-              f"{train_end_date.strftime('%Y-%m')}) : "
-              f"Train WR={train_stats['win_rate']:.0f}% "
-              f"({train_stats['n_trades']} trades) | "
-              f"Test WR={test_stats['win_rate']:.0f}% "
-              f"({test_stats['n_trades']} trades)")
+        print(f"  P{period_num} ({train_start.strftime('%Y-%m')} → "
+              f"{train_end.strftime('%Y-%m')}) : "
+              f"Train WR={trs['win_rate']:.0f}% ({trs['n_trades']}T) | "
+              f"Test WR={ts['win_rate']:.0f}% ({ts['n_trades']}T) | "
+              f"Params bp={bp['body_pct']} rr={bp['rr_ratio']}")
 
         periods.append({
-            'period':         period_num,
-            'train_start':    train_start,
-            'train_end':      train_end_date,
-            'test_start':     train_end_date,
-            'test_end':       test_end_date,
-            'params':         best_params,
-            'train_wr':       train_stats['win_rate'],
-            'test_wr':        test_stats['win_rate'],
-            'train_pf':       train_stats['profit_factor'],
-            'test_pf':        test_stats['profit_factor'],
-            'train_sharpe':   train_stats['sharpe'],
-            'test_sharpe':    test_stats['sharpe'],
-            'train_n_trades': train_stats['n_trades'],
-            'test_n_trades':  test_stats['n_trades'],
+            'period': period_num, 'train_start': train_start,
+            'train_end': train_end, 'params': bp,
+            'train_wr': trs['win_rate'], 'test_wr': ts['win_rate'],
+            'train_pf': trs['profit_factor'], 'test_pf': ts['profit_factor'],
+            'train_n': trs['n_trades'], 'test_n': ts['n_trades'],
         })
 
-        # Avancer la fenêtre de step_days
         next_start = train_start + timedelta(days=step_days)
         try:
             ns64      = np.datetime64(next_start.date(), 'D')
             start_idx = int(np.searchsorted(dates.values, ns64))
         except Exception:
-            start_idx += max(1, step_days // (
-                (dates[-1] - dates[0]).days // len(dates) or 1))
+            start_idx += max(1, step_days // max(1, (dates[-1]-dates[0]).days//len(dates)))
 
     if not periods:
         print("  ⚠️  Pas assez de données pour le walk-forward.")
         return {'periods': [], 'wf_equity': pd.DataFrame(),
                 'wf_trades': [], 'wf_stats': {}}
 
-    wf_stats = compute_stats(wf_trades, wf_equity)
-    wf_eq_df = (pd.DataFrame(wf_equity).set_index('time')
+    wf_eq    = (pd.DataFrame(wf_equity).set_index('time')
                 if wf_equity else pd.DataFrame())
+    wf_stats = compute_stats(wf_trades,
+                             [{'account': e['account']} for e in wf_equity])
+    wf_stats['final_account'] = wf_account
 
-    print(f"\n  📊 Walk-forward global : "
-          f"WR={wf_stats['win_rate']:.1f}% | "
+    print(f"\n  📊 WF global : WR={wf_stats['win_rate']:.1f}% | "
+          f"PF={wf_stats['profit_factor']:.2f} | "
           f"Sharpe={wf_stats['sharpe']:.2f} | "
-          f"Max DD=-{wf_stats['max_dd']:.1f}% | "
-          f"Capital final: ${wf_capital:,.0f}")
+          f"Compte: ${wf_account:,.0f}")
 
-    return {
-        'periods':   periods,
-        'wf_equity': wf_eq_df,
-        'wf_trades': wf_trades,
-        'wf_stats':  wf_stats,
-    }
+    return {'periods': periods, 'wf_equity': wf_eq,
+            'wf_trades': wf_trades, 'wf_stats': wf_stats}
 
 
 # ─────────────────────────────────────────────────────────────
-# 10. RAPPORT VISUEL
+# 11. RAPPORT VISUEL
 # ─────────────────────────────────────────────────────────────
-def generate_report(backtest_result: dict, wf_result: dict = None,
+def generate_report(bt_result: dict, wf_result: dict = None,
                     output_path: str = "trading/nasdaq_report.png"):
     """
-    Rapport graphique 4 panneaux (thème sombre) :
-    1. Equity curve (backtest + walk-forward overlay)
-    2. Distribution PnL (histogramme gains/pertes)
-    3. Win Rate train vs test par période WF
-    4. Tableau des statistiques complètes
+    Rapport 4 panneaux (thème sombre) :
+    1. Equity curve (compte 50k$) + niveaux Apex
+    2. Distribution PnL en $
+    3. Walk-forward WR par période
+    4. Tableau stats complet + métriques Apex
     """
-    fig = plt.figure(figsize=(18, 14))
+    fig = plt.figure(figsize=(20, 14))
     fig.patch.set_facecolor('#0d1117')
-    gs  = gridspec.GridSpec(2, 2, figure=fig, hspace=0.4, wspace=0.35)
+    gs  = gridspec.GridSpec(2, 2, figure=fig, hspace=0.42, wspace=0.35)
 
-    C_BG    = '#0d1117'
-    C_PANEL = '#161b22'
-    C_TEXT  = '#e6edf3'
-    C_GREEN = '#3fb950'
-    C_RED   = '#f85149'
-    C_BLUE  = '#58a6ff'
-    C_GOLD  = '#d29922'
-    C_GREY  = '#8b949e'
+    C = dict(
+        bg='#0d1117', panel='#161b22', text='#e6edf3',
+        green='#3fb950', red='#f85149', blue='#58a6ff',
+        gold='#d29922', grey='#8b949e', orange='#f0883e',
+        purple='#bc8cff',
+    )
 
     def style_ax(ax, title):
-        ax.set_facecolor(C_PANEL)
-        ax.tick_params(colors=C_TEXT, labelsize=9)
-        ax.xaxis.label.set_color(C_TEXT)
-        ax.yaxis.label.set_color(C_TEXT)
+        ax.set_facecolor(C['panel'])
+        ax.tick_params(colors=C['text'], labelsize=9)
         for spine in ax.spines.values():
             spine.set_color('#30363d')
+        ax.xaxis.label.set_color(C['text'])
+        ax.yaxis.label.set_color(C['text'])
         ax.set_title(title, fontsize=11, fontweight='bold',
-                     pad=10, color=C_TEXT)
+                     pad=10, color=C['text'])
 
-    # ── Panneau 1 : Equity Curve ──────────────────────────
+    # ── Panneau 1 : Equity Curve ─────────────────────────────
     ax1 = fig.add_subplot(gs[0, 0])
-    style_ax(ax1, '📈 Equity Curve')
+    style_ax(ax1, '📈 Compte Apex ($50k) — Equity Curve')
 
-    eq = backtest_result.get('equity_curve', pd.DataFrame())
-    if not eq.empty:
-        ax1.plot(eq.index, eq['capital'], color=C_BLUE,
-                 linewidth=1.5, label='Backtest complet', alpha=0.9)
+    eq = bt_result.get('equity_curve', pd.DataFrame())
+    if not eq.empty and 'account' in eq.columns:
+        ax1.plot(eq.index, eq['account'], color=C['blue'],
+                 linewidth=1.5, label='Backtest', alpha=0.9)
 
     if wf_result and not wf_result.get('wf_equity', pd.DataFrame()).empty:
         wf_eq = wf_result['wf_equity']
-        ax1.plot(wf_eq.index, wf_eq['capital'], color=C_GOLD,
-                 linewidth=2, linestyle='--', label='Walk-forward', alpha=0.85)
+        if 'account' in wf_eq.columns:
+            ax1.plot(wf_eq.index, wf_eq['account'], color=C['gold'],
+                     linewidth=2, linestyle='--', label='Walk-forward', alpha=0.85)
 
-    ax1.axhline(y=CAPITAL_INITIAL, color=C_GREY, linestyle=':', linewidth=1)
-    ax1.set_ylabel('Capital (USDC)', color=C_TEXT)
-    ax1.legend(facecolor=C_PANEL, labelcolor=C_TEXT, fontsize=8)
+    # Lignes de référence Apex
+    ax1.axhline(y=ACCOUNT_SIZE,
+                color=C['grey'],  linestyle=':',  linewidth=1,
+                label=f'Capital initial ${ACCOUNT_SIZE:,.0f}')
+    ax1.axhline(y=ACCOUNT_SIZE + PROFIT_TARGET,
+                color=C['green'], linestyle='--', linewidth=1.2,
+                label=f'Objectif +8% (${ACCOUNT_SIZE+PROFIT_TARGET:,.0f})')
+    ax1.axhline(y=ACCOUNT_SIZE + MAX_DD_LIMIT,
+                color=C['red'],   linestyle='--', linewidth=1.2,
+                label=f'Max DD -8% (${ACCOUNT_SIZE+MAX_DD_LIMIT:,.0f})')
+
+    ax1.set_ylabel('Compte (USD)', color=C['text'])
+    ax1.legend(facecolor=C['panel'], labelcolor=C['text'], fontsize=7.5)
     ax1.yaxis.set_major_formatter(
         plt.FuncFormatter(lambda x, _: f'${x:,.0f}'))
 
-    # ── Panneau 2 : Distribution PnL ─────────────────────
+    # ── Panneau 2 : Distribution PnL en $ ───────────────────
     ax2 = fig.add_subplot(gs[0, 1])
-    style_ax(ax2, '💰 Distribution des PnL')
+    style_ax(ax2, '💰 Distribution PnL par trade ($)')
 
-    trades = backtest_result.get('trades', [])
+    trades = bt_result.get('trades', [])
     if trades:
-        pnls   = [t['pnl_usdc'] for t in trades]
+        pnls   = [t['pnl_usd'] for t in trades]
         wins   = [p for p in pnls if p > 0]
         losses = [p for p in pnls if p <= 0]
-        bins   = min(40, max(10, len(pnls) // 4))
+        bins   = min(40, max(8, len(pnls) // 3))
 
         if losses:
-            ax2.hist(losses, bins=bins // 2, color=C_RED,
+            ax2.hist(losses, bins=bins//2, color=C['red'],
                      alpha=0.75, label=f'Pertes ({len(losses)})')
         if wins:
-            ax2.hist(wins, bins=bins // 2, color=C_GREEN,
+            ax2.hist(wins,   bins=bins//2, color=C['green'],
                      alpha=0.75, label=f'Gains ({len(wins)})')
-        ax2.axvline(x=0, color='white', linestyle='--', linewidth=1)
-        moy = float(np.mean(pnls))
-        ax2.axvline(x=moy, color=C_GOLD, linewidth=1.5,
-                    label=f'Moy: ${moy:.1f}')
-        ax2.set_xlabel('PnL (USDC)', color=C_TEXT)
-        ax2.set_ylabel('Fréquence', color=C_TEXT)
-        ax2.legend(facecolor=C_PANEL, labelcolor=C_TEXT, fontsize=8)
 
-    # ── Panneau 3 : Walk-forward WR par période ───────────
+        ax2.axvline(x=0,            color='white',    linestyle='--', linewidth=1)
+        ax2.axvline(x=np.mean(pnls), color=C['gold'], linewidth=1.5,
+                    label=f"Moy: ${np.mean(pnls):.0f}")
+
+        # Ligne daily loss limit (négative)
+        ax2.axvline(x=DAILY_LOSS_LIMIT, color=C['orange'], linestyle=':',
+                    linewidth=1, label=f'Daily limit ${DAILY_LOSS_LIMIT:.0f}')
+
+        ax2.set_xlabel('PnL par trade ($)', color=C['text'])
+        ax2.set_ylabel('Fréquence', color=C['text'])
+        ax2.legend(facecolor=C['panel'], labelcolor=C['text'], fontsize=8)
+
+    # ── Panneau 3 : Walk-forward WR ──────────────────────────
     ax3 = fig.add_subplot(gs[1, 0])
-    style_ax(ax3, '🧠 Walk-Forward : WR Train vs Test')
+    style_ax(ax3, '🧠 Walk-Forward — Win Rate Train vs Test')
 
     if wf_result and wf_result.get('periods'):
         periods  = wf_result['periods']
         x_arr    = np.arange(len(periods))
-        train_wr = [p['train_wr'] for p in periods]
-        test_wr  = [p['test_wr']  for p in periods]
-        labels   = [f"P{p['period']}" for p in periods]
         w = 0.35
 
-        ax3.bar(x_arr - w/2, train_wr, w, color=C_BLUE,  alpha=0.8, label='Train WR')
-        ax3.bar(x_arr + w/2, test_wr,  w, color=C_GOLD,  alpha=0.8, label='Test WR')
-        ax3.axhline(y=50, color=C_GREY, linestyle=':', linewidth=1)
-        ax3.set_xticks(x_arr)
-        ax3.set_xticklabels(labels, rotation=45, fontsize=8)
-        ax3.set_ylabel('Win Rate (%)', color=C_TEXT)
-        ax3.set_ylim(0, 105)
-        ax3.legend(facecolor=C_PANEL, labelcolor=C_TEXT, fontsize=8)
+        ax3.bar(x_arr - w/2, [p['train_wr'] for p in periods],
+                w, color=C['blue'], alpha=0.8, label='Train WR')
+        ax3.bar(x_arr + w/2, [p['test_wr']  for p in periods],
+                w, color=C['gold'], alpha=0.8, label='Test WR')
 
-        # Annoter les paramètres par période (compact)
+        ax3.axhline(y=50, color=C['grey'], linestyle=':', linewidth=1)
+        ax3.axhline(y=55, color=C['green'], linestyle=':', linewidth=0.8,
+                    alpha=0.6, label='Objectif 55%')
+        ax3.set_xticks(x_arr)
+        ax3.set_xticklabels([f"P{p['period']}" for p in periods],
+                             rotation=45, fontsize=8)
+        ax3.set_ylabel('Win Rate (%)', color=C['text'])
+        ax3.set_ylim(0, 110)
+        ax3.legend(facecolor=C['panel'], labelcolor=C['text'], fontsize=8)
+
         for i, p in enumerate(periods):
             bp = p['params']
-            lbl = (f"bp={bp['body_pct']}\n"
-                   f"rr={bp['rr_ratio']}\n"
-                   f"w={int(bp['max_wait_bars'])}")
+            lbl = f"bp={bp['body_pct']}\nrr={bp['rr_ratio']}"
             ax3.annotate(lbl, xy=(i, 3), ha='center', fontsize=5.5,
-                         color=C_TEXT, alpha=0.65)
+                         color=C['text'], alpha=0.65)
     else:
         ax3.text(0.5, 0.5, 'Walk-forward non exécuté',
-                 ha='center', va='center', color=C_TEXT,
+                 ha='center', va='center', color=C['text'],
                  transform=ax3.transAxes)
 
-    # ── Panneau 4 : Tableau des statistiques ─────────────
+    # ── Panneau 4 : Tableau stats ────────────────────────────
     ax4 = fig.add_subplot(gs[1, 1])
-    ax4.set_facecolor(C_PANEL)
+    ax4.set_facecolor(C['panel'])
     ax4.axis('off')
-    ax4.set_title('📊 Statistiques Complètes', fontsize=11,
-                  fontweight='bold', pad=10, color=C_TEXT)
+    ax4.set_title('📊 Statistiques + Métriques Apex', fontsize=11,
+                  fontweight='bold', pad=10, color=C['text'])
 
-    stats  = backtest_result.get('stats', {})
-    params = stats.get('params', {})
-    final  = stats.get('final_capital', CAPITAL_INITIAL)
-    retour = (final / CAPITAL_INITIAL - 1) * 100
+    s      = bt_result.get('stats', {})
+    params = s.get('params', {})
+    fa     = s.get('final_account', ACCOUNT_SIZE)
+    pnl_t  = fa - ACCOUNT_SIZE
 
     rows = [
-        ('Capital initial',    f"${CAPITAL_INITIAL:,.0f}"),
-        ('Capital final',      f"${final:,.0f}"),
-        ('Retour total',       f"{retour:+.1f}%"),
-        ('Total PnL',          f"${stats.get('total_pnl', 0):+,.2f}"),
-        ('SEP', None),
-        ('Total trades',       f"{stats.get('n_trades', 0)}"),
-        ('Win Rate',           f"{stats.get('win_rate', 0):.1f}%"),
-        ('Profit Factor',      f"{stats.get('profit_factor', 0):.2f}"),
-        ('Sharpe (annualisé)', f"{stats.get('sharpe', 0):.2f}"),
-        ('Max Drawdown',       f"-{stats.get('max_dd', 0):.1f}%"),
-        ('SEP', None),
-        ('Trades / mois',      f"{stats.get('trades_per_month', 0):.1f}"),
-        ('Durée moy. (bars)',  f"{stats.get('avg_bars', 0):.1f}"),
-        ('PnL moyen / trade',  f"${stats.get('avg_trade', 0):+.2f}"),
-        ('SEP', None),
-        ('body_pct',           str(params.get('body_pct', '-'))),
-        ('rr_ratio',           str(params.get('rr_ratio', '-'))),
-        ('max_wait_bars',      str(params.get('max_wait_bars', '-'))),
-        ('SL min/max (QQQ)',   f"${MIN_SL_QQQ:.2f} / ${MAX_SL_QQQ:.2f}"),
+        # (label, valeur, couleur_forcée_ou_None)
+        ('— COMPTE APEX —',            '',          C['blue']),
+        ('Capital initial',            f"${ACCOUNT_SIZE:,.0f}",     None),
+        ('Capital final',              f"${fa:,.0f}",                None),
+        ('PnL total',                  f"${pnl_t:+,.0f}",           C['green'] if pnl_t>=0 else C['red']),
+        ('Objectif challenge (+8%)',   f"${PROFIT_TARGET:,.0f}",    C['grey']),
+        ('Progression objectif',       f"{s.get('profit_toward_target_pct',0):+.1f}%",
+                                       C['green'] if pnl_t >= 0 else C['red']),
+        ('SEP', None, None),
+        ('— TRADING —',                '',          C['blue']),
+        ('Total trades',               f"{s.get('n_trades',0)}",    None),
+        ('Win Rate',                   f"{s.get('win_rate',0):.1f}%", None),
+        ('Profit Factor',              f"{s.get('profit_factor',0):.2f}", None),
+        ('Sharpe (annualisé)',         f"{s.get('sharpe',0):.2f}",  None),
+        ('Trades / jour',              f"{s.get('trades_per_day',0):.1f}", None),
+        ('SEP', None, None),
+        ('— RISQUE PAR TRADE —',       '',          C['orange']),
+        ('SL moyen (pts NQ)',          f"{s.get('avg_sl_pts',0):.1f} pts", None),
+        ('Risque moyen ($)',           f"${s.get('avg_sl_usd',0):.0f}", None),
+        ('Risque max ($)',             f"${s.get('max_sl_usd',0):.0f}", None),
+        ('Daily limit ($)',            f"${abs(DAILY_LOSS_LIMIT):.0f}", C['orange']),
+        ('Trades avant daily limit',   f"{s.get('trades_before_daily_limit',0):.1f}", None),
+        ('SEP', None, None),
+        ('— APEX RÈGLES —',            '',          C['red']),
+        ('Max DD ($)',                 f"${abs(s.get('max_dd_usd',0)):,.0f} ({s.get('max_dd_pct',0):.1f}%)",
+                                       C['red'] if s.get('max_dd_pct',0) > 5 else None),
+        ('Limite trailing DD',         f"${abs(MAX_DD_LIMIT):,.0f} (-8%)",  C['grey']),
+        ('Jours stoppés',              f"{s.get('pct_days_stopped',0):.1f}%", None),
+        ('Challenge atteint',          '✅ OUI' if pnl_t >= PROFIT_TARGET else '❌ NON',
+                                       C['green'] if pnl_t >= PROFIT_TARGET else C['red']),
+        ('DD limit dépassée',          '⛔ OUI' if s.get('apex_halted') else '✅ NON',
+                                       C['red'] if s.get('apex_halted') else C['green']),
+        ('SEP', None, None),
+        ('— PARAMÈTRES —',             '',          C['purple']),
+        ('body_pct',                   str(params.get('body_pct', '-')),  None),
+        ('rr_ratio',                   str(params.get('rr_ratio', '-')),  None),
+        ('max_wait_bars',              str(params.get('max_wait_bars','-')), None),
+        ('SL filter',                  f"{SL_MIN_PTS}–{SL_MAX_PTS} pts NQ", None),
     ]
 
-    y = 0.97
-    for label, value in rows:
+    y = 0.98
+    for label, value, forced_color in rows:
         if label == 'SEP':
-            ax4.plot([0.02, 0.98], [y + 0.01, y + 0.01],
-                     color='#30363d', linewidth=0.5,
-                     transform=ax4.transAxes)
-            y -= 0.03
+            ax4.plot([0.02, 0.98], [y+0.005, y+0.005], color='#30363d',
+                     linewidth=0.5, transform=ax4.transAxes)
+            y -= 0.022
             continue
 
-        vc = C_TEXT
-        if isinstance(value, str):
-            if value.startswith('+'):
-                vc = C_GREEN
-            elif value.startswith('-') and value not in ('-', '-0.0%'):
-                vc = C_RED
+        # En-têtes de section
+        if value == '' and label.startswith('—'):
+            ax4.text(0.05, y, label, transform=ax4.transAxes,
+                     color=forced_color or C['blue'], fontsize=8,
+                     fontweight='bold', va='top')
+            y -= 0.040
+            continue
 
-        ax4.text(0.05, y, label,  transform=ax4.transAxes,
-                 color=C_GREY, fontsize=9, va='top')
-        ax4.text(0.65, y, value,  transform=ax4.transAxes,
-                 color=vc, fontsize=9, va='top', fontweight='bold')
-        y -= 0.048
+        vc = forced_color if forced_color else C['text']
+        ax4.text(0.05, y, label, transform=ax4.transAxes,
+                 color=C['grey'], fontsize=8.5, va='top')
+        ax4.text(0.62, y, str(value), transform=ax4.transAxes,
+                 color=vc, fontsize=8.5, va='top', fontweight='bold')
+        y -= 0.040
 
-    # Titre global
     fig.suptitle(
-        f'NAS100 Reversal — Exhaustion + Indecision Breakout  |  '
-        f'QQQ 1H  |  {datetime.now().strftime("%Y-%m-%d %H:%M")}',
-        fontsize=12, fontweight='bold', color=C_TEXT, y=0.985,
+        f'NAS100 Reversal — NQ E-mini  |  Apex 50k$  |  '
+        f'SL {SL_MIN_PTS}–{SL_MAX_PTS}pts  |  '
+        f'{datetime.now().strftime("%Y-%m-%d %H:%M")}',
+        fontsize=12, fontweight='bold', color=C['text'], y=0.988,
     )
 
     plt.savefig(output_path, dpi=150, bbox_inches='tight',
-                facecolor=C_BG, edgecolor='none')
+                facecolor=C['bg'], edgecolor='none')
     plt.close()
     print(f"\n✅ Rapport sauvegardé : {output_path}")
 
 
 # ─────────────────────────────────────────────────────────────
-# 11. POINT D'ENTRÉE
+# 12. DIAGNOSTIC — comprendre pourquoi peu de trades
+# ─────────────────────────────────────────────────────────────
+def diagnostic(df: pd.DataFrame, conv: float = 1.0, label: str = ""):
+    """
+    Affiche combien de signaux passent chaque filtre.
+    Utile pour calibrer les paramètres et estimer la fréquence réelle.
+    """
+    df2 = detect_exhaustion(df, conv=conv)
+    n_total    = len(df2)
+    n_bias     = (df2['bias'] != 0).sum()
+    n_valid_sl = df2['signal_valid'].sum()
+    bodies_pts = df2.loc[df2['bias'] != 0, 'signal_pts']
+
+    # Estimation fréquence en jours de trading
+    try:
+        n_days = max(1, (df.index[-1] - df.index[0]).days * 5 / 7)
+    except Exception:
+        n_days = 1
+
+    lbl = f" [{label}]" if label else ""
+    print(f"\n🔬 Diagnostic{lbl} :")
+    print(f"  Barres totales           : {n_total}  (~{n_days:.0f} jours trading)")
+    print(f"  Patterns d'épuisement    : {n_bias} "
+          f"({n_bias/max(1,n_total)*100:.1f}%)"
+          f"  ≈ {n_bias/n_days:.1f}/jour")
+    if len(bodies_pts) > 0:
+        print(f"  Corps signal (pts NQ)    : "
+              f"min={bodies_pts.min():.1f}  "
+              f"moy={bodies_pts.mean():.1f}  "
+              f"med={bodies_pts.median():.1f}  "
+              f"max={bodies_pts.max():.1f}")
+        print(f"  Valides SL {SL_MIN_PTS}–{SL_MAX_PTS}pts         : "
+              f"{n_valid_sl} ({n_valid_sl/max(1,n_bias)*100:.1f}%)"
+              f"  ≈ {n_valid_sl/n_days:.1f}/jour")
+        quantiles = bodies_pts.quantile([0.25, 0.50, 0.75])
+        print(f"  Quartiles corps (pts NQ) : "
+              f"Q25={quantiles[0.25]:.1f}  "
+              f"Q50={quantiles[0.50]:.1f}  "
+              f"Q75={quantiles[0.75]:.1f}")
+    else:
+        print("  Aucun pattern détecté.")
+
+
+# ─────────────────────────────────────────────────────────────
+# 13. POINT D'ENTRÉE
 # ─────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(
-        description='NAS100 Reversal — Exhaustion + Indecision Breakout')
+        description='NAS100 Reversal — Apex Funding NQ E-mini')
     parser.add_argument('--mode',
-        choices=['backtest', 'optimize', 'walkforward', 'report'],
+        choices=['backtest', 'optimize', 'walkforward', 'report', 'diag'],
         default='report')
-    parser.add_argument('--ticker',   default=TICKER)
-    parser.add_argument('--interval', default='1h')
     args = parser.parse_args()
 
-    print("=" * 65)
-    print("  NAS100 REVERSAL — Exhaustion + Indecision Breakout Strategy")
-    print("=" * 65)
+    print("=" * 68)
+    print("  NAS100 REVERSAL — NQ E-mini  |  Apex 50k$")
+    print(f"  SL : {SL_MIN_PTS}–{SL_MAX_PTS} pts NQ  |  "
+          f"Daily limit : ${abs(DAILY_LOSS_LIMIT):.0f}  |  "
+          f"Max DD : ${abs(MAX_DD_LIMIT):.0f}")
+    print("=" * 68)
 
-    print("\n📦 Chargement des données...")
-    df_1h = download_data(args.ticker, interval='1h', period='2y')
+    # ── Données 1H (proxy long terme) ──────────────────────
+    print("\n📦 Données 1H (2 ans) :")
+    df_1h_raw, conv = download_data(interval='1h', period='2y')
+    df_1h = filter_rth(df_1h_raw)
 
+    # ── Données 10M (validation court terme) ───────────────
     df_10m = None
     try:
-        df_5m  = download_data(args.ticker, interval='5m', period='60d')
+        print("\n📦 Données 5M (60 jours) → 10M :")
+        df_5m_raw, conv2 = download_data(interval='5m', period='60d')
+        df_5m  = filter_rth(df_5m_raw)
         df_10m = resample_5m_to_10m(df_5m)
     except Exception as e:
-        print(f"  ⚠️  Données 5m indisponibles ({e}). Validation court terme ignorée.")
+        print(f"  ⚠️  5M indisponible ({e}).")
+        conv2 = conv
 
-    # ── MODE BACKTEST ──────────────────────────────────────
+    # ── DIAG ───────────────────────────────────────────────
+    if args.mode == 'diag':
+        diagnostic(df_1h, conv=conv, label="1H (2 ans)")
+        if df_10m is not None:
+            diagnostic(df_10m, conv=conv2, label="10M (60j)")
+        return
+
+    # ── BACKTEST ────────────────────────────────────────────
     if args.mode == 'backtest':
-        print("\n🔄 Backtest avec paramètres par défaut...")
-        res = backtest(df_1h, rr_ratio=2.0, body_pct=0.30, max_wait_bars=3)
-        s   = res['stats']
-        print(f"\n  Résultats (1H, 2 ans) :")
-        print(f"  Win Rate   : {s['win_rate']:.1f}%")
-        print(f"  PF         : {s['profit_factor']:.2f}")
-        print(f"  Sharpe     : {s['sharpe']:.2f}")
-        print(f"  Max DD     : -{s['max_dd']:.1f}%")
-        print(f"  Trades     : {s['n_trades']} | {s['trades_per_month']:.1f}/mois")
-        print(f"  Capital    : ${CAPITAL_INITIAL:,.0f} → ${s['final_capital']:,.0f} "
-              f"({(s['final_capital']/CAPITAL_INITIAL-1)*100:+.1f}%)")
-
-        # Ventilation des raisons de sortie
+        print("\n🔄 Backtest paramètres par défaut (1H)...")
+        res = backtest(df_1h, conv=conv,
+                       rr_ratio=2.0, body_pct=0.30, max_wait_bars=3)
+        s = res['stats']
+        _print_summary(s)
         if res['trades']:
-            raisons = {}
+            raisons = defaultdict(int)
             for t in res['trades']:
-                raisons[t['raison']] = raisons.get(t['raison'], 0) + 1
-            print(f"\n  Sorties : {raisons}")
+                raisons[t['raison']] += 1
+            print(f"  Sorties  : {dict(raisons)}")
+        return
 
-    # ── MODE OPTIMIZE ──────────────────────────────────────
-    elif args.mode == 'optimize':
-        opt = optimize(df_1h)
-
-        if df_10m is not None and len(df_10m) > 50 and opt['best_params']:
-            print("\n🔄 Validation sur données 5m→10m (60 jours) :")
-            val = backtest(df_10m, **opt['best_params'])
+    # ── OPTIMIZE ────────────────────────────────────────────
+    if args.mode == 'optimize':
+        opt = optimize(df_1h, conv=conv)
+        if df_10m is not None and opt['best_params']:
+            print("\n🔄 Validation 10M (60j) :")
+            val = backtest(df_10m, conv=conv2, **opt['best_params'])
             sv  = val['stats']
-            print(f"  Win Rate : {sv['win_rate']:.1f}% | "
-                  f"PF : {sv['profit_factor']:.2f} | "
-                  f"Sharpe : {sv['sharpe']:.2f} | "
-                  f"Trades : {sv['n_trades']}")
+            print(f"  WR={sv['win_rate']:.1f}%  PF={sv['profit_factor']:.2f}  "
+                  f"Trades={sv['n_trades']}  /jour={sv['trades_per_day']:.1f}")
+        return
 
-    # ── MODE WALKFORWARD ───────────────────────────────────
-    elif args.mode == 'walkforward':
-        walk_forward(df_1h, train_days=180, test_days=30, step_days=30)
+    # ── WALKFORWARD ─────────────────────────────────────────
+    if args.mode == 'walkforward':
+        walk_forward(df_1h, conv=conv,
+                     train_days=180, test_days=30, step_days=30)
+        return
 
-    # ── MODE REPORT (complet) ──────────────────────────────
-    elif args.mode == 'report':
-        print("\n🔍 Optimisation pour le rapport...")
-        opt = optimize(df_1h, param_grid={
+    # ── REPORT (complet) ────────────────────────────────────
+    if args.mode == 'report':
+        # Diagnostic préalable
+        print("\n🔬 Diagnostic signaux :")
+        diagnostic(df_1h,  conv=conv,  label="1H (2 ans)")
+        if df_10m is not None:
+            diagnostic(df_10m, conv=conv2, label="10M (60j)")
+
+        # Optimisation sur 1H (plus de données)
+        print("\n🔍 Optimisation sur données 1H (2 ans)...")
+        opt = optimize(df_1h, conv=conv, param_grid={
             "body_pct":      [0.25, 0.30, 0.35],
             "rr_ratio":      [1.5, 2.0, 3.0],
             "max_wait_bars": [3, 5],
         })
-
-        best_params = opt.get('best_params') or {
+        best = opt.get('best_params') or {
             'rr_ratio': 2.0, 'body_pct': 0.30, 'max_wait_bars': 3}
 
-        print("\n🔄 Backtest complet avec meilleurs paramètres...")
-        bt_result = backtest(df_1h, **best_params)
+        # Backtest principal sur 10M si disponible (timeframe cible)
+        # Sinon fallback sur 1H
+        if df_10m is not None and len(df_10m) >= 50:
+            print(f"\n🔄 Backtest principal sur 10M (timeframe cible)...")
+            bt_res = backtest(df_10m, conv=conv2, **best)
+        else:
+            print(f"\n🔄 Backtest principal sur 1H (fallback)...")
+            bt_res = backtest(df_1h, conv=conv, **best)
 
-        print("\n🧠 Walk-forward (auto-learning)...")
-        wf_result = walk_forward(df_1h, train_days=180,
-                                 test_days=30, step_days=30)
+        # Walk-forward sur 1H (seul historique suffisant)
+        print("\n🧠 Walk-forward sur 1H (2 ans)...")
+        wf_res = walk_forward(df_1h, conv=conv,
+                              train_days=180, test_days=30, step_days=30)
 
-        generate_report(bt_result, wf_result,
+        generate_report(bt_res, wf_res,
                         output_path="trading/nasdaq_report.png")
 
-        s = bt_result['stats']
-        print("\n" + "=" * 65)
+        s = bt_res['stats']
+        print("\n" + "=" * 68)
         print("  RÉSUMÉ FINAL")
-        print("=" * 65)
-        print(f"  Best params: body_pct={best_params['body_pct']}, "
-              f"rr_ratio={best_params['rr_ratio']}, "
-              f"max_wait_bars={int(best_params['max_wait_bars'])}")
-        print(f"  Win Rate: {s['win_rate']:.1f}% | "
-              f"PF: {s['profit_factor']:.2f} | "
-              f"Sharpe: {s['sharpe']:.2f} | "
-              f"Max DD: -{s['max_dd']:.1f}%")
-        print(f"  Total trades: {s['n_trades']} | "
-              f"Avg/mois: {s['trades_per_month']:.2f}")
-        print(f"  Capital: ${CAPITAL_INITIAL:,.0f} → ${s['final_capital']:,.0f} "
-              f"({(s['final_capital']/CAPITAL_INITIAL-1)*100:+.1f}%)")
+        print("=" * 68)
+        print(f"  Params : body_pct={best['body_pct']}  "
+              f"rr_ratio={best['rr_ratio']}  "
+              f"max_wait={int(best['max_wait_bars'])}")
+        _print_summary(s)
+        if bt_res['trades']:
+            raisons = defaultdict(int)
+            for t in bt_res['trades']:
+                raisons[t['raison']] += 1
+            print(f"  Sorties  : {dict(raisons)}")
 
-        # Ventilation des sorties
-        if bt_result['trades']:
-            raisons = {}
-            for t in bt_result['trades']:
-                raisons[t['raison']] = raisons.get(t['raison'], 0) + 1
-            print(f"  Sorties : {raisons}")
+
+def _print_summary(s: dict):
+    """Affichage compact des stats dans la console."""
+    fa  = s.get('final_account', ACCOUNT_SIZE)
+    pnl = fa - ACCOUNT_SIZE
+    print(f"  Win Rate : {s['win_rate']:.1f}%  |  "
+          f"PF : {s['profit_factor']:.2f}  |  "
+          f"Sharpe : {s['sharpe']:.2f}")
+    print(f"  Trades   : {s['n_trades']}  |  "
+          f"/jour : {s['trades_per_day']:.1f}  |  "
+          f"DD max : ${abs(s['max_dd_usd']):.0f} ({s['max_dd_pct']:.1f}%)")
+    print(f"  Risque   : moy ${s['avg_sl_usd']:.0f}  |  "
+          f"max ${s['max_sl_usd']:.0f}  |  "
+          f"~{s['trades_before_daily_limit']:.1f} trades avant daily limit")
+    print(f"  Compte   : ${ACCOUNT_SIZE:,.0f} → ${fa:,.0f}  "
+          f"({pnl:+,.0f}$, {(pnl/PROFIT_TARGET*100):+.1f}% obj)")
+    print(f"  Apex     : DD dépassée={'OUI ⛔' if s['apex_halted'] else 'NON ✅'}  |  "
+          f"Jours stoppés : {s['pct_days_stopped']:.1f}%")
 
 
 if __name__ == "__main__":
