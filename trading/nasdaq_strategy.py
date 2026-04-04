@@ -2,21 +2,20 @@
 """
 NAS100 Reversal Strategy — Candle Exhaustion + Indecision Breakout
 Instrument : NQ E-mini Futures (1 point = 20$) — simulé via NQ=F / QQQ proxy
-Compte    : Apex Funding 50 000$ — règles intégrées
+Compte    : Apex Funding 100 000$ — règles intégrées
 Timeframe : 10M (backtest sur 1H proxy RTH, validation 5M→10M)
 
 Flow en 6 étapes :
   1. Pattern d'épuisement (2 bougies alternées avec pentes)
   2. Attendre candle d'indécision (corps < body_pct × range, mèches des 2 côtés)
   3. Entrée sur breakout du candle d'indécision
-  4. SL = corps du candle signal en pts NQ (filtre strict : 10–20 pts)
+  4. SL = corps du candle signal en pts NQ (filtre strict : 10–30 pts)
   5. TP = SL × rr_ratio
   6. Sortie : signal opposé OU fin de session RTH OU règles Apex
 
 Règles Apex intégrées :
-  - Daily loss limit   : -1 000$/jour (= -2% × 50k)
-  - Trailing max DD    : -4 000$ depuis le pic (= -8%)
-  - Profit target      : +4 000$ (= +8%, indicatif)
+  - Daily loss limit   : -2 000$/jour (= -2% × 100k)
+  - Trailing max DD    : -8 000$ depuis le pic (= -8%)
   - Filtre sessions    : RTH uniquement 9h30–16h00 ET
 
 Usage :
@@ -24,6 +23,7 @@ Usage :
   python trading/nasdaq_strategy.py --mode optimize
   python trading/nasdaq_strategy.py --mode walkforward
   python trading/nasdaq_strategy.py --mode report
+  python trading/nasdaq_strategy.py --mode compare
 """
 
 import argparse
@@ -45,19 +45,20 @@ warnings.filterwarnings('ignore')
 # ─────────────────────────────────────────────────────────────
 # CONSTANTES APEX / NQ
 # ─────────────────────────────────────────────────────────────
-ACCOUNT_SIZE      = 50_000.0   # $ — compte Apex standard
+ACCOUNT_SIZE      = 100_000.0  # $ — compte Apex 100k
 POINT_VALUE       = 20.0       # $/point pour NQ E-mini
-N_CONTRACTS       = 1          # 1 contrat NQ fixe
+N_CONTRACTS       = 1          # 1 contrat NQ par défaut
 FRAIS_RT          = 5.0        # $ aller-retour (commissions + frais CME estimés)
 
 # Règles Apex
-DAILY_LOSS_LIMIT  = -1_000.0   # $ — arrêt journalier si atteint (-2% × 50k)
-MAX_DD_LIMIT      = -4_000.0   # $ — arrêt définitif trailing (-8%)
-PROFIT_TARGET     =  4_000.0   # $ — objectif challenge (+8%)
+DAILY_LOSS_LIMIT  = -2_000.0   # $ — arrêt journalier si atteint (-2% × 100k)
+MAX_DD_LIMIT      = -8_000.0   # $ — arrêt définitif trailing (-8%)
+PROFIT_TARGET     = 10_000.0   # $ — objectif challenge (+10%)
+TARGET_DAILY_PNL  =  1_000.0   # $ — objectif quotidien JP
 
 # Filtre SL : corps du candle signal en points NQ
 SL_MIN_PTS = 10   # Corps minimum valide
-SL_MAX_PTS = 20   # Corps maximum valide (SL max = 20 × 20$ = 400$)
+SL_MAX_PTS = 30   # Corps maximum valide (relevé 20→30 pour ~5 signaux/jour)
 
 # Sessions RTH : 9h30–16h00 ET
 RTH_START_H, RTH_START_M = 9, 30
@@ -208,7 +209,7 @@ def detect_exhaustion(df: pd.DataFrame, conv: float = 1.0) -> pd.DataFrame:
       'bias'         : +1 LONG | -1 SHORT | 0 neutre
       'signal_pts'   : corps du candle signal en POINTS NQ
                        (abs(close-open) × conv)
-      'signal_valid' : True si 10 ≤ corps ≤ 20 pts NQ
+      'signal_valid' : True si SL_MIN_PTS ≤ corps ≤ SL_MAX_PTS pts NQ
     """
     df = df.copy()
 
@@ -268,18 +269,21 @@ def is_indecision(row: pd.Series, body_pct: float = 0.30) -> bool:
 # ─────────────────────────────────────────────────────────────
 def backtest(df: pd.DataFrame, conv: float = 1.0,
              rr_ratio: float = 2.0, body_pct: float = 0.30,
-             max_wait_bars: int = 3) -> dict:
+             max_wait_bars: int = 3,
+             contracts: int = 1) -> dict:
     """
     Simule les trades avec règles Apex intégrées.
 
-    Compte : 50 000$ / 1 contrat NQ / 1 pt = 20$
-    Frais  : 5$ aller-retour
-    Apex   : daily loss limit -1 000$/jour, trailing DD -4 000$
-    Filtre : SL 10–20 pts NQ, sessions RTH uniquement
+    Compte : 100 000$ / N contrats NQ / 1 pt = 20$
+    Frais  : 5$ aller-retour par contrat
+    Apex   : daily loss limit -2 000$/jour, trailing DD -8 000$
+    Filtre : SL 10–30 pts NQ, sessions RTH uniquement
     """
     df = detect_exhaustion(df, conv=conv)
     df = df.dropna(subset=['bias']).copy()
     n  = len(df)
+
+    frais_rt = FRAIS_RT * contracts  # Frais proportionnels au nb de contrats
 
     # ── Compte ──
     account   = ACCOUNT_SIZE
@@ -290,6 +294,7 @@ def backtest(df: pd.DataFrame, conv: float = 1.0,
     daily_pnl      = 0.0       # PnL du jour en cours (en $)
     daily_stopped  = False     # True si daily limit atteint ce jour
     current_date   = None      # Date ET de la session en cours
+    n_daily_limit  = 0         # Nombre de jours où daily limit touché
 
     # ── Machine à états ──
     state       = IDLE
@@ -332,6 +337,8 @@ def backtest(df: pd.DataFrame, conv: float = 1.0,
         if bar_date != current_date:
             # Sauvegarder les stats du jour précédent
             if current_date is not None:
+                if daily_stopped:
+                    n_daily_limit += 1
                 daily_stats.append({
                     'date':     current_date,
                     'pnl':      daily_pnl,
@@ -393,12 +400,12 @@ def backtest(df: pd.DataFrame, conv: float = 1.0,
                 if hit_sl:  raison = 'SL'
                 elif hit_tp: raison = 'TP'
 
-                # PnL en points puis en $
+                # PnL en points puis en $ (× contrats)
                 if bias == 1:
                     pnl_pts = (exit_price - entry_price) * conv
                 else:
                     pnl_pts = (entry_price - exit_price) * conv
-                pnl_usd = pnl_pts * POINT_VALUE * N_CONTRACTS - FRAIS_RT
+                pnl_usd = pnl_pts * POINT_VALUE * contracts - frais_rt
                 account    += pnl_usd
                 daily_pnl  += pnl_usd
 
@@ -424,13 +431,14 @@ def backtest(df: pd.DataFrame, conv: float = 1.0,
                     'sl_price':     sl_price,
                     'tp_price':     tp_price,
                     'sl_pts':       sl_pts,
-                    'sl_usd':       sl_pts * POINT_VALUE,
+                    'sl_usd':       sl_pts * POINT_VALUE * contracts,
                     'pnl_pts':      pnl_pts,
                     'pnl_usd':      pnl_usd,
                     'account':      account,
                     'raison':       raison,
                     'duree_bars':   i - entry_bar,
                     'daily_pnl':    daily_pnl,
+                    'contracts':    contracts,
                 })
 
                 state      = IDLE
@@ -460,7 +468,7 @@ def backtest(df: pd.DataFrame, conv: float = 1.0,
                 entry_bar  = i
                 state      = IN_POSITION
                 wait_count = 0
-                daily_pnl -= FRAIS_RT / 2  # Frais d'entrée (moitié A/R)
+                daily_pnl -= frais_rt / 2  # Frais d'entrée (moitié A/R)
             else:
                 wait_count += 1
                 if wait_count > max_wait_bars or next_is_new_day:
@@ -500,31 +508,36 @@ def backtest(df: pd.DataFrame, conv: float = 1.0,
             pnl_pts = (exit_price - entry_price) * conv
         else:
             pnl_pts = (entry_price - exit_price) * conv
-        pnl_usd = pnl_pts * POINT_VALUE - FRAIS_RT / 2
+        pnl_usd = pnl_pts * POINT_VALUE * contracts - frais_rt / 2
         account += pnl_usd
         trades.append({
             'entry_time': entry_time, 'exit_time': df.index[-1],
             'direction': 'LONG' if bias == 1 else 'SHORT',
             'entry_price': entry_price, 'exit_price': exit_price,
             'sl_price': sl_price, 'tp_price': tp_price,
-            'sl_pts': sl_pts, 'sl_usd': sl_pts * POINT_VALUE,
+            'sl_pts': sl_pts, 'sl_usd': sl_pts * POINT_VALUE * contracts,
             'pnl_pts': pnl_pts, 'pnl_usd': pnl_usd,
             'account': account, 'raison': 'Fin données',
             'duree_bars': n - entry_bar, 'daily_pnl': daily_pnl,
+            'contracts': contracts,
         })
 
     # Dernier jour
     if current_date is not None:
+        if daily_stopped:
+            n_daily_limit += 1
         daily_stats.append({'date': current_date, 'pnl': daily_pnl,
                             'stopped': daily_stopped})
 
     eq_df  = (pd.DataFrame(equity_curve).set_index('time')
               if equity_curve else pd.DataFrame())
-    stats  = compute_stats(trades, equity_curve, daily_stats, halted, account)
+    stats  = compute_stats(trades, equity_curve, daily_stats, halted, account,
+                           contracts=contracts)
     stats['params'] = {
         'rr_ratio': rr_ratio, 'body_pct': body_pct,
-        'max_wait_bars': max_wait_bars,
+        'max_wait_bars': max_wait_bars, 'contracts': contracts,
     }
+    stats['n_daily_limit'] = n_daily_limit
 
     return {
         'trades':       trades,
@@ -540,7 +553,8 @@ def backtest(df: pd.DataFrame, conv: float = 1.0,
 # ─────────────────────────────────────────────────────────────
 def compute_stats(trades: list, equity_curve: list,
                   daily_stats: list = None, halted: bool = False,
-                  final_account: float = None) -> dict:
+                  final_account: float = None,
+                  contracts: int = 1) -> dict:
     """
     Calcule toutes les métriques : trading classiques + métriques Apex.
     """
@@ -550,7 +564,7 @@ def compute_stats(trades: list, equity_curve: list,
         'avg_bars', 'trades_per_day', 'avg_sl_pts', 'avg_sl_usd',
         'max_sl_usd', 'avg_risk_usd', 'trades_before_daily_limit',
         'pct_days_stopped', 'apex_halted', 'final_account',
-        'profit_toward_target_pct',
+        'profit_toward_target_pct', 'avg_pnl_per_day', 'n_daily_limit',
     ]}
     if not trades:
         return empty
@@ -574,8 +588,15 @@ def compute_stats(trades: list, equity_curve: list,
     t0       = to_dt(trades[0]['entry_time'])
     t1       = to_dt(trades[-1]['exit_time'])
     n_days   = max(1, (t1 - t0).days)
-    n_weeks  = max(1, n_days / 5)   # Jours de trading (approx 5/sem)
-    trades_day = len(pnls) / max(1, n_days * 5 / 7)   # Trading days only
+
+    # Jours de trading actifs
+    trade_dates = defaultdict(int)
+    for t in trades:
+        d = to_dt(t['entry_time'])
+        trade_dates[d.date() if hasattr(d, 'date') else d] += 1
+    n_trading_days = max(1, len(trade_dates))
+    avg_trades_day = np.mean(list(trade_dates.values())) if trade_dates else 0
+    avg_pnl_per_day = total_pnl / n_trading_days
 
     # Sharpe annualisé sur les PnL $
     if len(pnls) > 1 and np.std(pnls) > 0:
@@ -595,23 +616,18 @@ def compute_stats(trades: list, equity_curve: list,
             max_dd_usd = dd
     max_dd_pct = abs(max_dd_usd) / ACCOUNT_SIZE * 100
 
-    # Métriques risque
+    # Métriques risque (par trade, ajusté par nb contrats)
     sl_pts_list = [t['sl_pts'] for t in trades]
     avg_sl_pts  = float(np.mean(sl_pts_list)) if sl_pts_list else 0
-    avg_sl_usd  = avg_sl_pts * POINT_VALUE
-    max_sl_usd  = max(sl_pts_list, default=0) * POINT_VALUE
-
-    # Fréquence (trades par jour de trading)
-    trade_dates = defaultdict(int)
-    for t in trades:
-        d = to_dt(t['entry_time'])
-        trade_dates[d.date() if hasattr(d, 'date') else d] += 1
-    avg_trades_day = np.mean(list(trade_dates.values())) if trade_dates else 0
+    avg_sl_usd  = avg_sl_pts * POINT_VALUE * contracts
+    max_sl_usd  = max(sl_pts_list, default=0) * POINT_VALUE * contracts
 
     # Apex : jours stoppés
     pct_days_stopped = 0.0
+    n_daily_limit = 0
     if daily_stats:
         n_stopped = sum(1 for d in daily_stats if d['stopped'])
+        n_daily_limit = n_stopped
         pct_days_stopped = n_stopped / len(daily_stats) * 100
 
     # Combien de trades perdants max avant daily limit ?
@@ -635,12 +651,14 @@ def compute_stats(trades: list, equity_curve: list,
         'avg_trade_usd':             avg_trade,
         'avg_bars':                  avg_bars,
         'trades_per_day':            avg_trades_day,
+        'avg_pnl_per_day':           avg_pnl_per_day,
         'avg_sl_pts':                avg_sl_pts,
         'avg_sl_usd':                avg_sl_usd,
         'max_sl_usd':                max_sl_usd,
-        'avg_risk_usd':              avg_sl_usd,     # = avg_sl car 1 contrat NQ
+        'avg_risk_usd':              avg_sl_usd,
         'trades_before_daily_limit': trades_before_limit,
         'pct_days_stopped':          pct_days_stopped,
+        'n_daily_limit':             n_daily_limit,
         'apex_halted':               halted,
         'final_account':             fa,
         'profit_toward_target_pct':  profit_toward_target,
@@ -651,7 +669,8 @@ def compute_stats(trades: list, equity_curve: list,
 # 9. OPTIMISATION
 # ─────────────────────────────────────────────────────────────
 def optimize(df: pd.DataFrame, conv: float = 1.0,
-             param_grid: dict = None) -> dict:
+             param_grid: dict = None,
+             contracts: int = 1) -> dict:
     """
     Grid search.
     Score = profit_factor × (win_rate/100) × freq_bonus
@@ -663,13 +682,13 @@ def optimize(df: pd.DataFrame, conv: float = 1.0,
     keys   = list(param_grid.keys())
     combos = list(product(*param_grid.values()))
     total  = len(combos)
-    print(f"\n🔍 Optimisation... ({total} combinaisons)")
+    print(f"\n🔍 Optimisation ({contracts}c)... ({total} combinaisons)")
 
     results = []
     for idx, combo in enumerate(combos):
         params = dict(zip(keys, combo))
         try:
-            res = backtest(df, conv=conv, **params)
+            res = backtest(df, conv=conv, contracts=contracts, **params)
             s   = res['stats']
             if s['n_trades'] < 5:
                 continue
@@ -705,7 +724,7 @@ def optimize(df: pd.DataFrame, conv: float = 1.0,
     best        = ranking.iloc[0]
     best_params = {k: best[k] for k in keys}
 
-    print(f"\n✅ Meilleurs paramètres :")
+    print(f"\n✅ Meilleurs paramètres ({contracts}c) :")
     print(f"   body_pct={best_params['body_pct']}, "
           f"rr_ratio={best_params['rr_ratio']}, "
           f"max_wait_bars={int(best_params['max_wait_bars'])}")
@@ -713,10 +732,9 @@ def optimize(df: pd.DataFrame, conv: float = 1.0,
           f"PF: {best['profit_factor']:.2f} | "
           f"Sharpe: {best['sharpe']:.2f} | "
           f"Trades/jour: {best['trades_per_day']:.1f}")
-    print(f"   Risque moy: ${best['avg_sl_usd']:.0f}/trade | "
-          f"DD max: -${abs(best['max_dd_usd']):.0f} "
-          f"({best['max_dd_pct']:.1f}%)")
-    print(f"   Jours stoppés: {best['pct_days_stopped']:.1f}%")
+    print(f"   P&L moy/jour: ${best.get('avg_pnl_per_day',0):+.0f} | "
+          f"Risque moy: ${best['avg_sl_usd']:.0f}/trade | "
+          f"DD max: -${abs(best['max_dd_usd']):.0f}")
 
     return {'best_params': best_params,
             'best_score':  float(best['score']),
@@ -728,12 +746,13 @@ def optimize(df: pd.DataFrame, conv: float = 1.0,
 # ─────────────────────────────────────────────────────────────
 def walk_forward(df: pd.DataFrame, conv: float = 1.0,
                  train_days: int = 180, test_days: int = 30,
-                 step_days: int = 30) -> dict:
+                 step_days: int = 30,
+                 contracts: int = 1) -> dict:
     """
     Walk-forward (fenêtre glissante) :
     Train → optimise → Test → avance → recommence.
     """
-    print(f"\n🧠 Walk-forward... train={train_days}j  test={test_days}j  pas={step_days}j")
+    print(f"\n🧠 Walk-forward ({contracts}c)... train={train_days}j  test={test_days}j  pas={step_days}j")
 
     mini_grid = {
         "body_pct":      [0.25, 0.30],
@@ -765,13 +784,14 @@ def walk_forward(df: pd.DataFrame, conv: float = 1.0,
         if len(df_train) < 60 or len(df_test) < 5:
             break
 
-        opt = optimize(df_train, conv=conv, param_grid=mini_grid)
+        opt = optimize(df_train, conv=conv, param_grid=mini_grid,
+                       contracts=contracts)
         if not opt['best_params']:
             break
 
         bp          = opt['best_params']
-        train_res   = backtest(df_train, conv=conv, **bp)
-        test_res    = backtest(df_test,  conv=conv, **bp)
+        train_res   = backtest(df_train, conv=conv, contracts=contracts, **bp)
+        test_res    = backtest(df_test,  conv=conv, contracts=contracts, **bp)
         ts, trs     = test_res['stats'], train_res['stats']
 
         # Rebaser le PnL test sur le compte WF courant
@@ -816,7 +836,8 @@ def walk_forward(df: pd.DataFrame, conv: float = 1.0,
     wf_eq    = (pd.DataFrame(wf_equity).set_index('time')
                 if wf_equity else pd.DataFrame())
     wf_stats = compute_stats(wf_trades,
-                             [{'account': e['account']} for e in wf_equity])
+                             [{'account': e['account']} for e in wf_equity],
+                             contracts=contracts)
     wf_stats['final_account'] = wf_account
 
     print(f"\n  📊 WF global : WR={wf_stats['win_rate']:.1f}% | "
@@ -829,13 +850,13 @@ def walk_forward(df: pd.DataFrame, conv: float = 1.0,
 
 
 # ─────────────────────────────────────────────────────────────
-# 11. RAPPORT VISUEL
+# 11. RAPPORT VISUEL (original)
 # ─────────────────────────────────────────────────────────────
 def generate_report(bt_result: dict, wf_result: dict = None,
                     output_path: str = "trading/nasdaq_report.png"):
     """
     Rapport 4 panneaux (thème sombre) :
-    1. Equity curve (compte 50k$) + niveaux Apex
+    1. Equity curve (compte 100k$) + niveaux Apex
     2. Distribution PnL en $
     3. Walk-forward WR par période
     4. Tableau stats complet + métriques Apex
@@ -863,26 +884,19 @@ def generate_report(bt_result: dict, wf_result: dict = None,
 
     # ── Panneau 1 : Equity Curve ─────────────────────────────
     ax1 = fig.add_subplot(gs[0, 0])
-    style_ax(ax1, '📈 Compte Apex ($50k) — Equity Curve')
+    style_ax(ax1, '📈 Compte Apex ($100k) — Equity Curve')
 
     eq = bt_result.get('equity_curve', pd.DataFrame())
     if not eq.empty and 'account' in eq.columns:
         ax1.plot(eq.index, eq['account'], color=C['blue'],
                  linewidth=1.5, label='Backtest', alpha=0.9)
 
-    if wf_result and not wf_result.get('wf_equity', pd.DataFrame()).empty:
-        wf_eq = wf_result['wf_equity']
-        if 'account' in wf_eq.columns:
-            ax1.plot(wf_eq.index, wf_eq['account'], color=C['gold'],
-                     linewidth=2, linestyle='--', label='Walk-forward', alpha=0.85)
-
-    # Lignes de référence Apex
     ax1.axhline(y=ACCOUNT_SIZE,
                 color=C['grey'],  linestyle=':',  linewidth=1,
                 label=f'Capital initial ${ACCOUNT_SIZE:,.0f}')
     ax1.axhline(y=ACCOUNT_SIZE + PROFIT_TARGET,
                 color=C['green'], linestyle='--', linewidth=1.2,
-                label=f'Objectif +8% (${ACCOUNT_SIZE+PROFIT_TARGET:,.0f})')
+                label=f'Objectif (${ACCOUNT_SIZE+PROFIT_TARGET:,.0f})')
     ax1.axhline(y=ACCOUNT_SIZE + MAX_DD_LIMIT,
                 color=C['red'],   linestyle='--', linewidth=1.2,
                 label=f'Max DD -8% (${ACCOUNT_SIZE+MAX_DD_LIMIT:,.0f})')
@@ -913,8 +927,6 @@ def generate_report(bt_result: dict, wf_result: dict = None,
         ax2.axvline(x=0,            color='white',    linestyle='--', linewidth=1)
         ax2.axvline(x=np.mean(pnls), color=C['gold'], linewidth=1.5,
                     label=f"Moy: ${np.mean(pnls):.0f}")
-
-        # Ligne daily loss limit (négative)
         ax2.axvline(x=DAILY_LOSS_LIMIT, color=C['orange'], linestyle=':',
                     linewidth=1, label=f'Daily limit ${DAILY_LOSS_LIMIT:.0f}')
 
@@ -937,20 +949,12 @@ def generate_report(bt_result: dict, wf_result: dict = None,
                 w, color=C['gold'], alpha=0.8, label='Test WR')
 
         ax3.axhline(y=50, color=C['grey'], linestyle=':', linewidth=1)
-        ax3.axhline(y=55, color=C['green'], linestyle=':', linewidth=0.8,
-                    alpha=0.6, label='Objectif 55%')
         ax3.set_xticks(x_arr)
         ax3.set_xticklabels([f"P{p['period']}" for p in periods],
                              rotation=45, fontsize=8)
         ax3.set_ylabel('Win Rate (%)', color=C['text'])
         ax3.set_ylim(0, 110)
         ax3.legend(facecolor=C['panel'], labelcolor=C['text'], fontsize=8)
-
-        for i, p in enumerate(periods):
-            bp = p['params']
-            lbl = f"bp={bp['body_pct']}\nrr={bp['rr_ratio']}"
-            ax3.annotate(lbl, xy=(i, 3), ha='center', fontsize=5.5,
-                         color=C['text'], alpha=0.65)
     else:
         ax3.text(0.5, 0.5, 'Walk-forward non exécuté',
                  ha='center', va='center', color=C['text'],
@@ -969,14 +973,12 @@ def generate_report(bt_result: dict, wf_result: dict = None,
     pnl_t  = fa - ACCOUNT_SIZE
 
     rows = [
-        # (label, valeur, couleur_forcée_ou_None)
-        ('— COMPTE APEX —',            '',          C['blue']),
+        ('— COMPTE APEX 100k —',       '',          C['blue']),
         ('Capital initial',            f"${ACCOUNT_SIZE:,.0f}",     None),
         ('Capital final',              f"${fa:,.0f}",                None),
         ('PnL total',                  f"${pnl_t:+,.0f}",           C['green'] if pnl_t>=0 else C['red']),
-        ('Objectif challenge (+8%)',   f"${PROFIT_TARGET:,.0f}",    C['grey']),
-        ('Progression objectif',       f"{s.get('profit_toward_target_pct',0):+.1f}%",
-                                       C['green'] if pnl_t >= 0 else C['red']),
+        ('P&L moy/jour',               f"${s.get('avg_pnl_per_day',0):+.0f}   (objectif: +${TARGET_DAILY_PNL:.0f})",
+                                       C['green'] if s.get('avg_pnl_per_day',0) >= TARGET_DAILY_PNL else C['orange']),
         ('SEP', None, None),
         ('— TRADING —',                '',          C['blue']),
         ('Total trades',               f"{s.get('n_trades',0)}",    None),
@@ -988,25 +990,18 @@ def generate_report(bt_result: dict, wf_result: dict = None,
         ('— RISQUE PAR TRADE —',       '',          C['orange']),
         ('SL moyen (pts NQ)',          f"{s.get('avg_sl_pts',0):.1f} pts", None),
         ('Risque moyen ($)',           f"${s.get('avg_sl_usd',0):.0f}", None),
-        ('Risque max ($)',             f"${s.get('max_sl_usd',0):.0f}", None),
-        ('Daily limit ($)',            f"${abs(DAILY_LOSS_LIMIT):.0f}", C['orange']),
-        ('Trades avant daily limit',   f"{s.get('trades_before_daily_limit',0):.1f}", None),
         ('SEP', None, None),
         ('— APEX RÈGLES —',            '',          C['red']),
         ('Max DD ($)',                 f"${abs(s.get('max_dd_usd',0)):,.0f} ({s.get('max_dd_pct',0):.1f}%)",
                                        C['red'] if s.get('max_dd_pct',0) > 5 else None),
-        ('Limite trailing DD',         f"${abs(MAX_DD_LIMIT):,.0f} (-8%)",  C['grey']),
-        ('Jours stoppés',              f"{s.get('pct_days_stopped',0):.1f}%", None),
-        ('Challenge atteint',          '✅ OUI' if pnl_t >= PROFIT_TARGET else '❌ NON',
-                                       C['green'] if pnl_t >= PROFIT_TARGET else C['red']),
+        ('Jours daily limit',          f"{s.get('n_daily_limit',0)}", None),
         ('DD limit dépassée',          '⛔ OUI' if s.get('apex_halted') else '✅ NON',
                                        C['red'] if s.get('apex_halted') else C['green']),
         ('SEP', None, None),
         ('— PARAMÈTRES —',             '',          C['purple']),
         ('body_pct',                   str(params.get('body_pct', '-')),  None),
         ('rr_ratio',                   str(params.get('rr_ratio', '-')),  None),
-        ('max_wait_bars',              str(params.get('max_wait_bars','-')), None),
-        ('SL filter',                  f"{SL_MIN_PTS}–{SL_MAX_PTS} pts NQ", None),
+        ('Contrats',                   str(params.get('contracts', 1)),   None),
     ]
 
     y = 0.98
@@ -1017,7 +1012,6 @@ def generate_report(bt_result: dict, wf_result: dict = None,
             y -= 0.022
             continue
 
-        # En-têtes de section
         if value == '' and label.startswith('—'):
             ax4.text(0.05, y, label, transform=ax4.transAxes,
                      color=forced_color or C['blue'], fontsize=8,
@@ -1033,7 +1027,7 @@ def generate_report(bt_result: dict, wf_result: dict = None,
         y -= 0.040
 
     fig.suptitle(
-        f'NAS100 Reversal — NQ E-mini  |  Apex 50k$  |  '
+        f'NAS100 Reversal — NQ E-mini  |  Apex 100k$  |  '
         f'SL {SL_MIN_PTS}–{SL_MAX_PTS}pts  |  '
         f'{datetime.now().strftime("%Y-%m-%d %H:%M")}',
         fontsize=12, fontweight='bold', color=C['text'], y=0.988,
@@ -1046,12 +1040,178 @@ def generate_report(bt_result: dict, wf_result: dict = None,
 
 
 # ─────────────────────────────────────────────────────────────
-# 12. DIAGNOSTIC — comprendre pourquoi peu de trades
+# 11b. RAPPORT COMPARATIF 1 vs 2 CONTRATS
+# ─────────────────────────────────────────────────────────────
+def generate_comparison_report(bt1: dict, bt2: dict,
+                                output_path: str = "trading/nasdaq_comparison.png"):
+    """
+    Rapport côte à côte : 1 Contrat vs 2 Contrats
+    3 lignes × 2 colonnes :
+      Ligne 1 : Equity curves
+      Ligne 2 : PnL journalier (barres)
+      Ligne 3 : Tableau stats comparatif
+    """
+    fig = plt.figure(figsize=(22, 16))
+    fig.patch.set_facecolor('#0d1117')
+    gs  = gridspec.GridSpec(3, 2, figure=fig,
+                            hspace=0.45, wspace=0.30,
+                            height_ratios=[1.8, 1.4, 1.8])
+
+    C = dict(
+        bg='#0d1117', panel='#161b22', text='#e6edf3',
+        green='#3fb950', red='#f85149', blue='#58a6ff',
+        gold='#d29922', grey='#8b949e', orange='#f0883e',
+        purple='#bc8cff', cyan='#39d353',
+    )
+
+    def style_ax(ax, title, col_color=None):
+        ax.set_facecolor(C['panel'])
+        ax.tick_params(colors=C['text'], labelsize=9)
+        for spine in ax.spines.values():
+            spine.set_color('#30363d')
+        ax.xaxis.label.set_color(C['text'])
+        ax.yaxis.label.set_color(C['text'])
+        color = col_color or C['text']
+        ax.set_title(title, fontsize=11, fontweight='bold',
+                     pad=8, color=color)
+
+    colors_col = [C['blue'], C['gold']]
+    labels_col = ['1 Contrat', '2 Contrats']
+    bts        = [bt1, bt2]
+
+    # ────────────────────────────────────────────
+    # LIGNE 1 : Equity curves
+    # ────────────────────────────────────────────
+    for col in range(2):
+        ax = fig.add_subplot(gs[0, col])
+        style_ax(ax, f'📈 Equity Curve — {labels_col[col]}', colors_col[col])
+
+        eq = bts[col].get('equity_curve', pd.DataFrame())
+        if not eq.empty and 'account' in eq.columns:
+            ax.plot(eq.index, eq['account'], color=colors_col[col],
+                    linewidth=1.5, alpha=0.92)
+
+        ax.axhline(y=ACCOUNT_SIZE, color=C['grey'], linestyle=':',
+                   linewidth=1, label=f'100k$')
+        ax.axhline(y=ACCOUNT_SIZE + MAX_DD_LIMIT, color=C['red'],
+                   linestyle='--', linewidth=1,
+                   label=f'Max DD -8% ({ACCOUNT_SIZE+MAX_DD_LIMIT:,.0f}$)')
+        ax.axhline(y=ACCOUNT_SIZE + TARGET_DAILY_PNL * 30,
+                   color=C['green'], linestyle=':', linewidth=0.8, alpha=0.5,
+                   label=f'Réf 1000$/j×30j')
+
+        ax.set_ylabel('Compte (USD)', color=C['text'])
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'${x:,.0f}'))
+        ax.legend(facecolor=C['panel'], labelcolor=C['text'], fontsize=7.5,
+                  loc='upper left')
+
+    # ────────────────────────────────────────────
+    # LIGNE 2 : PnL journalier
+    # ────────────────────────────────────────────
+    for col in range(2):
+        ax = fig.add_subplot(gs[1, col])
+        style_ax(ax, f'📊 PnL Journalier — {labels_col[col]}', colors_col[col])
+
+        ds = bts[col].get('daily_stats', [])
+        if ds:
+            dates = [d['date'] for d in ds]
+            pnls  = [d['pnl']  for d in ds]
+            bar_colors = [C['green'] if p >= 0 else C['red'] for p in pnls]
+
+            ax.bar(range(len(dates)), pnls, color=bar_colors, alpha=0.8, width=0.8)
+            ax.axhline(y=0, color=C['grey'], linewidth=0.8)
+            ax.axhline(y=TARGET_DAILY_PNL, color=C['cyan'], linestyle='--',
+                       linewidth=1, alpha=0.7,
+                       label=f'Objectif +${TARGET_DAILY_PNL:.0f}/j')
+            ax.axhline(y=DAILY_LOSS_LIMIT, color=C['orange'], linestyle=':',
+                       linewidth=1, label=f'Daily limit ${DAILY_LOSS_LIMIT:.0f}')
+
+            ax.set_ylabel('PnL ($)', color=C['text'])
+            ax.set_xlabel('Jours de trading', color=C['text'])
+            ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'${x:,.0f}'))
+            ax.legend(facecolor=C['panel'], labelcolor=C['text'], fontsize=7.5)
+        else:
+            ax.text(0.5, 0.5, 'Aucun trade', ha='center', va='center',
+                    color=C['text'], transform=ax.transAxes)
+
+    # ────────────────────────────────────────────
+    # LIGNE 3 : Tableau comparatif (2 colonnes)
+    # ────────────────────────────────────────────
+    for col in range(2):
+        ax = fig.add_subplot(gs[2, col])
+        ax.set_facecolor(C['panel'])
+        ax.axis('off')
+        style_ax(ax, f'📋 Statistiques — {labels_col[col]}', colors_col[col])
+
+        s = bts[col].get('stats', {})
+        p = s.get('params', {})
+        fa = s.get('final_account', ACCOUNT_SIZE)
+        pnl_t = fa - ACCOUNT_SIZE
+        avg_day = s.get('avg_pnl_per_day', 0)
+        ok_color = C['green'] if avg_day >= TARGET_DAILY_PNL else C['orange']
+
+        rows_data = [
+            ('Win Rate',             f"{s.get('win_rate',0):.1f}%",       None),
+            ('Profit Factor',        f"{s.get('profit_factor',0):.2f}",   None),
+            ('Sharpe',               f"{s.get('sharpe',0):.2f}",          None),
+            ('P&L Total',            f"${pnl_t:+,.0f}",
+                                     C['green'] if pnl_t >= 0 else C['red']),
+            ('P&L Moy/Jour',         f"${avg_day:+.0f}  (obj: +${TARGET_DAILY_PNL:.0f})",
+                                     ok_color),
+            ('Max Drawdown',         f"-${abs(s.get('max_dd_usd',0)):,.0f} ({s.get('max_dd_pct',0):.1f}%)",
+                                     C['red'] if s.get('max_dd_pct',0) > 5 else C['text']),
+            ('Jours daily limit',    f"{s.get('n_daily_limit',0)}",       None),
+            ('Signaux/jour',         f"{s.get('trades_per_day',0):.1f}",  None),
+            ('Risque moy/trade',     f"${s.get('avg_risk_usd',0):.0f}",   None),
+            ('Nb trades',            f"{s.get('n_trades',0)}",             None),
+            ('—', None, None),
+            ('PARAMÈTRES',           '',                                   colors_col[col]),
+            ('body_pct',             str(p.get('body_pct', '-')),          None),
+            ('rr_ratio',             str(p.get('rr_ratio', '-')),          None),
+            ('max_wait_bars',        str(int(p.get('max_wait_bars', 0))), None),
+            ('Contrats',             str(p.get('contracts', col+1)),       None),
+        ]
+
+        y = 0.96
+        for label, value, forced_color in rows_data:
+            if label == '—':
+                ax.plot([0.02, 0.98], [y+0.01, y+0.01], color='#30363d',
+                        linewidth=0.5, transform=ax.transAxes)
+                y -= 0.03
+                continue
+            if value == '' and forced_color:
+                ax.text(0.05, y, label, transform=ax.transAxes,
+                        color=forced_color, fontsize=9, fontweight='bold', va='top')
+                y -= 0.055
+                continue
+
+            vc = forced_color if forced_color else C['text']
+            ax.text(0.05, y, label, transform=ax.transAxes,
+                    color=C['grey'], fontsize=9, va='top')
+            ax.text(0.55, y, str(value), transform=ax.transAxes,
+                    color=vc, fontsize=9, va='top', fontweight='bold')
+            y -= 0.055
+
+    # Titre global
+    fig.suptitle(
+        f'NQ Futures — Comparaison 1 vs 2 Contrats  |  Apex 100k$  |  '
+        f'SL {SL_MIN_PTS}–{SL_MAX_PTS}pts  |  Objectif: +${TARGET_DAILY_PNL:.0f}/jour  |  '
+        f'{datetime.now().strftime("%Y-%m-%d %H:%M")}',
+        fontsize=12, fontweight='bold', color=C['text'], y=0.997,
+    )
+
+    plt.savefig(output_path, dpi=150, bbox_inches='tight',
+                facecolor=C['bg'], edgecolor='none')
+    plt.close()
+    print(f"\n✅ Rapport comparatif sauvegardé : {output_path}")
+
+
+# ─────────────────────────────────────────────────────────────
+# 12. DIAGNOSTIC
 # ─────────────────────────────────────────────────────────────
 def diagnostic(df: pd.DataFrame, conv: float = 1.0, label: str = ""):
     """
     Affiche combien de signaux passent chaque filtre.
-    Utile pour calibrer les paramètres et estimer la fréquence réelle.
     """
     df2 = detect_exhaustion(df, conv=conv)
     n_total    = len(df2)
@@ -1059,7 +1219,6 @@ def diagnostic(df: pd.DataFrame, conv: float = 1.0, label: str = ""):
     n_valid_sl = df2['signal_valid'].sum()
     bodies_pts = df2.loc[df2['bias'] != 0, 'signal_pts']
 
-    # Estimation fréquence en jours de trading
     try:
         n_days = max(1, (df.index[-1] - df.index[0]).days * 5 / 7)
     except Exception:
@@ -1090,21 +1249,109 @@ def diagnostic(df: pd.DataFrame, conv: float = 1.0, label: str = ""):
 
 
 # ─────────────────────────────────────────────────────────────
-# 13. POINT D'ENTRÉE
+# 13. MODE COMPARE — 1 vs 2 contrats
+# ─────────────────────────────────────────────────────────────
+def run_compare(df: pd.DataFrame, conv: float):
+    """
+    Lance 2 optimisations + backtests côte à côte (1c vs 2c).
+    Génère le rapport comparatif et affiche le tableau console.
+    """
+    param_grid = {
+        "body_pct":      [0.20, 0.25, 0.30, 0.35],
+        "rr_ratio":      [1.5, 2.0, 3.0],
+        "max_wait_bars": [2, 3, 5],
+    }
+
+    print("\n" + "=" * 60)
+    print("  OPTIMISATION — 1 CONTRAT NQ")
+    print("=" * 60)
+    opt1 = optimize(df, conv=conv, param_grid=param_grid, contracts=1)
+    best1 = opt1.get('best_params') or {'rr_ratio': 2.0, 'body_pct': 0.30, 'max_wait_bars': 3}
+
+    print("\n" + "=" * 60)
+    print("  OPTIMISATION — 2 CONTRATS NQ")
+    print("=" * 60)
+    opt2 = optimize(df, conv=conv, param_grid=param_grid, contracts=2)
+    best2 = opt2.get('best_params') or {'rr_ratio': 2.0, 'body_pct': 0.30, 'max_wait_bars': 3}
+
+    print("\n🔄 Backtest final — 1 contrat...")
+    bt1 = backtest(df, conv=conv, contracts=1, **best1)
+
+    print("🔄 Backtest final — 2 contrats...")
+    bt2 = backtest(df, conv=conv, contracts=2, **best2)
+
+    s1 = bt1['stats']
+    s2 = bt2['stats']
+
+    # ── Rapport PNG ──────────────────────────────────────────
+    generate_comparison_report(bt1, bt2,
+                                output_path="trading/nasdaq_comparison.png")
+
+    # ── Verdict ──────────────────────────────────────────────
+    def verdict(s):
+        avg = s.get('avg_pnl_per_day', 0)
+        if avg >= TARGET_DAILY_PNL:
+            return "OBJECTIF ATTEINT ✅"
+        elif avg >= TARGET_DAILY_PNL * 0.5:
+            return "VIABLE ⚠️"
+        else:
+            return "INSUFFISANT ❌"
+
+    # ── Tableau console ──────────────────────────────────────
+    print()
+    print("=" * 62)
+    print("  RÉSULTATS COMPARATIFS — NQ Futures (Apex 100k$)")
+    print("=" * 62)
+    print(f"{'':25s}  {'1 CONTRAT':>12s}  {'2 CONTRATS':>12s}")
+    print("-" * 62)
+    print(f"{'Win Rate':25s}  {s1['win_rate']:>11.1f}%  {s2['win_rate']:>11.1f}%")
+    print(f"{'Profit Factor':25s}  {s1['profit_factor']:>12.2f}  {s2['profit_factor']:>12.2f}")
+    print(f"{'Sharpe':25s}  {s1['sharpe']:>12.2f}  {s2['sharpe']:>12.2f}")
+    pnl1 = s1.get('final_account', ACCOUNT_SIZE) - ACCOUNT_SIZE
+    pnl2 = s2.get('final_account', ACCOUNT_SIZE) - ACCOUNT_SIZE
+    print(f"{'P&L Total':25s}  {pnl1:>+11,.0f}$  {pnl2:>+11,.0f}$")
+    avg1 = s1.get('avg_pnl_per_day', 0)
+    avg2 = s2.get('avg_pnl_per_day', 0)
+    print(f"{'P&L Moy/Jour':25s}  {avg1:>+11,.0f}$  {avg2:>+11,.0f}$  ← objectif: +{TARGET_DAILY_PNL:.0f}$/j")
+    dd1 = abs(s1.get('max_dd_usd', 0))
+    dd2 = abs(s2.get('max_dd_usd', 0))
+    print(f"{'Max Drawdown':25s}  {-dd1:>+11,.0f}$  {-dd2:>+11,.0f}$")
+    print(f"{'Jours daily limit':25s}  {s1.get('n_daily_limit',0):>12d}  {s2.get('n_daily_limit',0):>12d}")
+    print(f"{'Signaux/jour':25s}  {s1['trades_per_day']:>12.1f}  {s2['trades_per_day']:>12.1f}")
+    risk1 = s1.get('avg_risk_usd', 0)
+    risk2 = s2.get('avg_risk_usd', 0)
+    print(f"{'Risque moy/trade':25s}  {risk1:>11,.0f}$  {risk2:>11,.0f}$")
+    print("-" * 62)
+    print(f"Best params (1c) : body_ratio={best1['body_pct']}, "
+          f"rr={best1['rr_ratio']}, wait={int(best1['max_wait_bars'])}")
+    print(f"Best params (2c) : body_ratio={best2['body_pct']}, "
+          f"rr={best2['rr_ratio']}, wait={int(best2['max_wait_bars'])}")
+    print()
+    print("VERDICT :")
+    print(f"  1 contrat  → {verdict(s1)}")
+    print(f"  2 contrats → {verdict(s2)}")
+    print("=" * 62)
+
+    return bt1, bt2
+
+
+# ─────────────────────────────────────────────────────────────
+# 14. POINT D'ENTRÉE
 # ─────────────────────────────────────────────────────────────
 def main():
     parser = argparse.ArgumentParser(
         description='NAS100 Reversal — Apex Funding NQ E-mini')
     parser.add_argument('--mode',
-        choices=['backtest', 'optimize', 'walkforward', 'report', 'diag'],
+        choices=['backtest', 'optimize', 'walkforward', 'report', 'diag', 'compare'],
         default='report')
     args = parser.parse_args()
 
     print("=" * 68)
-    print("  NAS100 REVERSAL — NQ E-mini  |  Apex 50k$")
+    print("  NAS100 REVERSAL — NQ E-mini  |  Apex 100k$")
     print(f"  SL : {SL_MIN_PTS}–{SL_MAX_PTS} pts NQ  |  "
           f"Daily limit : ${abs(DAILY_LOSS_LIMIT):.0f}  |  "
-          f"Max DD : ${abs(MAX_DD_LIMIT):.0f}")
+          f"Max DD : ${abs(MAX_DD_LIMIT):.0f}  |  "
+          f"Objectif/j : ${TARGET_DAILY_PNL:.0f}")
     print("=" * 68)
 
     # ── Données 1H (proxy long terme) ──────────────────────
@@ -1114,6 +1361,7 @@ def main():
 
     # ── Données 10M (validation court terme) ───────────────
     df_10m = None
+    conv2  = conv
     try:
         print("\n📦 Données 5M (60 jours) → 10M :")
         df_5m_raw, conv2 = download_data(interval='5m', period='60d')
@@ -1121,7 +1369,6 @@ def main():
         df_10m = resample_5m_to_10m(df_5m)
     except Exception as e:
         print(f"  ⚠️  5M indisponible ({e}).")
-        conv2 = conv
 
     # ── DIAG ───────────────────────────────────────────────
     if args.mode == 'diag':
@@ -1134,22 +1381,18 @@ def main():
     if args.mode == 'backtest':
         print("\n🔄 Backtest paramètres par défaut (1H)...")
         res = backtest(df_1h, conv=conv,
-                       rr_ratio=2.0, body_pct=0.30, max_wait_bars=3)
+                       rr_ratio=2.0, body_pct=0.30, max_wait_bars=3,
+                       contracts=1)
         s = res['stats']
         _print_summary(s)
-        if res['trades']:
-            raisons = defaultdict(int)
-            for t in res['trades']:
-                raisons[t['raison']] += 1
-            print(f"  Sorties  : {dict(raisons)}")
         return
 
     # ── OPTIMIZE ────────────────────────────────────────────
     if args.mode == 'optimize':
-        opt = optimize(df_1h, conv=conv)
+        opt = optimize(df_1h, conv=conv, contracts=1)
         if df_10m is not None and opt['best_params']:
             print("\n🔄 Validation 10M (60j) :")
-            val = backtest(df_10m, conv=conv2, **opt['best_params'])
+            val = backtest(df_10m, conv=conv2, contracts=1, **opt['best_params'])
             sv  = val['stats']
             print(f"  WR={sv['win_rate']:.1f}%  PF={sv['profit_factor']:.2f}  "
                   f"Trades={sv['n_trades']}  /jour={sv['trades_per_day']:.1f}")
@@ -1158,40 +1401,43 @@ def main():
     # ── WALKFORWARD ─────────────────────────────────────────
     if args.mode == 'walkforward':
         walk_forward(df_1h, conv=conv,
-                     train_days=180, test_days=30, step_days=30)
+                     train_days=180, test_days=30, step_days=30,
+                     contracts=1)
+        return
+
+    # ── COMPARE — 1 vs 2 contrats ──────────────────────────
+    if args.mode == 'compare':
+        diagnostic(df_1h, conv=conv, label="1H (2 ans)")
+        run_compare(df_1h, conv=conv)
         return
 
     # ── REPORT (complet) ────────────────────────────────────
     if args.mode == 'report':
-        # Diagnostic préalable
         print("\n🔬 Diagnostic signaux :")
         diagnostic(df_1h,  conv=conv,  label="1H (2 ans)")
         if df_10m is not None:
             diagnostic(df_10m, conv=conv2, label="10M (60j)")
 
-        # Optimisation sur 1H (plus de données)
         print("\n🔍 Optimisation sur données 1H (2 ans)...")
         opt = optimize(df_1h, conv=conv, param_grid={
             "body_pct":      [0.25, 0.30, 0.35],
             "rr_ratio":      [1.5, 2.0, 3.0],
             "max_wait_bars": [3, 5],
-        })
+        }, contracts=1)
         best = opt.get('best_params') or {
             'rr_ratio': 2.0, 'body_pct': 0.30, 'max_wait_bars': 3}
 
-        # Backtest principal sur 10M si disponible (timeframe cible)
-        # Sinon fallback sur 1H
         if df_10m is not None and len(df_10m) >= 50:
             print(f"\n🔄 Backtest principal sur 10M (timeframe cible)...")
-            bt_res = backtest(df_10m, conv=conv2, **best)
+            bt_res = backtest(df_10m, conv=conv2, contracts=1, **best)
         else:
             print(f"\n🔄 Backtest principal sur 1H (fallback)...")
-            bt_res = backtest(df_1h, conv=conv, **best)
+            bt_res = backtest(df_1h, conv=conv, contracts=1, **best)
 
-        # Walk-forward sur 1H (seul historique suffisant)
         print("\n🧠 Walk-forward sur 1H (2 ans)...")
         wf_res = walk_forward(df_1h, conv=conv,
-                              train_days=180, test_days=30, step_days=30)
+                              train_days=180, test_days=30, step_days=30,
+                              contracts=1)
 
         generate_report(bt_res, wf_res,
                         output_path="trading/nasdaq_report.png")
@@ -1204,30 +1450,25 @@ def main():
               f"rr_ratio={best['rr_ratio']}  "
               f"max_wait={int(best['max_wait_bars'])}")
         _print_summary(s)
-        if bt_res['trades']:
-            raisons = defaultdict(int)
-            for t in bt_res['trades']:
-                raisons[t['raison']] += 1
-            print(f"  Sorties  : {dict(raisons)}")
 
 
 def _print_summary(s: dict):
     """Affichage compact des stats dans la console."""
     fa  = s.get('final_account', ACCOUNT_SIZE)
     pnl = fa - ACCOUNT_SIZE
+    avg_day = s.get('avg_pnl_per_day', 0)
     print(f"  Win Rate : {s['win_rate']:.1f}%  |  "
           f"PF : {s['profit_factor']:.2f}  |  "
           f"Sharpe : {s['sharpe']:.2f}")
     print(f"  Trades   : {s['n_trades']}  |  "
           f"/jour : {s['trades_per_day']:.1f}  |  "
           f"DD max : ${abs(s['max_dd_usd']):.0f} ({s['max_dd_pct']:.1f}%)")
-    print(f"  Risque   : moy ${s['avg_sl_usd']:.0f}  |  "
-          f"max ${s['max_sl_usd']:.0f}  |  "
+    print(f"  Risque   : moy ${s['avg_sl_usd']:.0f}/trade  |  "
           f"~{s['trades_before_daily_limit']:.1f} trades avant daily limit")
-    print(f"  Compte   : ${ACCOUNT_SIZE:,.0f} → ${fa:,.0f}  "
-          f"({pnl:+,.0f}$, {(pnl/PROFIT_TARGET*100):+.1f}% obj)")
-    print(f"  Apex     : DD dépassée={'OUI ⛔' if s['apex_halted'] else 'NON ✅'}  |  "
-          f"Jours stoppés : {s['pct_days_stopped']:.1f}%")
+    print(f"  PnL/jour : ${avg_day:+.0f}  (objectif: +${TARGET_DAILY_PNL:.0f})")
+    print(f"  Compte   : ${ACCOUNT_SIZE:,.0f} → ${fa:,.0f}  ({pnl:+,.0f}$)")
+    print(f"  Apex     : DD dépassée={'OUI ⛔' if s.get('apex_halted') else 'NON ✅'}  |  "
+          f"Jours daily limit : {s.get('n_daily_limit', 0)}")
 
 
 if __name__ == "__main__":
