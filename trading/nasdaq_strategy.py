@@ -1381,7 +1381,7 @@ def main():
     parser = argparse.ArgumentParser(
         description='NAS100 Reversal — Apex Funding NQ E-mini')
     parser.add_argument('--mode',
-        choices=['backtest', 'optimize', 'walkforward', 'report', 'diag', 'compare', '5m', '5m_adx', 'sl_tp_opt'],
+        choices=['backtest', 'optimize', 'walkforward', 'report', 'diag', 'compare', '5m', '5m_adx', 'sl_tp_opt', 'sha_filter'],
         default='report')
     args = parser.parse_args()
 
@@ -1463,6 +1463,11 @@ def main():
     # ── MODE SL_TP_OPT — Grille SL×TP fixes ─────────────────
     if args.mode == 'sl_tp_opt':
         run_sl_tp_opt()
+        return
+
+    # ── MODE SHA_FILTER — SHA vs ADX comparison ──────────────
+    if args.mode == 'sha_filter':
+        run_sha_filter()
         return
 
     # ── REPORT (complet) ────────────────────────────────────
@@ -3591,6 +3596,1132 @@ def run_sl_tp_opt():
           f"({'sous' if apex_sl_ok else 'DÉPASSE'} limite daily loss {abs(DAILY_LOSS_LIMIT):.0f}$)")
     print(f"{'✅' if apex_dd_ok else '⚠️ '} Max drawdown backtest = {dd_pct:.1f}% "
           f"({'< 8%' if apex_dd_ok else '> 8%'} limite Apex)")
+    print("=" * 60)
+
+
+# ─────────────────────────────────────────────────────────────
+# 18. SMOOTHED HEIKEN ASHI (SHA) — FILTRE DE TENDANCE
+# ─────────────────────────────────────────────────────────────
+
+def compute_sha(df: pd.DataFrame, smooth: int = 5) -> pd.Series:
+    """
+    Smoothed Heiken Ashi.
+    Étape 1 : Calculer HA classique.
+    Étape 2 : Appliquer EMA(smooth) sur les valeurs HA.
+    Retourne sha_bullish (True = haussier, False = baissier).
+    """
+    # Colonnes en minuscule (format interne du script)
+    o = df['open']
+    h = df['high']
+    l = df['low']
+    c = df['close']
+
+    # Step 1 : Heiken Ashi classique
+    ha_close = (o + h + l + c) / 4
+    ha_open  = ha_close.copy()
+    ha_open_vals = ha_open.values.copy()
+    ha_close_vals = ha_close.values.copy()
+    for i in range(1, len(ha_open_vals)):
+        ha_open_vals[i] = (ha_open_vals[i - 1] + ha_close_vals[i - 1]) / 2
+    ha_open = pd.Series(ha_open_vals, index=df.index)
+
+    # Step 2 : Lissage EMA
+    sha_close = ha_close.ewm(span=smooth, adjust=False).mean()
+    sha_open  = ha_open.ewm(span=smooth, adjust=False).mean()
+
+    # Tendance : bullish si sha_close > sha_open
+    sha_bullish = sha_close > sha_open
+    return sha_bullish  # pd.Series of bool
+
+
+# ─────────────────────────────────────────────────────────────
+# 19. BACKTEST SHA — FILTRE DIRECTION PAR SHA
+# ─────────────────────────────────────────────────────────────
+
+def backtest_sha(df: pd.DataFrame, conv: float = 1.0,
+                 sl_pts: float = 15.0, tp_pts: float = 40.0,
+                 body_pct: float = 0.15, max_wait_bars: int = 2,
+                 smooth: int = 5,
+                 contracts: int = 2) -> dict:
+    """
+    Backtest NQ 5M avec filtre Smoothed Heiken Ashi.
+    Signal LONG accepté seulement si SHA bullish.
+    Signal SHORT accepté seulement si SHA bearish.
+    SL/TP fixes en points NQ. Sortie forcée 15h50 ET.
+    """
+    # Pré-calcul SHA
+    sha_bullish = compute_sha(df, smooth=smooth)
+
+    # Détection pattern épuisement
+    df = df.copy()
+    df['body']     = (df['close'] - df['open']).abs()
+    df['is_green'] = df['close'] > df['open']
+    df['is_red']   = df['close'] < df['open']
+
+    ph  = df['high'].shift(1)
+    pl  = df['low'].shift(1)
+    pig = df['is_green'].shift(1)
+    pir = df['is_red'].shift(1)
+
+    cond_short = (df['is_green'] & pir & (df['high'] > ph) & (df['low'] > pl))
+    cond_long  = (df['is_red'] & pig & (df['low'] < pl) & (df['high'] < ph))
+
+    df['bias'] = 0
+    df.loc[cond_long,  'bias'] = 1
+    df.loc[cond_short, 'bias'] = -1
+
+    df = df.dropna(subset=['bias']).copy()
+
+    # Aligner SHA sur le DataFrame filtré
+    sha_aligned = sha_bullish.reindex(df.index).ffill()
+    df['sha_bull'] = sha_aligned.values
+
+    n = len(df)
+    frais_rt = FRAIS_RT * contracts
+
+    account   = ACCOUNT_SIZE
+    peak_acct = ACCOUNT_SIZE
+    halted    = False
+
+    daily_pnl     = 0.0
+    daily_stopped = False
+    current_date  = None
+    n_daily_limit = 0
+
+    state      = IDLE
+    bias       = 0
+    wait_count = 0
+    indc_high  = 0.0
+    indc_low   = 0.0
+    entry_price = 0.0
+    sl_price    = 0.0
+    tp_price    = 0.0
+    entry_time  = None
+    entry_bar   = 0
+
+    trades       = []
+    equity_curve = []
+    daily_stats  = []
+    n_raw        = 0
+    n_sha_filter = 0
+
+    try:
+        idx = df.index
+        if idx.tz is None:
+            idx_et = idx.tz_localize('UTC').tz_convert('America/New_York')
+        else:
+            idx_et = idx.tz_convert('America/New_York')
+    except Exception:
+        idx_et = df.index
+
+    for i in range(n):
+        row       = df.iloc[i]
+        timestamp = df.index[i]
+        sha_bull  = bool(df['sha_bull'].iloc[i])
+
+        try:
+            bar_et     = idx_et[i]
+            bar_date   = bar_et.date()
+            bar_hour   = bar_et.hour
+            bar_minute = bar_et.minute
+        except Exception:
+            bar_date   = timestamp.date()
+            bar_hour   = 15
+            bar_minute = 59
+
+        if bar_date != current_date:
+            if current_date is not None:
+                if daily_stopped:
+                    n_daily_limit += 1
+                daily_stats.append({
+                    'date':    current_date,
+                    'pnl':     daily_pnl,
+                    'stopped': daily_stopped,
+                })
+            current_date  = bar_date
+            daily_pnl     = 0.0
+            daily_stopped = False
+
+        trading_allowed  = (not halted) and (not daily_stopped)
+        force_close_time = (bar_hour == 15 and bar_minute >= 50) or bar_hour >= 16
+
+        next_is_new_day = False
+        if i + 1 < n:
+            try:
+                next_is_new_day = (idx_et[i + 1].date() != bar_date)
+            except Exception:
+                next_is_new_day = (df.index[i + 1].date() != timestamp.date())
+        else:
+            next_is_new_day = True
+
+        # ── IN_POSITION ──
+        if state == IN_POSITION:
+            hit_sl = False
+            hit_tp = False
+            exit_price = row['close']
+            raison = 'En cours'
+
+            if bias == 1:
+                if row['low']  <= sl_price:
+                    hit_sl = True; exit_price = sl_price
+                elif row['high'] >= tp_price:
+                    hit_tp = True; exit_price = tp_price
+            else:
+                if row['high'] >= sl_price:
+                    hit_sl = True; exit_price = sl_price
+                elif row['low']  <= tp_price:
+                    hit_tp = True; exit_price = tp_price
+
+            force_close = (not hit_sl and not hit_tp and
+                           (force_close_time or next_is_new_day))
+            if force_close:
+                exit_price = row['close']
+                raison     = '15h50 ET' if force_close_time else 'Fin session'
+
+            if hit_sl or hit_tp or force_close:
+                if hit_sl:  raison = 'SL'
+                elif hit_tp: raison = 'TP'
+
+                if bias == 1:
+                    pnl_pts = (exit_price - entry_price) * conv
+                else:
+                    pnl_pts = (entry_price - exit_price) * conv
+                pnl_usd    = pnl_pts * POINT_VALUE * contracts - frais_rt
+                account   += pnl_usd
+                daily_pnl += pnl_usd
+
+                if account > peak_acct:
+                    peak_acct = account
+                if account - peak_acct <= MAX_DD_LIMIT:
+                    halted = True
+                if daily_pnl <= DAILY_LOSS_LIMIT:
+                    daily_stopped = True
+
+                trades.append({
+                    'entry_time':  entry_time,
+                    'exit_time':   timestamp,
+                    'direction':   'LONG' if bias == 1 else 'SHORT',
+                    'entry_price': entry_price,
+                    'exit_price':  exit_price,
+                    'sl_price':    sl_price,
+                    'tp_price':    tp_price,
+                    'sl_pts':      sl_pts,
+                    'tp_pts':      tp_pts,
+                    'sl_usd':      sl_pts * POINT_VALUE * contracts,
+                    'pnl_pts':     pnl_pts,
+                    'pnl_usd':     pnl_usd,
+                    'account':     account,
+                    'raison':      raison,
+                    'duree_bars':  i - entry_bar,
+                    'daily_pnl':   daily_pnl,
+                    'contracts':   contracts,
+                })
+                state      = IDLE
+                bias       = 0
+                wait_count = 0
+
+        # ── WAIT_BREAKOUT ──
+        elif state == WAIT_BREAKOUT and trading_allowed and not force_close_time:
+            entered = False
+
+            if bias == -1 and row['close'] < indc_low:
+                entry_price = row['close']
+                sl_price    = entry_price + sl_pts / conv
+                tp_price    = entry_price - tp_pts / conv
+                entered     = True
+            elif bias == 1 and row['close'] > indc_high:
+                entry_price = row['close']
+                sl_price    = entry_price - sl_pts / conv
+                tp_price    = entry_price + tp_pts / conv
+                entered     = True
+
+            if entered:
+                entry_time = timestamp
+                entry_bar  = i
+                state      = IN_POSITION
+                wait_count = 0
+            else:
+                wait_count += 1
+                if wait_count > max_wait_bars or next_is_new_day or force_close_time:
+                    state = IDLE; bias = 0; wait_count = 0
+
+        # ── WAIT_INDECISION ──
+        elif state == WAIT_INDECISION and trading_allowed and not force_close_time:
+            if is_indecision(row, body_pct):
+                indc_high  = row['high']
+                indc_low   = row['low']
+                state      = WAIT_BREAKOUT
+                wait_count = 0
+            else:
+                wait_count += 1
+                if wait_count > max_wait_bars or next_is_new_day or force_close_time:
+                    state = IDLE; bias = 0; wait_count = 0
+
+        # ── IDLE — pattern épuisement + filtre SHA ──
+        if state == IDLE and trading_allowed and not force_close_time:
+            if row['bias'] != 0:
+                n_raw += 1
+                # Filtre SHA : LONG seulement si bullish, SHORT seulement si bearish
+                sha_ok = (row['bias'] == 1 and sha_bull) or \
+                         (row['bias'] == -1 and not sha_bull)
+                if sha_ok:
+                    bias       = int(row['bias'])
+                    state      = WAIT_INDECISION
+                    wait_count = 0
+                else:
+                    n_sha_filter += 1
+
+        equity_curve.append({'time': timestamp, 'account': account})
+
+    # Fermer position ouverte en fin de données
+    if state == IN_POSITION:
+        exit_price = df.iloc[-1]['close']
+        if bias == 1:
+            pnl_pts = (exit_price - entry_price) * conv
+        else:
+            pnl_pts = (entry_price - exit_price) * conv
+        pnl_usd = pnl_pts * POINT_VALUE * contracts - frais_rt / 2
+        account += pnl_usd
+        trades.append({
+            'entry_time': entry_time, 'exit_time': df.index[-1],
+            'direction':  'LONG' if bias == 1 else 'SHORT',
+            'entry_price': entry_price, 'exit_price': exit_price,
+            'sl_price': sl_price, 'tp_price': tp_price,
+            'sl_pts': sl_pts, 'tp_pts': tp_pts,
+            'sl_usd': sl_pts * POINT_VALUE * contracts,
+            'pnl_pts': pnl_pts, 'pnl_usd': pnl_usd,
+            'account': account, 'raison': 'Fin données',
+            'duree_bars': n - entry_bar, 'daily_pnl': daily_pnl,
+            'contracts': contracts,
+        })
+
+    if current_date is not None:
+        if daily_stopped:
+            n_daily_limit += 1
+        daily_stats.append({'date': current_date, 'pnl': daily_pnl, 'stopped': daily_stopped})
+
+    eq_df = (pd.DataFrame(equity_curve).set_index('time') if equity_curve else pd.DataFrame())
+    stats = compute_stats(trades, equity_curve, daily_stats, halted, account, contracts=contracts)
+    stats['params'] = {
+        'sl_pts': sl_pts, 'tp_pts': tp_pts, 'body_pct': body_pct,
+        'smooth': smooth, 'contracts': contracts,
+    }
+    stats['n_daily_limit']  = n_daily_limit
+    stats['n_raw_signals']  = n_raw
+    stats['n_sha_filtered'] = n_sha_filter
+
+    return {
+        'trades':       trades,
+        'equity_curve': eq_df,
+        'daily_stats':  daily_stats,
+        'stats':        stats,
+        'halted':       halted,
+    }
+
+
+# ─────────────────────────────────────────────────────────────
+# 20. BACKTEST SHA+ADX — DOUBLE FILTRE
+# ─────────────────────────────────────────────────────────────
+
+def backtest_sha_adx(df: pd.DataFrame, conv: float = 1.0,
+                     sl_pts: float = 15.0, tp_pts: float = 40.0,
+                     body_pct: float = 0.15, max_wait_bars: int = 2,
+                     smooth: int = 5, adx_threshold: float = 25.0,
+                     contracts: int = 2) -> dict:
+    """
+    Backtest NQ 5M avec double filtre : SHA direction ET ADX < threshold.
+    SHA donne la direction (trend-following pullbacks).
+    ADX filtre les marchés trop trendy (retournements impossibles).
+    SL/TP fixes. Sortie forcée 15h50 ET.
+    """
+    # Pré-calcul SHA et ADX
+    sha_bullish = compute_sha(df, smooth=smooth)
+    adx_series  = compute_adx(df, period=14)
+
+    # Détection pattern
+    df = df.copy()
+    df['body']     = (df['close'] - df['open']).abs()
+    df['is_green'] = df['close'] > df['open']
+    df['is_red']   = df['close'] < df['open']
+
+    ph  = df['high'].shift(1)
+    pl  = df['low'].shift(1)
+    pig = df['is_green'].shift(1)
+    pir = df['is_red'].shift(1)
+
+    cond_short = (df['is_green'] & pir & (df['high'] > ph) & (df['low'] > pl))
+    cond_long  = (df['is_red'] & pig & (df['low'] < pl) & (df['high'] < ph))
+
+    df['bias'] = 0
+    df.loc[cond_long,  'bias'] = 1
+    df.loc[cond_short, 'bias'] = -1
+
+    df = df.dropna(subset=['bias']).copy()
+    sha_aligned = sha_bullish.reindex(df.index).ffill()
+    adx_aligned = adx_series.reindex(df.index).fillna(0)
+    df['sha_bull'] = sha_aligned.values
+    df['adx']      = adx_aligned.values
+
+    n = len(df)
+    frais_rt = FRAIS_RT * contracts
+
+    account   = ACCOUNT_SIZE
+    peak_acct = ACCOUNT_SIZE
+    halted    = False
+
+    daily_pnl     = 0.0
+    daily_stopped = False
+    current_date  = None
+    n_daily_limit = 0
+
+    state      = IDLE
+    bias       = 0
+    wait_count = 0
+    indc_high  = 0.0
+    indc_low   = 0.0
+    entry_price = 0.0
+    sl_price    = 0.0
+    tp_price    = 0.0
+    entry_time  = None
+    entry_bar   = 0
+
+    trades       = []
+    equity_curve = []
+    daily_stats  = []
+    n_raw        = 0
+    n_filtered   = 0
+
+    try:
+        idx = df.index
+        if idx.tz is None:
+            idx_et = idx.tz_localize('UTC').tz_convert('America/New_York')
+        else:
+            idx_et = idx.tz_convert('America/New_York')
+    except Exception:
+        idx_et = df.index
+
+    for i in range(n):
+        row       = df.iloc[i]
+        timestamp = df.index[i]
+        sha_bull  = bool(df['sha_bull'].iloc[i])
+        adx_val   = float(df['adx'].iloc[i])
+
+        try:
+            bar_et     = idx_et[i]
+            bar_date   = bar_et.date()
+            bar_hour   = bar_et.hour
+            bar_minute = bar_et.minute
+        except Exception:
+            bar_date   = timestamp.date()
+            bar_hour   = 15
+            bar_minute = 59
+
+        if bar_date != current_date:
+            if current_date is not None:
+                if daily_stopped:
+                    n_daily_limit += 1
+                daily_stats.append({
+                    'date':    current_date,
+                    'pnl':     daily_pnl,
+                    'stopped': daily_stopped,
+                })
+            current_date  = bar_date
+            daily_pnl     = 0.0
+            daily_stopped = False
+
+        trading_allowed  = (not halted) and (not daily_stopped)
+        force_close_time = (bar_hour == 15 and bar_minute >= 50) or bar_hour >= 16
+
+        next_is_new_day = False
+        if i + 1 < n:
+            try:
+                next_is_new_day = (idx_et[i + 1].date() != bar_date)
+            except Exception:
+                next_is_new_day = (df.index[i + 1].date() != timestamp.date())
+        else:
+            next_is_new_day = True
+
+        # ── IN_POSITION ──
+        if state == IN_POSITION:
+            hit_sl = False
+            hit_tp = False
+            exit_price = row['close']
+            raison = 'En cours'
+
+            if bias == 1:
+                if row['low']  <= sl_price:
+                    hit_sl = True; exit_price = sl_price
+                elif row['high'] >= tp_price:
+                    hit_tp = True; exit_price = tp_price
+            else:
+                if row['high'] >= sl_price:
+                    hit_sl = True; exit_price = sl_price
+                elif row['low']  <= tp_price:
+                    hit_tp = True; exit_price = tp_price
+
+            force_close = (not hit_sl and not hit_tp and
+                           (force_close_time or next_is_new_day))
+            if force_close:
+                exit_price = row['close']
+                raison     = '15h50 ET' if force_close_time else 'Fin session'
+
+            if hit_sl or hit_tp or force_close:
+                if hit_sl:  raison = 'SL'
+                elif hit_tp: raison = 'TP'
+
+                if bias == 1:
+                    pnl_pts = (exit_price - entry_price) * conv
+                else:
+                    pnl_pts = (entry_price - exit_price) * conv
+                pnl_usd    = pnl_pts * POINT_VALUE * contracts - frais_rt
+                account   += pnl_usd
+                daily_pnl += pnl_usd
+
+                if account > peak_acct:
+                    peak_acct = account
+                if account - peak_acct <= MAX_DD_LIMIT:
+                    halted = True
+                if daily_pnl <= DAILY_LOSS_LIMIT:
+                    daily_stopped = True
+
+                trades.append({
+                    'entry_time':  entry_time,
+                    'exit_time':   timestamp,
+                    'direction':   'LONG' if bias == 1 else 'SHORT',
+                    'entry_price': entry_price,
+                    'exit_price':  exit_price,
+                    'sl_price':    sl_price,
+                    'tp_price':    tp_price,
+                    'sl_pts':      sl_pts,
+                    'tp_pts':      tp_pts,
+                    'sl_usd':      sl_pts * POINT_VALUE * contracts,
+                    'pnl_pts':     pnl_pts,
+                    'pnl_usd':     pnl_usd,
+                    'account':     account,
+                    'raison':      raison,
+                    'duree_bars':  i - entry_bar,
+                    'daily_pnl':   daily_pnl,
+                    'contracts':   contracts,
+                })
+                state      = IDLE
+                bias       = 0
+                wait_count = 0
+
+        # ── WAIT_BREAKOUT ──
+        elif state == WAIT_BREAKOUT and trading_allowed and not force_close_time:
+            entered = False
+
+            if bias == -1 and row['close'] < indc_low:
+                entry_price = row['close']
+                sl_price    = entry_price + sl_pts / conv
+                tp_price    = entry_price - tp_pts / conv
+                entered     = True
+            elif bias == 1 and row['close'] > indc_high:
+                entry_price = row['close']
+                sl_price    = entry_price - sl_pts / conv
+                tp_price    = entry_price + tp_pts / conv
+                entered     = True
+
+            if entered:
+                entry_time = timestamp
+                entry_bar  = i
+                state      = IN_POSITION
+                wait_count = 0
+            else:
+                wait_count += 1
+                if wait_count > max_wait_bars or next_is_new_day or force_close_time:
+                    state = IDLE; bias = 0; wait_count = 0
+
+        # ── WAIT_INDECISION ──
+        elif state == WAIT_INDECISION and trading_allowed and not force_close_time:
+            if is_indecision(row, body_pct):
+                indc_high  = row['high']
+                indc_low   = row['low']
+                state      = WAIT_BREAKOUT
+                wait_count = 0
+            else:
+                wait_count += 1
+                if wait_count > max_wait_bars or next_is_new_day or force_close_time:
+                    state = IDLE; bias = 0; wait_count = 0
+
+        # ── IDLE — pattern + SHA + ADX ──
+        if state == IDLE and trading_allowed and not force_close_time:
+            if row['bias'] != 0:
+                n_raw += 1
+                sha_ok = (row['bias'] == 1 and sha_bull) or \
+                         (row['bias'] == -1 and not sha_bull)
+                adx_ok = adx_val < adx_threshold
+                if sha_ok and adx_ok:
+                    bias       = int(row['bias'])
+                    state      = WAIT_INDECISION
+                    wait_count = 0
+                else:
+                    n_filtered += 1
+
+        equity_curve.append({'time': timestamp, 'account': account})
+
+    # Fermer position ouverte
+    if state == IN_POSITION:
+        exit_price = df.iloc[-1]['close']
+        if bias == 1:
+            pnl_pts = (exit_price - entry_price) * conv
+        else:
+            pnl_pts = (entry_price - exit_price) * conv
+        pnl_usd = pnl_pts * POINT_VALUE * contracts - frais_rt / 2
+        account += pnl_usd
+        trades.append({
+            'entry_time': entry_time, 'exit_time': df.index[-1],
+            'direction':  'LONG' if bias == 1 else 'SHORT',
+            'entry_price': entry_price, 'exit_price': exit_price,
+            'sl_price': sl_price, 'tp_price': tp_price,
+            'sl_pts': sl_pts, 'tp_pts': tp_pts,
+            'sl_usd': sl_pts * POINT_VALUE * contracts,
+            'pnl_pts': pnl_pts, 'pnl_usd': pnl_usd,
+            'account': account, 'raison': 'Fin données',
+            'duree_bars': n - entry_bar, 'daily_pnl': daily_pnl,
+            'contracts': contracts,
+        })
+
+    if current_date is not None:
+        if daily_stopped:
+            n_daily_limit += 1
+        daily_stats.append({'date': current_date, 'pnl': daily_pnl, 'stopped': daily_stopped})
+
+    eq_df = (pd.DataFrame(equity_curve).set_index('time') if equity_curve else pd.DataFrame())
+    stats = compute_stats(trades, equity_curve, daily_stats, halted, account, contracts=contracts)
+    stats['params'] = {
+        'sl_pts': sl_pts, 'tp_pts': tp_pts, 'body_pct': body_pct,
+        'smooth': smooth, 'adx_threshold': adx_threshold, 'contracts': contracts,
+    }
+    stats['n_daily_limit'] = n_daily_limit
+    stats['n_raw_signals'] = n_raw
+    stats['n_filtered']    = n_filtered
+
+    return {
+        'trades':       trades,
+        'equity_curve': eq_df,
+        'daily_stats':  daily_stats,
+        'stats':        stats,
+        'halted':       halted,
+    }
+
+
+# ─────────────────────────────────────────────────────────────
+# 21. RAPPORT SHA vs ADX — 4 PANNEAUX
+# ─────────────────────────────────────────────────────────────
+
+def generate_sha_adx_report(bt_adx: dict, bt_sha: dict, bt_sha_adx: dict,
+                             sha_grid: list,
+                             n_days: int = 50,
+                             output_path: str = "trading/nasdaq_sha_vs_adx.png"):
+    """
+    Rapport 4 panneaux :
+    1. Equity curve : ADX (bleu) vs SHA_5 (orange) vs SHA+ADX (vert)
+    2. Comparaison barres : WR, PF, P&L/jour pour chaque filtre
+    3. SHA smooth comparison : WR et PF pour smooth 3, 5, 8, 13
+    4. Tableau récapitulatif final avec recommandation
+    """
+    fig = plt.figure(figsize=(22, 16))
+    fig.patch.set_facecolor('#0d1117')
+    gs  = gridspec.GridSpec(2, 2, figure=fig, hspace=0.45, wspace=0.32)
+
+    C = dict(
+        bg='#0d1117', panel='#161b22', text='#e6edf3',
+        green='#3fb950', red='#f85149', blue='#58a6ff',
+        gold='#d29922', grey='#8b949e', orange='#f0883e',
+        purple='#bc8cff', cyan='#39d353',
+    )
+
+    def style_ax(ax, title):
+        ax.set_facecolor(C['panel'])
+        ax.tick_params(colors=C['text'], labelsize=9)
+        for spine in ax.spines.values():
+            spine.set_color('#30363d')
+        ax.xaxis.label.set_color(C['text'])
+        ax.yaxis.label.set_color(C['text'])
+        ax.set_title(title, fontsize=11, fontweight='bold', pad=10, color=C['text'])
+
+    s_adx     = bt_adx['stats']
+    s_sha     = bt_sha['stats']
+    s_sha_adx = bt_sha_adx['stats']
+
+    eq_adx     = bt_adx.get('equity_curve', pd.DataFrame())
+    eq_sha     = bt_sha.get('equity_curve', pd.DataFrame())
+    eq_sha_adx = bt_sha_adx.get('equity_curve', pd.DataFrame())
+
+    # ── Panneau 1 : Equity Curves ────────────────────────────
+    ax1 = fig.add_subplot(gs[0, 0])
+    style_ax(ax1, '📈 Equity Curves — ADX≤20 (bleu) | SHA5 (orange) | SHA+ADX25 (vert)')
+
+    if not eq_adx.empty and 'account' in eq_adx.columns:
+        ax1.plot(eq_adx.index, eq_adx['account'], color=C['blue'],
+                 linewidth=1.5, label='ADX≤20', alpha=0.9)
+    if not eq_sha.empty and 'account' in eq_sha.columns:
+        ax1.plot(eq_sha.index, eq_sha['account'], color=C['orange'],
+                 linewidth=1.5, label='SHA(5)', alpha=0.9)
+    if not eq_sha_adx.empty and 'account' in eq_sha_adx.columns:
+        ax1.plot(eq_sha_adx.index, eq_sha_adx['account'], color=C['green'],
+                 linewidth=1.5, label='SHA(5)+ADX25', alpha=0.9)
+
+    ax1.axhline(y=ACCOUNT_SIZE, color=C['grey'], linestyle=':', linewidth=1,
+                label='100k$ initial')
+    ax1.axhline(y=ACCOUNT_SIZE + MAX_DD_LIMIT, color=C['red'],
+                linestyle='--', linewidth=1,
+                label=f'Max DD -8%')
+    ax1.set_ylabel('Compte (USD)', color=C['text'])
+    ax1.legend(facecolor=C['panel'], labelcolor=C['text'], fontsize=8)
+    ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'${x:,.0f}'))
+
+    # ── Panneau 2 : Comparaison barres WR / PF / PnL/jour ───
+    ax2 = fig.add_subplot(gs[0, 1])
+    style_ax(ax2, '📊 Comparaison Filtres — Win Rate, Profit Factor, P&L/j')
+    ax2.set_facecolor(C['panel'])
+
+    labels_f  = ['ADX≤20', 'SHA(5)', 'SHA+ADX25']
+    col_f     = [C['blue'], C['orange'], C['green']]
+    wr_vals   = [s_adx['win_rate'], s_sha['win_rate'], s_sha_adx['win_rate']]
+    pf_vals   = [s_adx['profit_factor'], s_sha['profit_factor'], s_sha_adx['profit_factor']]
+    avg_vals  = [s_adx.get('avg_pnl_per_day', 0),
+                 s_sha.get('avg_pnl_per_day', 0),
+                 s_sha_adx.get('avg_pnl_per_day', 0)]
+
+    x = np.arange(3)
+    w = 0.25
+
+    ax2_twin = ax2.twinx()
+    ax2_twin.set_facecolor(C['panel'])
+    ax2_twin.tick_params(colors=C['text'], labelsize=9)
+
+    bars1 = ax2.bar(x - w, wr_vals, w, color=[c + 'cc' for c in col_f], label='Win Rate (%)')
+    bars2 = ax2.bar(x,     pf_vals, w, color=col_f, alpha=0.6, label='Profit Factor')
+    bars3 = ax2_twin.bar(x + w, avg_vals, w, color=col_f, alpha=0.4, label='P&L/jour ($)')
+
+    ax2.set_xticks(x)
+    ax2.set_xticklabels(labels_f, color=C['text'])
+    ax2.set_ylabel('Win Rate (%) / Profit Factor', color=C['text'])
+    ax2_twin.set_ylabel('P&L moyen/jour ($)', color=C['text'])
+    ax2_twin.tick_params(colors=C['text'])
+    ax2_twin.yaxis.label.set_color(C['text'])
+
+    for bar in bars1:
+        ax2.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.5,
+                 f'{bar.get_height():.1f}%', ha='center', va='bottom',
+                 color=C['text'], fontsize=7.5, fontweight='bold')
+    for bar in bars2:
+        ax2.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.02,
+                 f'{bar.get_height():.2f}', ha='center', va='bottom',
+                 color=C['text'], fontsize=7.5, fontweight='bold')
+    for bar in bars3:
+        h = bar.get_height()
+        ax2_twin.text(bar.get_x() + bar.get_width() / 2, h + (abs(h) * 0.02),
+                      f'${h:+.0f}', ha='center', va='bottom',
+                      color=C['text'], fontsize=7.5, fontweight='bold')
+
+    lines1, lab1 = ax2.get_legend_handles_labels()
+    lines2, lab2 = ax2_twin.get_legend_handles_labels()
+    ax2.legend(lines1 + lines2, lab1 + lab2,
+               facecolor=C['panel'], labelcolor=C['text'], fontsize=7.5)
+
+    # ── Panneau 3 : SHA smooth comparison ────────────────────
+    ax3 = fig.add_subplot(gs[1, 0])
+    style_ax(ax3, '🔬 Optimisation SHA — Win Rate & PF pour smooth 3, 5, 8, 13')
+
+    if sha_grid:
+        smooths   = [r['smooth'] for r in sha_grid]
+        wr_sha    = [r['win_rate'] for r in sha_grid]
+        pf_sha    = [r['profit_factor'] for r in sha_grid]
+        pnl_sha   = [r['total_pnl'] for r in sha_grid]
+
+        x3 = np.arange(len(smooths))
+        w3 = 0.3
+        ax3b = ax3.twinx()
+        ax3b.set_facecolor(C['panel'])
+        ax3b.tick_params(colors=C['text'], labelsize=8)
+        ax3b.yaxis.label.set_color(C['text'])
+
+        b1 = ax3.bar(x3 - w3/2, wr_sha, w3, color=C['blue'], alpha=0.8, label='Win Rate (%)')
+        b2 = ax3.bar(x3 + w3/2, pf_sha, w3, color=C['orange'], alpha=0.8, label='Profit Factor')
+        ax3.axhline(y=50, color=C['grey'], linestyle=':', linewidth=0.8, alpha=0.5)
+
+        ax3.set_xticks(x3)
+        ax3.set_xticklabels([f'SHA({s})' for s in smooths], color=C['text'])
+        ax3.set_ylabel('Win Rate (%) / Profit Factor', color=C['text'])
+
+        # Annotations
+        for xi, (wr, pf_v, pl) in enumerate(zip(wr_sha, pf_sha, pnl_sha)):
+            ax3.text(xi - w3/2, wr + 0.5, f'{wr:.1f}%',
+                     ha='center', va='bottom', color=C['text'], fontsize=8, fontweight='bold')
+            ax3.text(xi + w3/2, pf_v + 0.02, f'{pf_v:.2f}',
+                     ha='center', va='bottom', color=C['text'], fontsize=8, fontweight='bold')
+
+        ax3.legend(facecolor=C['panel'], labelcolor=C['text'], fontsize=8)
+
+    # ── Panneau 4 : Tableau récapitulatif + recommandation ───
+    ax4 = fig.add_subplot(gs[1, 1])
+    ax4.set_facecolor(C['panel'])
+    ax4.axis('off')
+    ax4.set_title('📋 Récapitulatif & Recommandation', fontsize=11,
+                  fontweight='bold', pad=10, color=C['text'])
+
+    pnl_adx     = s_adx.get('final_account', ACCOUNT_SIZE) - ACCOUNT_SIZE
+    pnl_sha_v   = s_sha.get('final_account', ACCOUNT_SIZE) - ACCOUNT_SIZE
+    pnl_sha_adx = s_sha_adx.get('final_account', ACCOUNT_SIZE) - ACCOUNT_SIZE
+    n_adx       = s_adx['n_trades']
+    n_sha_t     = s_sha['n_trades']
+    n_sha_adx_t = s_sha_adx['n_trades']
+    tpd_adx     = s_adx['trades_per_day']
+    tpd_sha     = s_sha['trades_per_day']
+    tpd_sha_adx = s_sha_adx['trades_per_day']
+
+    def verdict_fn(s):
+        avg = s.get('avg_pnl_per_day', 0)
+        pf  = s.get('profit_factor', 0)
+        if avg >= TARGET_DAILY_PNL and pf >= 1.5:
+            return '✅ VIABLE'
+        elif avg >= TARGET_DAILY_PNL * 0.5 or pf >= 1.2:
+            return '⚠️ MOYEN'
+        else:
+            return '❌ FAIBLE'
+
+    # Recommandation automatique
+    scores = {
+        'ADX≤20':    s_adx.get('profit_factor', 0) * (s_adx['win_rate'] / 100),
+        'SHA(5)':    s_sha.get('profit_factor', 0) * (s_sha['win_rate'] / 100),
+        'SHA+ADX25': s_sha_adx.get('profit_factor', 0) * (s_sha_adx['win_rate'] / 100),
+    }
+    best_filter = max(scores, key=scores.get)
+    reco_color  = C['green']
+
+    col_x = [0.03, 0.35, 0.58, 0.80]
+    y = 0.96
+    lh = 0.065
+
+    # En-tête
+    headers = ['Métrique', 'ADX≤20', 'SHA(5)', 'SHA+ADX25']
+    head_cols = [C['blue'], C['blue'], C['orange'], C['green']]
+    for xi, (hdr, hcol) in zip(col_x, zip(headers, head_cols)):
+        ax4.text(xi, y, hdr, transform=ax4.transAxes,
+                 color=hcol, fontsize=8.5, fontweight='bold', va='top')
+    y -= lh
+
+    def row4(ax, y, label, v1, v2, v3, c1=None, c2=None, c3=None):
+        ax.text(col_x[0], y, label, transform=ax.transAxes,
+                color=C['grey'], fontsize=8.5, va='top')
+        ax.text(col_x[1], y, str(v1), transform=ax.transAxes,
+                color=c1 or C['text'], fontsize=8.5, va='top', fontweight='bold')
+        ax.text(col_x[2], y, str(v2), transform=ax.transAxes,
+                color=c2 or C['text'], fontsize=8.5, va='top', fontweight='bold')
+        ax.text(col_x[3], y, str(v3), transform=ax.transAxes,
+                color=c3 or C['text'], fontsize=8.5, va='top', fontweight='bold')
+
+    row4(ax4, y, 'Signaux/j',
+         f'{tpd_adx:.1f}', f'{tpd_sha:.1f}', f'{tpd_sha_adx:.1f}')
+    y -= lh
+    row4(ax4, y, 'Nb Trades',
+         str(n_adx), str(n_sha_t), str(n_sha_adx_t))
+    y -= lh
+    row4(ax4, y, 'Win Rate',
+         f"{s_adx['win_rate']:.1f}%",
+         f"{s_sha['win_rate']:.1f}%",
+         f"{s_sha_adx['win_rate']:.1f}%")
+    y -= lh
+    row4(ax4, y, 'Profit Factor',
+         f"{s_adx['profit_factor']:.2f}",
+         f"{s_sha['profit_factor']:.2f}",
+         f"{s_sha_adx['profit_factor']:.2f}")
+    y -= lh
+    row4(ax4, y, 'Sharpe',
+         f"{s_adx['sharpe']:.2f}",
+         f"{s_sha['sharpe']:.2f}",
+         f"{s_sha_adx['sharpe']:.2f}")
+    y -= lh
+    row4(ax4, y, 'P&L Total',
+         f"${pnl_adx:+,.0f}",
+         f"${pnl_sha_v:+,.0f}",
+         f"${pnl_sha_adx:+,.0f}",
+         c1=C['green'] if pnl_adx >= 0 else C['red'],
+         c2=C['green'] if pnl_sha_v >= 0 else C['red'],
+         c3=C['green'] if pnl_sha_adx >= 0 else C['red'])
+    y -= lh
+    row4(ax4, y, 'P&L Moy/Jour',
+         f"${s_adx.get('avg_pnl_per_day',0):+.0f}",
+         f"${s_sha.get('avg_pnl_per_day',0):+.0f}",
+         f"${s_sha_adx.get('avg_pnl_per_day',0):+.0f}")
+    y -= lh
+    row4(ax4, y, 'Max Drawdown',
+         f"-${abs(s_adx.get('max_dd_usd',0)):,.0f}",
+         f"-${abs(s_sha.get('max_dd_usd',0)):,.0f}",
+         f"-${abs(s_sha_adx.get('max_dd_usd',0)):,.0f}")
+    y -= lh
+    row4(ax4, y, 'Jours limit',
+         str(s_adx.get('n_daily_limit', 0)),
+         str(s_sha.get('n_daily_limit', 0)),
+         str(s_sha_adx.get('n_daily_limit', 0)))
+    y -= lh + 0.01
+
+    # Ligne séparatrice
+    ax4.plot([0.02, 0.98], [y + 0.02, y + 0.02], color='#30363d',
+             linewidth=0.7, transform=ax4.transAxes)
+    y -= 0.01
+
+    # Verdicts
+    v_adx     = verdict_fn(s_adx)
+    v_sha     = verdict_fn(s_sha)
+    v_sha_adx = verdict_fn(s_sha_adx)
+    row4(ax4, y, 'VERDICT',
+         v_adx, v_sha, v_sha_adx,
+         c1=C['green'] if '✅' in v_adx else (C['gold'] if '⚠️' in v_adx else C['red']),
+         c2=C['green'] if '✅' in v_sha else (C['gold'] if '⚠️' in v_sha else C['red']),
+         c3=C['green'] if '✅' in v_sha_adx else (C['gold'] if '⚠️' in v_sha_adx else C['red']))
+    y -= lh + 0.01
+    ax4.plot([0.02, 0.98], [y + 0.02, y + 0.02], color='#30363d',
+             linewidth=0.7, transform=ax4.transAxes)
+    y -= 0.02
+
+    ax4.text(0.03, y, '🏆 RECOMMANDATION :',
+             transform=ax4.transAxes, color=C['gold'],
+             fontsize=9, fontweight='bold', va='top')
+    ax4.text(0.40, y, best_filter,
+             transform=ax4.transAxes, color=reco_color,
+             fontsize=10, fontweight='bold', va='top')
+    y -= lh
+
+    if sha_grid:
+        best_sha = max(sha_grid, key=lambda x: x['profit_factor'])
+        ax4.text(0.03, y, f"Meilleur smooth SHA : {best_sha['smooth']} "
+                 f"(PF={best_sha['profit_factor']:.2f}, WR={best_sha['win_rate']:.1f}%)",
+                 transform=ax4.transAxes, color=C['cyan'],
+                 fontsize=8, va='top', style='italic')
+
+    fig.suptitle(
+        f'NQ Futures 5M — SHA vs ADX  |  Apex 100k$ — 2 Contrats  |  '
+        f'SL=15pts | TP=40pts | body<15% | RTH  |  '
+        f'{datetime.now().strftime("%Y-%m-%d %H:%M")}',
+        fontsize=12, fontweight='bold', color=C['text'], y=0.998,
+    )
+
+    plt.savefig(output_path, dpi=150, bbox_inches='tight',
+                facecolor=C['bg'], edgecolor='none')
+    plt.close()
+    print(f"\n✅ Rapport SHA vs ADX sauvegardé : {output_path}")
+
+
+# ─────────────────────────────────────────────────────────────
+# 22. MODE SHA_FILTER — ORCHESTRATION COMPLÈTE
+# ─────────────────────────────────────────────────────────────
+
+def run_sha_filter():
+    """
+    Mode sha_filter :
+    1. SHA(5) seul — SL=15, TP=40, 2 contrats
+    2. SHA(5)+ADX<25 — même paramètres
+    3. ADX≤20 (référence) — mêmes paramètres
+    4. Optimisation smooth SHA [3, 5, 8, 13]
+    5. Rapport PNG 4 panneaux
+    6. Tableau console comparatif
+    """
+    print("=" * 60)
+    print("SHA FILTER vs ADX — NQ 5M | SL=15 | TP=40 | 2 CONTRATS")
+    print("=" * 60)
+
+    # Paramètres fixes (confirmés comme optimaux)
+    SL_PTS   = 15.0
+    TP_PTS   = 40.0
+    BODY_PCT = 0.15
+    MAX_WAIT = 2
+    CONTRACTS = 2
+    ADX_REF  = 20.0
+    SHA_ADX_THRESHOLD = 25.0
+
+    # Téléchargement NQ=F 5M
+    print("\n📥 Téléchargement NQ=F 5M (60j)...")
+    try:
+        df_raw, conv = download_data(interval='5m', period='60d')
+    except Exception as e:
+        print(f"❌ Erreur téléchargement : {e}")
+        return
+
+    df = filter_rth(df_raw)
+
+    if len(df) < 50:
+        print("❌ Données insuffisantes après filtre RTH.")
+        return
+
+    try:
+        idx = df.index
+        if idx.tz is None:
+            idx_et = idx.tz_localize('UTC').tz_convert('America/New_York')
+        else:
+            idx_et = idx.tz_convert('America/New_York')
+        n_days = len(set(t.date() for t in idx_et))
+    except Exception:
+        n_days = max(1, len(df) // 78)
+
+    print(f"Données : NQ=F 5M | {n_days} jours RTH | {len(df)} barres")
+
+    # ── 1. Backtest ADX=20 (référence) ───────────────────────
+    print("\n" + "─" * 50)
+    print("  [1/4] Backtest RÉFÉRENCE — ADX≤20 (SL=15, TP=40, 2c)")
+    print("─" * 50)
+    bt_adx = backtest_sl_tp_fixed(
+        df, conv=conv,
+        sl_pts=SL_PTS, tp_pts=TP_PTS,
+        body_pct=BODY_PCT, max_wait_bars=MAX_WAIT,
+        adx_threshold=ADX_REF,
+        contracts=CONTRACTS,
+    )
+    s_adx = bt_adx['stats']
+    n_adx = s_adx['n_trades']
+    print(f"   Trades={n_adx} | WR={s_adx['win_rate']:.1f}% | "
+          f"PF={s_adx['profit_factor']:.2f} | "
+          f"P&L=${s_adx.get('total_pnl_usd',0):+,.0f}")
+
+    # ── 2. Backtest SHA(5) seul ───────────────────────────────
+    print("\n" + "─" * 50)
+    print("  [2/4] Backtest SHA(smooth=5) (SL=15, TP=40, 2c)")
+    print("─" * 50)
+    bt_sha = backtest_sha(
+        df, conv=conv,
+        sl_pts=SL_PTS, tp_pts=TP_PTS,
+        body_pct=BODY_PCT, max_wait_bars=MAX_WAIT,
+        smooth=5,
+        contracts=CONTRACTS,
+    )
+    s_sha = bt_sha['stats']
+    n_sha = s_sha['n_trades']
+    print(f"   Trades={n_sha} | WR={s_sha['win_rate']:.1f}% | "
+          f"PF={s_sha['profit_factor']:.2f} | "
+          f"P&L=${s_sha.get('total_pnl_usd',0):+,.0f}")
+
+    # ── 3. Backtest SHA(5)+ADX<25 ─────────────────────────────
+    print("\n" + "─" * 50)
+    print("  [3/4] Backtest SHA(5)+ADX<25 (SL=15, TP=40, 2c)")
+    print("─" * 50)
+    bt_sha_adx = backtest_sha_adx(
+        df, conv=conv,
+        sl_pts=SL_PTS, tp_pts=TP_PTS,
+        body_pct=BODY_PCT, max_wait_bars=MAX_WAIT,
+        smooth=5, adx_threshold=SHA_ADX_THRESHOLD,
+        contracts=CONTRACTS,
+    )
+    s_sha_adx = bt_sha_adx['stats']
+    n_sha_adx = s_sha_adx['n_trades']
+    print(f"   Trades={n_sha_adx} | WR={s_sha_adx['win_rate']:.1f}% | "
+          f"PF={s_sha_adx['profit_factor']:.2f} | "
+          f"P&L=${s_sha_adx.get('total_pnl_usd',0):+,.0f}")
+
+    # ── 4. Optimisation smooth SHA [3, 5, 8, 13] ─────────────
+    print("\n" + "─" * 50)
+    print("  [4/4] Optimisation SHA smooth=[3, 5, 8, 13]")
+    print("─" * 50)
+    sha_grid = []
+    for smooth in [3, 5, 8, 13]:
+        res = backtest_sha(
+            df, conv=conv,
+            sl_pts=SL_PTS, tp_pts=TP_PTS,
+            body_pct=BODY_PCT, max_wait_bars=MAX_WAIT,
+            smooth=smooth,
+            contracts=CONTRACTS,
+        )
+        sv = res['stats']
+        sha_grid.append({
+            'smooth':        smooth,
+            'n_trades':      sv['n_trades'],
+            'win_rate':      sv['win_rate'],
+            'profit_factor': sv['profit_factor'],
+            'total_pnl':     sv.get('total_pnl_usd', 0),
+            'max_dd':        sv.get('max_dd_usd', 0),
+            'avg_day':       sv.get('avg_pnl_per_day', 0),
+            'sharpe':        sv.get('sharpe', 0),
+        })
+        print(f"   SHA({smooth:2d}) : Trades={sv['n_trades']:3d} | "
+              f"WR={sv['win_rate']:.1f}% | PF={sv['profit_factor']:.2f} | "
+              f"P&L=${sv.get('total_pnl_usd',0):+,.0f} | "
+              f"DD=-${abs(sv.get('max_dd_usd',0)):,.0f}")
+
+    # Meilleur smooth
+    best_sha_smooth = max(sha_grid, key=lambda x: x['profit_factor'])
+
+    # ── Générer rapport PNG ────────────────────────────────────
+    generate_sha_adx_report(
+        bt_adx, bt_sha, bt_sha_adx,
+        sha_grid=sha_grid,
+        n_days=n_days,
+        output_path="trading/nasdaq_sha_vs_adx.png",
+    )
+
+    # ── Tableau console comparatif ─────────────────────────────
+    def verdict(s):
+        avg = s.get('avg_pnl_per_day', 0)
+        pf  = s.get('profit_factor', 0)
+        if avg >= TARGET_DAILY_PNL and pf >= 1.5:
+            return '✅'
+        elif avg >= TARGET_DAILY_PNL * 0.5 or pf >= 1.2:
+            return '⚠️'
+        else:
+            return '❌'
+
+    pnl_adx   = s_adx.get('final_account', ACCOUNT_SIZE) - ACCOUNT_SIZE
+    pnl_sha   = s_sha.get('final_account', ACCOUNT_SIZE) - ACCOUNT_SIZE
+    pnl_s_adx = s_sha_adx.get('final_account', ACCOUNT_SIZE) - ACCOUNT_SIZE
+
+    # Recommandation
+    scores = {
+        'ADX≤20':    s_adx.get('profit_factor', 0) * (s_adx['win_rate'] / 100),
+        'SHA(5)':    s_sha.get('profit_factor', 0) * (s_sha['win_rate'] / 100),
+        'SHA+ADX25': s_sha_adx.get('profit_factor', 0) * (s_sha_adx['win_rate'] / 100),
+    }
+    best_filter = max(scores, key=scores.get)
+    reco_msg = {
+        'ADX≤20':    'Utiliser ADX — Bon en marché range, peu de trades',
+        'SHA(5)':    'Utiliser SHA — Plus de signaux, trading tendance',
+        'SHA+ADX25': 'Combiner SHA+ADX — Sélectif mais plus robuste',
+    }
+
+    print()
+    print("=" * 60)
+    print("COMPARAISON FILTRES : ADX=20 vs SHA (NQ 5M, 2 contrats)")
+    print("=" * 60)
+    print(f"Données : NQ=F 5M | {n_days} jours RTH | SL=15pts | TP=40pts | 2c")
+    print()
+    print(f"{'':26s}  {'ADX≤20':>8s}  {'SHA(5)':>8s}  {'SHA+ADX25':>10s}")
+    print("-" * 58)
+    print(f"{'Signaux après filtre':26s}  {n_adx:>8d}  {n_sha:>8d}  {n_sha_adx:>10d}"
+          f"  (~{n_adx/max(1,n_days):.1f}/{n_sha/max(1,n_days):.1f}/{n_sha_adx/max(1,n_days):.1f}/j)")
+    print(f"{'Win Rate':26s}  {s_adx['win_rate']:>7.1f}%  {s_sha['win_rate']:>7.1f}%  {s_sha_adx['win_rate']:>9.1f}%")
+    print(f"{'Profit Factor':26s}  {s_adx['profit_factor']:>8.2f}  {s_sha['profit_factor']:>8.2f}  {s_sha_adx['profit_factor']:>10.2f}")
+    print(f"{'Sharpe':26s}  {s_adx['sharpe']:>8.2f}  {s_sha['sharpe']:>8.2f}  {s_sha_adx['sharpe']:>10.2f}")
+    print(f"{'P&L Total':26s}  {pnl_adx:>+8,.0f}$  {pnl_sha:>+8,.0f}$  {pnl_s_adx:>+10,.0f}$")
+    print(f"{'P&L Moyen/jour actif':26s}  {s_adx.get('avg_pnl_per_day',0):>+8,.0f}$  "
+          f"{s_sha.get('avg_pnl_per_day',0):>+8,.0f}$  "
+          f"{s_sha_adx.get('avg_pnl_per_day',0):>+10,.0f}$")
+    print(f"{'Max Drawdown':26s}  {-abs(s_adx.get('max_dd_usd',0)):>+8,.0f}$  "
+          f"{-abs(s_sha.get('max_dd_usd',0)):>+8,.0f}$  "
+          f"{-abs(s_sha_adx.get('max_dd_usd',0)):>+10,.0f}$")
+    print(f"{'Jours daily limit':26s}  {s_adx.get('n_daily_limit',0):>8d}  "
+          f"{s_sha.get('n_daily_limit',0):>8d}  "
+          f"{s_sha_adx.get('n_daily_limit',0):>10d}")
+    print(f"{'Jours actifs':26s}  {s_adx['trades_per_day']:>8.1f}  "
+          f"{s_sha['trades_per_day']:>8.1f}  "
+          f"{s_sha_adx['trades_per_day']:>10.1f}")
+    print()
+    print(f"VERDICT ADX   : {verdict(s_adx)}")
+    print(f"VERDICT SHA   : {verdict(s_sha)}")
+    print(f"VERDICT SHA+ADX : {verdict(s_sha_adx)}")
+    print()
+    print(f"OPTIMISATION SHA smooth :")
+    print(f"{'Smooth':>8s}  {'Trades':>7s}  {'WR%':>6s}  {'PF':>6s}  {'P&L$':>9s}  {'DD$':>9s}")
+    print("-" * 55)
+    for r in sha_grid:
+        marker = " ← BEST" if r['smooth'] == best_sha_smooth['smooth'] else ""
+        print(f"SHA({r['smooth']:>2d})   {r['n_trades']:>7d}  {r['win_rate']:>5.1f}%  "
+              f"{r['profit_factor']:>6.2f}  {r['total_pnl']:>+9,.0f}$  "
+              f"{r['max_dd']:>+9,.0f}${marker}")
+    print()
+    print(f"🏆 RECOMMANDATION : {best_filter}")
+    print(f"   → {reco_msg[best_filter]}")
+    print(f"   → Meilleur smooth SHA : {best_sha_smooth['smooth']} "
+          f"(PF={best_sha_smooth['profit_factor']:.2f}, WR={best_sha_smooth['win_rate']:.1f}%)")
     print("=" * 60)
 
 
