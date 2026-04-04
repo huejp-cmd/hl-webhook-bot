@@ -1342,7 +1342,7 @@ def main():
     parser = argparse.ArgumentParser(
         description='NAS100 Reversal — Apex Funding NQ E-mini')
     parser.add_argument('--mode',
-        choices=['backtest', 'optimize', 'walkforward', 'report', 'diag', 'compare'],
+        choices=['backtest', 'optimize', 'walkforward', 'report', 'diag', 'compare', '5m'],
         default='report')
     args = parser.parse_args()
 
@@ -1411,6 +1411,11 @@ def main():
         run_compare(df_1h, conv=conv)
         return
 
+    # ── MODE 5M — NQ=F 5 minutes direct ────────────────────
+    if args.mode == '5m':
+        run_5m()
+        return
+
     # ── REPORT (complet) ────────────────────────────────────
     if args.mode == 'report':
         print("\n🔬 Diagnostic signaux :")
@@ -1469,6 +1474,657 @@ def _print_summary(s: dict):
     print(f"  Compte   : ${ACCOUNT_SIZE:,.0f} → ${fa:,.0f}  ({pnl:+,.0f}$)")
     print(f"  Apex     : DD dépassée={'OUI ⛔' if s.get('apex_halted') else 'NON ✅'}  |  "
           f"Jours daily limit : {s.get('n_daily_limit', 0)}")
+
+
+# ─────────────────────────────────────────────────────────────
+# 15. MODE 5M — BACKTEST DIRECT NQ=F 5 MINUTES
+# ─────────────────────────────────────────────────────────────
+
+PARAM_GRID_5M = {
+    "body_pct":      [0.15, 0.20, 0.25, 0.30],
+    "rr_ratio":      [1.5, 2.0, 2.5, 3.0],
+    "max_wait_bars": [2, 3, 5],
+}
+
+
+def backtest_5m(df: pd.DataFrame, conv: float = 1.0,
+                rr_ratio: float = 2.0, body_pct: float = 0.25,
+                max_wait_bars: int = 3,
+                contracts: int = 1) -> dict:
+    """
+    Backtest 5M avec sortie forcée à 15h50 ET.
+    """
+    df = detect_exhaustion(df, conv=conv)
+    df = df.dropna(subset=['bias']).copy()
+    n = len(df)
+
+    frais_rt = FRAIS_RT * contracts
+
+    account = ACCOUNT_SIZE
+    peak_acct = ACCOUNT_SIZE
+    halted = False
+
+    daily_pnl = 0.0
+    daily_stopped = False
+    current_date = None
+    n_daily_limit = 0
+
+    state = IDLE
+    bias = 0
+    sl_pts = 0.0
+    wait_count = 0
+    indc_high = 0.0
+    indc_low = 0.0
+    entry_price = 0.0
+    sl_price = 0.0
+    tp_price = 0.0
+    entry_time = None
+    entry_bar = 0
+
+    trades = []
+    equity_curve = []
+    daily_stats = []
+
+    try:
+        idx = df.index
+        if idx.tz is None:
+            idx_et = idx.tz_localize('UTC').tz_convert('America/New_York')
+        else:
+            idx_et = idx.tz_convert('America/New_York')
+    except Exception:
+        idx_et = df.index
+
+    for i in range(n):
+        row = df.iloc[i]
+        timestamp = df.index[i]
+
+        try:
+            bar_et = idx_et[i]
+            bar_date = bar_et.date()
+            bar_hour = bar_et.hour
+            bar_minute = bar_et.minute
+        except Exception:
+            bar_date = timestamp.date()
+            bar_hour = 15
+            bar_minute = 59
+
+        # Changement de journée
+        if bar_date != current_date:
+            if current_date is not None:
+                if daily_stopped:
+                    n_daily_limit += 1
+                daily_stats.append({
+                    'date': current_date,
+                    'pnl': daily_pnl,
+                    'stopped': daily_stopped,
+                })
+            current_date = bar_date
+            daily_pnl = 0.0
+            daily_stopped = False
+
+        trading_allowed = (not halted) and (not daily_stopped)
+
+        # Force close à 15h50 ET (10 min avant fermeture)
+        force_close_time = (bar_hour == 15 and bar_minute >= 50) or bar_hour >= 16
+
+        # Dernière barre de la session
+        next_is_new_day = False
+        if i + 1 < n:
+            try:
+                next_is_new_day = (idx_et[i + 1].date() != bar_date)
+            except Exception:
+                next_is_new_day = (df.index[i + 1].date() != timestamp.date())
+        else:
+            next_is_new_day = True
+
+        # ── IN_POSITION ──
+        if state == IN_POSITION:
+            hit_sl = False
+            hit_tp = False
+            exit_price = row['close']
+            raison = 'En cours'
+
+            if bias == 1:
+                if row['low'] <= sl_price:
+                    hit_sl = True; exit_price = sl_price
+                elif row['high'] >= tp_price:
+                    hit_tp = True; exit_price = tp_price
+            else:
+                if row['high'] >= sl_price:
+                    hit_sl = True; exit_price = sl_price
+                elif row['low'] <= tp_price:
+                    hit_tp = True; exit_price = tp_price
+
+            opp = (bias == 1 and row['signal_valid'] and row['bias'] == -1) or \
+                  (bias == -1 and row['signal_valid'] and row['bias'] == 1)
+            if not hit_sl and not hit_tp and opp:
+                exit_price = row['close']
+                raison = 'Signal opposé'
+
+            force_close = (not hit_sl and not hit_tp and
+                           raison != 'Signal opposé' and
+                           (force_close_time or next_is_new_day))
+            if force_close:
+                exit_price = row['close']
+                raison = '15h50 ET' if force_close_time else 'Fin session'
+
+            if hit_sl or hit_tp or opp or force_close:
+                if hit_sl: raison = 'SL'
+                elif hit_tp: raison = 'TP'
+
+                if bias == 1:
+                    pnl_pts = (exit_price - entry_price) * conv
+                else:
+                    pnl_pts = (entry_price - exit_price) * conv
+                pnl_usd = pnl_pts * POINT_VALUE * contracts - frais_rt
+                account += pnl_usd
+                daily_pnl += pnl_usd
+
+                if account > peak_acct:
+                    peak_acct = account
+
+                dd_from_peak = account - peak_acct
+                if dd_from_peak <= MAX_DD_LIMIT:
+                    halted = True
+
+                if daily_pnl <= DAILY_LOSS_LIMIT:
+                    daily_stopped = True
+
+                trades.append({
+                    'entry_time': entry_time,
+                    'exit_time': timestamp,
+                    'direction': 'LONG' if bias == 1 else 'SHORT',
+                    'entry_price': entry_price,
+                    'exit_price': exit_price,
+                    'sl_price': sl_price,
+                    'tp_price': tp_price,
+                    'sl_pts': sl_pts,
+                    'sl_usd': sl_pts * POINT_VALUE * contracts,
+                    'pnl_pts': pnl_pts,
+                    'pnl_usd': pnl_usd,
+                    'account': account,
+                    'raison': raison,
+                    'duree_bars': i - entry_bar,
+                    'daily_pnl': daily_pnl,
+                    'contracts': contracts,
+                })
+
+                state = IDLE
+                bias = 0
+                wait_count = 0
+
+        # ── WAIT_BREAKOUT ──
+        elif state == WAIT_BREAKOUT and trading_allowed and not force_close_time:
+            entered = False
+
+            if bias == -1 and row['close'] < indc_low:
+                entry_price = row['close']
+                sl_price = entry_price + (sl_pts / conv)
+                tp_price = entry_price - (sl_pts * rr_ratio / conv)
+                entered = True
+            elif bias == 1 and row['close'] > indc_high:
+                entry_price = row['close']
+                sl_price = entry_price - (sl_pts / conv)
+                tp_price = entry_price + (sl_pts * rr_ratio / conv)
+                entered = True
+
+            if entered:
+                entry_time = timestamp
+                entry_bar = i
+                state = IN_POSITION
+                wait_count = 0
+            else:
+                wait_count += 1
+                if wait_count > max_wait_bars or next_is_new_day or force_close_time:
+                    state = IDLE; bias = 0; wait_count = 0
+
+        # ── WAIT_INDECISION ──
+        elif state == WAIT_INDECISION and trading_allowed and not force_close_time:
+            if is_indecision(row, body_pct):
+                indc_high = row['high']
+                indc_low = row['low']
+                state = WAIT_BREAKOUT
+                wait_count = 0
+            else:
+                wait_count += 1
+                if wait_count > max_wait_bars or next_is_new_day or force_close_time:
+                    state = IDLE; bias = 0; wait_count = 0
+
+        # ── IDLE ──
+        if state == IDLE and trading_allowed and not force_close_time:
+            if row['signal_valid']:
+                bias = int(row['bias'])
+                sl_pts = float(row['signal_pts'])
+                state = WAIT_INDECISION
+                wait_count = 0
+
+        equity_curve.append({'time': timestamp, 'account': account})
+
+    # Fermer position ouverte en fin de données
+    if state == IN_POSITION:
+        exit_price = df.iloc[-1]['close']
+        if bias == 1:
+            pnl_pts = (exit_price - entry_price) * conv
+        else:
+            pnl_pts = (entry_price - exit_price) * conv
+        pnl_usd = pnl_pts * POINT_VALUE * contracts - frais_rt / 2
+        account += pnl_usd
+        trades.append({
+            'entry_time': entry_time, 'exit_time': df.index[-1],
+            'direction': 'LONG' if bias == 1 else 'SHORT',
+            'entry_price': entry_price, 'exit_price': exit_price,
+            'sl_price': sl_price, 'tp_price': tp_price,
+            'sl_pts': sl_pts, 'sl_usd': sl_pts * POINT_VALUE * contracts,
+            'pnl_pts': pnl_pts, 'pnl_usd': pnl_usd,
+            'account': account, 'raison': 'Fin données',
+            'duree_bars': n - entry_bar, 'daily_pnl': daily_pnl,
+            'contracts': contracts,
+        })
+
+    if current_date is not None:
+        if daily_stopped:
+            n_daily_limit += 1
+        daily_stats.append({'date': current_date, 'pnl': daily_pnl,
+                            'stopped': daily_stopped})
+
+    eq_df = (pd.DataFrame(equity_curve).set_index('time')
+             if equity_curve else pd.DataFrame())
+    stats = compute_stats(trades, equity_curve, daily_stats, halted, account,
+                          contracts=contracts)
+    stats['params'] = {
+        'rr_ratio': rr_ratio, 'body_pct': body_pct,
+        'max_wait_bars': max_wait_bars, 'contracts': contracts,
+    }
+    stats['n_daily_limit'] = n_daily_limit
+
+    return {
+        'trades': trades,
+        'equity_curve': eq_df,
+        'daily_stats': daily_stats,
+        'stats': stats,
+        'halted': halted,
+    }
+
+
+def optimize_5m(df: pd.DataFrame, conv: float = 1.0,
+                contracts: int = 1) -> dict:
+    """
+    Grid search 5M.
+    Score = profit_factor × win_rate_norm × freq_bonus
+    freq_bonus = 1.2 si 4-8 signaux/j, 1.0 si 2-4, 0.7 si <2 ou >10
+    """
+    keys = list(PARAM_GRID_5M.keys())
+    combos = list(product(*PARAM_GRID_5M.values()))
+    total = len(combos)
+    print(f"\n🔍 Optimisation 5M ({contracts}c)... ({total} combinaisons)")
+
+    results = []
+    for idx, combo in enumerate(combos):
+        params = dict(zip(keys, combo))
+        try:
+            res = backtest_5m(df, conv=conv, contracts=contracts, **params)
+            s = res['stats']
+            if s['n_trades'] < 3:
+                continue
+
+            tpd = s['trades_per_day']
+            if 4 <= tpd <= 8:
+                freq_bonus = 1.2
+            elif 2 <= tpd < 4:
+                freq_bonus = 1.0
+            elif tpd > 10:
+                freq_bonus = 0.7
+            else:
+                freq_bonus = 0.7
+
+            pf = max(s['profit_factor'], 0)
+            wr_norm = s['win_rate'] / 100
+            score = pf * wr_norm * freq_bonus
+
+            results.append({**params, **s, 'score': score,
+                             'freq_bonus': freq_bonus})
+        except Exception:
+            continue
+
+        if (idx + 1) % 12 == 0 or idx + 1 == total:
+            print(f"  ... {idx+1}/{total} ({(idx+1)/total*100:.0f}%)")
+
+    if not results:
+        print("  ⚠️  Aucun résultat valide.")
+        return {'best_params': {}, 'best_score': 0, 'ranking': pd.DataFrame()}
+
+    ranking = (pd.DataFrame(results)
+               .sort_values('score', ascending=False)
+               .reset_index(drop=True))
+    best = ranking.iloc[0]
+    best_params = {k: best[k] for k in keys}
+
+    print(f"\n✅ Meilleurs paramètres 5M ({contracts}c) :")
+    print(f"   body_pct={best_params['body_pct']}, "
+          f"rr_ratio={best_params['rr_ratio']}, "
+          f"max_wait_bars={int(best_params['max_wait_bars'])}")
+    print(f"   Win Rate: {best['win_rate']:.1f}% | "
+          f"PF: {best['profit_factor']:.2f} | "
+          f"Trades/jour: {best['trades_per_day']:.1f}")
+
+    return {'best_params': best_params,
+            'best_score': float(best['score']),
+            'ranking': ranking}
+
+
+def generate_5m_report(bt1: dict, bt2: dict,
+                       output_path: str = "trading/nasdaq_5m_report.png"):
+    """
+    Rapport 4 panneaux (thème sombre) :
+    1. Equity curve (1c bleu, 2c orange — même graphe)
+    2. PnL journalier (barres)
+    3. Distribution des trades (wins verts / losses rouges)
+    4. Tableau stats comparatif 1c vs 2c
+    """
+    fig = plt.figure(figsize=(20, 14))
+    fig.patch.set_facecolor('#0d1117')
+    gs = gridspec.GridSpec(2, 2, figure=fig, hspace=0.42, wspace=0.35)
+
+    C = dict(
+        bg='#0d1117', panel='#161b22', text='#e6edf3',
+        green='#3fb950', red='#f85149', blue='#58a6ff',
+        gold='#d29922', grey='#8b949e', orange='#f0883e',
+        purple='#bc8cff', cyan='#39d353',
+    )
+
+    def style_ax(ax, title):
+        ax.set_facecolor(C['panel'])
+        ax.tick_params(colors=C['text'], labelsize=9)
+        for spine in ax.spines.values():
+            spine.set_color('#30363d')
+        ax.xaxis.label.set_color(C['text'])
+        ax.yaxis.label.set_color(C['text'])
+        ax.set_title(title, fontsize=11, fontweight='bold',
+                     pad=10, color=C['text'])
+
+    s1 = bt1['stats']
+    s2 = bt2['stats']
+
+    # ── Panneau 1 : Equity Curve (1c bleu + 2c orange) ──────
+    ax1 = fig.add_subplot(gs[0, 0])
+    style_ax(ax1, '📈 Equity Curve — 1 Contrat (bleu) vs 2 Contrats (orange)')
+
+    eq1 = bt1.get('equity_curve', pd.DataFrame())
+    eq2 = bt2.get('equity_curve', pd.DataFrame())
+
+    if not eq1.empty and 'account' in eq1.columns:
+        ax1.plot(eq1.index, eq1['account'], color=C['blue'],
+                 linewidth=1.5, label='1 Contrat', alpha=0.9)
+    if not eq2.empty and 'account' in eq2.columns:
+        ax1.plot(eq2.index, eq2['account'], color=C['orange'],
+                 linewidth=1.5, label='2 Contrats', alpha=0.9)
+
+    ax1.axhline(y=ACCOUNT_SIZE, color=C['grey'], linestyle=':',
+                linewidth=1, label='100k$ initial')
+    ax1.axhline(y=ACCOUNT_SIZE + MAX_DD_LIMIT, color=C['red'],
+                linestyle='--', linewidth=1,
+                label=f'Max DD -8% ({ACCOUNT_SIZE + MAX_DD_LIMIT:,.0f}$)')
+    ax1.set_ylabel('Compte (USD)', color=C['text'])
+    ax1.legend(facecolor=C['panel'], labelcolor=C['text'], fontsize=8)
+    ax1.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'${x:,.0f}'))
+
+    # ── Panneau 2 : PnL journalier ───────────────────────────
+    ax2 = fig.add_subplot(gs[0, 1])
+    style_ax(ax2, '📊 PnL Journalier (1 Contrat)')
+
+    ds = bt1.get('daily_stats', [])
+    if ds:
+        pnls = [d['pnl'] for d in ds]
+        bar_colors = [C['green'] if p >= 0 else C['red'] for p in pnls]
+        ax2.bar(range(len(pnls)), pnls, color=bar_colors, alpha=0.8, width=0.8)
+        ax2.axhline(y=0, color=C['grey'], linewidth=0.8)
+        ax2.axhline(y=TARGET_DAILY_PNL, color=C['cyan'], linestyle='--',
+                    linewidth=1, alpha=0.7, label=f'Objectif +${TARGET_DAILY_PNL:.0f}/j')
+        ax2.axhline(y=DAILY_LOSS_LIMIT, color=C['orange'], linestyle=':',
+                    linewidth=1, label=f'Daily limit ${DAILY_LOSS_LIMIT:.0f}')
+        ax2.set_ylabel('PnL ($)', color=C['text'])
+        ax2.set_xlabel('Jours de trading', color=C['text'])
+        ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'${x:,.0f}'))
+        ax2.legend(facecolor=C['panel'], labelcolor=C['text'], fontsize=8)
+    else:
+        ax2.text(0.5, 0.5, 'Aucun trade', ha='center', va='center',
+                 color=C['text'], transform=ax2.transAxes)
+
+    # ── Panneau 3 : Distribution des trades ─────────────────
+    ax3 = fig.add_subplot(gs[1, 0])
+    style_ax(ax3, '🎯 Distribution des Trades — Wins (vert) / Losses (rouge)')
+
+    trades1 = bt1.get('trades', [])
+    if trades1:
+        pnls_all = [t['pnl_usd'] for t in trades1]
+        wins = [p for p in pnls_all if p > 0]
+        losses = [p for p in pnls_all if p <= 0]
+        bins = min(30, max(8, len(pnls_all) // 3))
+
+        if losses:
+            ax3.hist(losses, bins=max(4, bins // 2), color=C['red'],
+                     alpha=0.75, label=f'Pertes ({len(losses)})')
+        if wins:
+            ax3.hist(wins, bins=max(4, bins // 2), color=C['green'],
+                     alpha=0.75, label=f'Gains ({len(wins)})')
+
+        ax3.axvline(x=0, color='white', linestyle='--', linewidth=1)
+        if pnls_all:
+            ax3.axvline(x=float(np.mean(pnls_all)), color=C['gold'], linewidth=1.5,
+                        label=f"Moy: ${float(np.mean(pnls_all)):.0f}")
+        ax3.set_xlabel('PnL par trade ($)', color=C['text'])
+        ax3.set_ylabel('Fréquence', color=C['text'])
+        ax3.legend(facecolor=C['panel'], labelcolor=C['text'], fontsize=8)
+    else:
+        ax3.text(0.5, 0.5, 'Aucun trade', ha='center', va='center',
+                 color=C['text'], transform=ax3.transAxes)
+
+    # ── Panneau 4 : Tableau comparatif 1c vs 2c ─────────────
+    ax4 = fig.add_subplot(gs[1, 1])
+    ax4.set_facecolor(C['panel'])
+    ax4.axis('off')
+    ax4.set_title('📋 Stats Comparatif — 1 Contrat vs 2 Contrats', fontsize=11,
+                  fontweight='bold', pad=10, color=C['text'])
+
+    p1 = s1.get('params', {})
+    p2 = s2.get('params', {})
+    pnl1 = s1.get('final_account', ACCOUNT_SIZE) - ACCOUNT_SIZE
+    pnl2 = s2.get('final_account', ACCOUNT_SIZE) - ACCOUNT_SIZE
+    avg1 = s1.get('avg_pnl_per_day', 0)
+    avg2 = s2.get('avg_pnl_per_day', 0)
+
+    table_rows = [
+        ('INDICATEUR',           '1 CONTRAT',
+                                 '2 CONTRATS',          True),
+        ('Win Rate',             f"{s1['win_rate']:.1f}%",
+                                 f"{s2['win_rate']:.1f}%", False),
+        ('Profit Factor',        f"{s1['profit_factor']:.2f}",
+                                 f"{s2['profit_factor']:.2f}", False),
+        ('Sharpe',               f"{s1['sharpe']:.2f}",
+                                 f"{s2['sharpe']:.2f}",   False),
+        ('P&L Total',            f"${pnl1:+,.0f}",
+                                 f"${pnl2:+,.0f}",        False),
+        ('P&L Moy/Jour',         f"${avg1:+.0f}",
+                                 f"${avg2:+.0f}",         False),
+        ('Max Drawdown',         f"-${abs(s1.get('max_dd_usd', 0)):,.0f}",
+                                 f"-${abs(s2.get('max_dd_usd', 0)):,.0f}", False),
+        ('Jours daily limit',    str(s1.get('n_daily_limit', 0)),
+                                 str(s2.get('n_daily_limit', 0)), False),
+        ('Signaux/jour',         f"{s1['trades_per_day']:.1f}",
+                                 f"{s2['trades_per_day']:.1f}", False),
+        ('Risque moy/trade',     f"${s1.get('avg_risk_usd', 0):.0f}",
+                                 f"${s2.get('avg_risk_usd', 0):.0f}", False),
+        ('Nb trades',            str(s1['n_trades']),
+                                 str(s2['n_trades']),     False),
+        ('── Paramètres ──',     '',                      '',     True),
+        ('body_pct',             str(p1.get('body_pct', '-')),
+                                 str(p2.get('body_pct', '-')), False),
+        ('rr_ratio',             str(p1.get('rr_ratio', '-')),
+                                 str(p2.get('rr_ratio', '-')), False),
+        ('max_wait',             str(int(p1.get('max_wait_bars', 0))),
+                                 str(int(p2.get('max_wait_bars', 0))), False),
+    ]
+
+    y = 0.97
+    line_h = 0.060
+    for label, v1, v2, is_header in table_rows:
+        if is_header:
+            ax4.text(0.03, y, label, transform=ax4.transAxes,
+                     color=C['blue'], fontsize=8.5, va='top', fontweight='bold')
+            ax4.text(0.48, y, v1, transform=ax4.transAxes,
+                     color=C['blue'], fontsize=8.5, va='top', fontweight='bold')
+            ax4.text(0.74, y, v2, transform=ax4.transAxes,
+                     color=C['orange'], fontsize=8.5, va='top', fontweight='bold')
+        else:
+            c1 = (C['green'] if pnl1 >= 0 else C['red']) if label == 'P&L Total' else \
+                 (C['green'] if avg1 >= TARGET_DAILY_PNL else C['orange']) if label == 'P&L Moy/Jour' else \
+                 C['text']
+            c2 = (C['green'] if pnl2 >= 0 else C['red']) if label == 'P&L Total' else \
+                 (C['green'] if avg2 >= TARGET_DAILY_PNL else C['orange']) if label == 'P&L Moy/Jour' else \
+                 C['text']
+            ax4.text(0.03, y, label, transform=ax4.transAxes,
+                     color=C['grey'], fontsize=8.5, va='top')
+            ax4.text(0.48, y, v1, transform=ax4.transAxes,
+                     color=c1, fontsize=8.5, va='top', fontweight='bold')
+            ax4.text(0.74, y, v2, transform=ax4.transAxes,
+                     color=c2, fontsize=8.5, va='top', fontweight='bold')
+        y -= line_h
+
+    fig.suptitle(
+        f'NQ Futures 5M — 1 vs 2 Contrats  |  Apex 100k$  |  '
+        f'SL {SL_MIN_PTS}–{SL_MAX_PTS}pts  |  RTH 9h30–16h00 ET  |  '
+        f'{datetime.now().strftime("%Y-%m-%d %H:%M")}',
+        fontsize=12, fontweight='bold', color=C['text'], y=0.988,
+    )
+
+    plt.savefig(output_path, dpi=150, bbox_inches='tight',
+                facecolor=C['bg'], edgecolor='none')
+    plt.close()
+    print(f"\n✅ Rapport 5M sauvegardé : {output_path}")
+
+
+def run_5m():
+    """
+    Mode 5M : télécharge NQ=F 5M, filtre RTH, optimise, compare 1c vs 2c.
+    """
+    print("=" * 60)
+    print("NQ FUTURES 5M — BACKTEST (Apex 100k$)")
+    print("=" * 60)
+
+    # Télécharger NQ=F 5M (60j max yfinance)
+    print("\n📥 Téléchargement NQ=F 5M (60j)...")
+    try:
+        df_raw, conv = download_data(interval='5m', period='60d')
+    except Exception as e:
+        print(f"❌ Erreur téléchargement : {e}")
+        return
+
+    # Filtre RTH 9h30–16h00 ET
+    df = filter_rth(df_raw)
+
+    if len(df) < 50:
+        print("❌ Données insuffisantes après filtre RTH.")
+        return
+
+    # Nombre de jours de trading
+    try:
+        idx = df.index
+        if idx.tz is None:
+            idx_et = idx.tz_localize('UTC').tz_convert('America/New_York')
+        else:
+            idx_et = idx.tz_convert('America/New_York')
+        n_days_trading = len(set(t.date() for t in idx_et))
+    except Exception:
+        n_days_trading = max(1, len(df) // 78)
+
+    print(f"\nDonnées : NQ=F 5M | {n_days_trading} jours | {len(df)} barres | Heures RTH")
+
+    # Diagnostic signaux bruts
+    df_diag = detect_exhaustion(df, conv=conv)
+    n_raw = int((df_diag['bias'] != 0).sum())
+    n_filtered = int(df_diag['signal_valid'].sum())
+    sigs_per_day = n_filtered / max(1, n_days_trading)
+    print(f"Signaux bruts détectés : {n_raw}")
+    print(f"Signaux filtrés (SL {SL_MIN_PTS}-{SL_MAX_PTS} pts) : {n_filtered} (~{sigs_per_day:.1f}/jour)")
+
+    # Optimisation 1 contrat
+    print("\n" + "─" * 40)
+    print("  OPTIMISATION — 1 CONTRAT")
+    print("─" * 40)
+    opt1 = optimize_5m(df, conv=conv, contracts=1)
+    best1 = opt1.get('best_params') or {
+        'rr_ratio': 2.0, 'body_pct': 0.25, 'max_wait_bars': 3}
+
+    # Optimisation 2 contrats
+    print("\n" + "─" * 40)
+    print("  OPTIMISATION — 2 CONTRATS")
+    print("─" * 40)
+    opt2 = optimize_5m(df, conv=conv, contracts=2)
+    best2 = opt2.get('best_params') or {
+        'rr_ratio': 2.0, 'body_pct': 0.25, 'max_wait_bars': 3}
+
+    # Backtest final avec meilleurs paramètres
+    print("\n🔄 Backtest final — 1 contrat...")
+    bt1 = backtest_5m(df, conv=conv, contracts=1, **best1)
+
+    print("🔄 Backtest final — 2 contrats...")
+    bt2 = backtest_5m(df, conv=conv, contracts=2, **best2)
+
+    s1 = bt1['stats']
+    s2 = bt2['stats']
+
+    # Générer rapport PNG
+    generate_5m_report(bt1, bt2, output_path="trading/nasdaq_5m_report.png")
+
+    # Verdict
+    def verdict(s):
+        avg = s.get('avg_pnl_per_day', 0)
+        if avg >= TARGET_DAILY_PNL:
+            return "OBJECTIF ATTEINT"
+        elif avg >= TARGET_DAILY_PNL * 0.5:
+            return "VIABLE"
+        else:
+            return "INSUFFISANT"
+
+    pnl1 = s1.get('final_account', ACCOUNT_SIZE) - ACCOUNT_SIZE
+    pnl2 = s2.get('final_account', ACCOUNT_SIZE) - ACCOUNT_SIZE
+    avg1 = s1.get('avg_pnl_per_day', 0)
+    avg2 = s2.get('avg_pnl_per_day', 0)
+
+    # ── Sortie console requise ───────────────────────────────
+    print()
+    print("=" * 60)
+    print("NQ FUTURES 5M — RÉSULTATS (Apex 100k$)")
+    print("=" * 60)
+    print(f"Données : NQ=F 5M | {n_days_trading} jours | {len(df)} barres | Heures RTH")
+    print(f"Signaux bruts détectés : {n_raw}")
+    print(f"Signaux filtrés (SL {SL_MIN_PTS}-{SL_MAX_PTS} pts) : {n_filtered} (~{sigs_per_day:.1f}/jour)")
+    print()
+    print(f"{'':24s}  {'1 CONTRAT':>12s}  {'2 CONTRATS':>12s}")
+    print("-" * 54)
+    print(f"{'Win Rate':24s}  {s1['win_rate']:>11.1f}%  {s2['win_rate']:>11.1f}%")
+    print(f"{'Profit Factor':24s}  {s1['profit_factor']:>12.2f}  {s2['profit_factor']:>12.2f}")
+    print(f"{'Sharpe':24s}  {s1['sharpe']:>12.2f}  {s2['sharpe']:>12.2f}")
+    print(f"{'P&L Total':24s}  {pnl1:>+11,.0f}$  {pnl2:>+11,.0f}$")
+    print(f"{'P&L Moyen/Jour':24s}  {avg1:>+11,.0f}$  {avg2:>+11,.0f}$"
+          f"  ← objectif: {TARGET_DAILY_PNL:.0f}$/j")
+    print(f"{'Max Drawdown':24s}  {-abs(s1.get('max_dd_usd', 0)):>+11,.0f}$"
+          f"  {-abs(s2.get('max_dd_usd', 0)):>+11,.0f}$")
+    print(f"{'Jours daily limit':24s}  {s1.get('n_daily_limit', 0):>12d}"
+          f"  {s2.get('n_daily_limit', 0):>12d}")
+    print(f"{'Signaux/jour':24s}  {s1['trades_per_day']:>12.1f}  {s2['trades_per_day']:>12.1f}")
+    print(f"{'Risque moy/trade':24s}  {s1.get('avg_risk_usd', 0):>11,.0f}$"
+          f"  {s2.get('avg_risk_usd', 0):>11,.0f}$")
+    print()
+    print(f"Best params (1c) : body_pct={best1['body_pct']}, "
+          f"rr={best1['rr_ratio']}, max_wait={int(best1['max_wait_bars'])}")
+    print(f"Best params (2c) : body_pct={best2['body_pct']}, "
+          f"rr={best2['rr_ratio']}, max_wait={int(best2['max_wait_bars'])}")
+    print()
+    print("VERDICT :")
+    print(f"1 contrat  → {verdict(s1)}")
+    print(f"2 contrats → {verdict(s2)}")
+    print("=" * 60)
 
 
 if __name__ == "__main__":
