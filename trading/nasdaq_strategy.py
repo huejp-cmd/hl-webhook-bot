@@ -1381,7 +1381,7 @@ def main():
     parser = argparse.ArgumentParser(
         description='NAS100 Reversal — Apex Funding NQ E-mini')
     parser.add_argument('--mode',
-        choices=['backtest', 'optimize', 'walkforward', 'report', 'diag', 'compare', '5m', '5m_adx'],
+        choices=['backtest', 'optimize', 'walkforward', 'report', 'diag', 'compare', '5m', '5m_adx', 'sl_tp_opt'],
         default='report')
     args = parser.parse_args()
 
@@ -1458,6 +1458,11 @@ def main():
     # ── MODE 5M_ADX — NQ=F 5M + filtre ADX ─────────────────
     if args.mode == '5m_adx':
         run_5m_adx()
+        return
+
+    # ── MODE SL_TP_OPT — Grille SL×TP fixes ─────────────────
+    if args.mode == 'sl_tp_opt':
+        run_sl_tp_opt()
         return
 
     # ── REPORT (complet) ────────────────────────────────────
@@ -2895,6 +2900,697 @@ def run_5m_adx():
     print("VERDICT :")
     print(f"1 contrat  → {verdict(s1)}")
     print(f"2 contrats → {verdict(s2)}")
+    print("=" * 60)
+
+
+# ─────────────────────────────────────────────────────────────
+# 17. MODE SL_TP_OPT — GRILLE SL FIXE × TP FIXE
+# ─────────────────────────────────────────────────────────────
+
+# Configuration spécifique au mode sl_tp_opt (2 contrats, ADX≤20, body=0.15)
+SL_FIXED_PTS = [8, 10, 12, 15, 18, 20]          # points NQ
+TP_FIXED_PTS = [12, 15, 18, 20, 24, 30, 40]     # points NQ
+SL_TP_ADX_THRESHOLD = 20                          # Filtre ADX confirmé
+SL_TP_BODY_PCT      = 0.15                        # Seuil indécision confirmé
+SL_TP_MAX_WAIT      = 2                           # Barres attente max
+SL_TP_CONTRACTS     = 2                           # 2 contrats Apex
+
+
+def backtest_sl_tp_fixed(df: pd.DataFrame, conv: float = 1.0,
+                          sl_pts: float = 10.0, tp_pts: float = 20.0,
+                          body_pct: float = 0.15, max_wait_bars: int = 2,
+                          adx_threshold: float = 20.0,
+                          contracts: int = 2) -> dict:
+    """
+    Backtest avec SL fixe + TP fixe en points NQ.
+    Logique d'entrée identique à 5m_adx mais SL/TP sont des paramètres fixes.
+    Sortie forcée à 15h50 ET.
+    """
+    # Pré-calcul ADX
+    adx_series = compute_adx(df, period=14)
+
+    # Détection pattern épuisement — on utilise bias != 0 (pas signal_valid)
+    df = df.copy()
+    df['body']      = (df['close'] - df['open']).abs()
+    df['is_green']  = df['close'] > df['open']
+    df['is_red']    = df['close'] < df['open']
+
+    ph  = df['high'].shift(1)
+    pl  = df['low'].shift(1)
+    pig = df['is_green'].shift(1)
+    pir = df['is_red'].shift(1)
+
+    cond_short = (df['is_green'] & pir & (df['high'] > ph) & (df['low'] > pl))
+    cond_long  = (df['is_red']  & pig & (df['low'] < pl)  & (df['high'] < ph))
+
+    df['bias'] = 0
+    df.loc[cond_long,  'bias'] = 1
+    df.loc[cond_short, 'bias'] = -1
+
+    df = df.dropna(subset=['bias']).copy()
+    adx_aligned = adx_series.reindex(df.index).fillna(0)
+    df['adx'] = adx_aligned.values
+
+    n = len(df)
+    frais_rt = FRAIS_RT * contracts
+
+    account   = ACCOUNT_SIZE
+    peak_acct = ACCOUNT_SIZE
+    halted    = False
+
+    daily_pnl     = 0.0
+    daily_stopped = False
+    current_date  = None
+    n_daily_limit = 0
+
+    state      = IDLE
+    bias       = 0
+    wait_count = 0
+    indc_high  = 0.0
+    indc_low   = 0.0
+    entry_price = 0.0
+    sl_price    = 0.0
+    tp_price    = 0.0
+    entry_time  = None
+    entry_bar   = 0
+
+    trades       = []
+    equity_curve = []
+    daily_stats  = []
+
+    try:
+        idx = df.index
+        if idx.tz is None:
+            idx_et = idx.tz_localize('UTC').tz_convert('America/New_York')
+        else:
+            idx_et = idx.tz_convert('America/New_York')
+    except Exception:
+        idx_et = df.index
+
+    for i in range(n):
+        row       = df.iloc[i]
+        timestamp = df.index[i]
+        adx_val   = float(df['adx'].iloc[i])
+
+        try:
+            bar_et     = idx_et[i]
+            bar_date   = bar_et.date()
+            bar_hour   = bar_et.hour
+            bar_minute = bar_et.minute
+        except Exception:
+            bar_date   = timestamp.date()
+            bar_hour   = 15
+            bar_minute = 59
+
+        if bar_date != current_date:
+            if current_date is not None:
+                if daily_stopped:
+                    n_daily_limit += 1
+                daily_stats.append({
+                    'date':    current_date,
+                    'pnl':     daily_pnl,
+                    'stopped': daily_stopped,
+                })
+            current_date  = bar_date
+            daily_pnl     = 0.0
+            daily_stopped = False
+
+        trading_allowed  = (not halted) and (not daily_stopped)
+        force_close_time = (bar_hour == 15 and bar_minute >= 50) or bar_hour >= 16
+
+        next_is_new_day = False
+        if i + 1 < n:
+            try:
+                next_is_new_day = (idx_et[i + 1].date() != bar_date)
+            except Exception:
+                next_is_new_day = (df.index[i + 1].date() != timestamp.date())
+        else:
+            next_is_new_day = True
+
+        # ── IN_POSITION ──
+        if state == IN_POSITION:
+            hit_sl = False
+            hit_tp = False
+            exit_price = row['close']
+            raison = 'En cours'
+
+            if bias == 1:
+                if row['low']  <= sl_price:
+                    hit_sl = True; exit_price = sl_price
+                elif row['high'] >= tp_price:
+                    hit_tp = True; exit_price = tp_price
+            else:
+                if row['high'] >= sl_price:
+                    hit_sl = True; exit_price = sl_price
+                elif row['low']  <= tp_price:
+                    hit_tp = True; exit_price = tp_price
+
+            force_close = (not hit_sl and not hit_tp and
+                           (force_close_time or next_is_new_day))
+            if force_close:
+                exit_price = row['close']
+                raison     = '15h50 ET' if force_close_time else 'Fin session'
+
+            if hit_sl or hit_tp or force_close:
+                if hit_sl:  raison = 'SL'
+                elif hit_tp: raison = 'TP'
+
+                if bias == 1:
+                    pnl_pts = (exit_price - entry_price) * conv
+                else:
+                    pnl_pts = (entry_price - exit_price) * conv
+                pnl_usd    = pnl_pts * POINT_VALUE * contracts - frais_rt
+                account   += pnl_usd
+                daily_pnl += pnl_usd
+
+                if account > peak_acct:
+                    peak_acct = account
+                if account - peak_acct <= MAX_DD_LIMIT:
+                    halted = True
+                if daily_pnl <= DAILY_LOSS_LIMIT:
+                    daily_stopped = True
+
+                trades.append({
+                    'entry_time':  entry_time,
+                    'exit_time':   timestamp,
+                    'direction':   'LONG' if bias == 1 else 'SHORT',
+                    'entry_price': entry_price,
+                    'exit_price':  exit_price,
+                    'sl_price':    sl_price,
+                    'tp_price':    tp_price,
+                    'sl_pts':      sl_pts,
+                    'tp_pts':      tp_pts,
+                    'sl_usd':      sl_pts * POINT_VALUE * contracts,
+                    'tp_usd':      tp_pts * POINT_VALUE * contracts,
+                    'pnl_pts':     pnl_pts,
+                    'pnl_usd':     pnl_usd,
+                    'account':     account,
+                    'raison':      raison,
+                    'duree_bars':  i - entry_bar,
+                    'daily_pnl':   daily_pnl,
+                    'contracts':   contracts,
+                })
+                state      = IDLE
+                bias       = 0
+                wait_count = 0
+
+        # ── WAIT_BREAKOUT ──
+        elif state == WAIT_BREAKOUT and trading_allowed and not force_close_time:
+            entered = False
+
+            if bias == -1 and row['close'] < indc_low:
+                entry_price = row['close']
+                sl_price    = entry_price + sl_pts / conv   # SL en prix natif (↑ pour SHORT)
+                tp_price    = entry_price - tp_pts / conv   # TP en prix natif (↓ pour SHORT)
+                entered     = True
+            elif bias == 1 and row['close'] > indc_high:
+                entry_price = row['close']
+                sl_price    = entry_price - sl_pts / conv   # SL en prix natif (↓ pour LONG)
+                tp_price    = entry_price + tp_pts / conv   # TP en prix natif (↑ pour LONG)
+                entered     = True
+
+            if entered:
+                entry_time = timestamp
+                entry_bar  = i
+                state      = IN_POSITION
+                wait_count = 0
+            else:
+                wait_count += 1
+                if wait_count > max_wait_bars or next_is_new_day or force_close_time:
+                    state = IDLE; bias = 0; wait_count = 0
+
+        # ── WAIT_INDECISION ──
+        elif state == WAIT_INDECISION and trading_allowed and not force_close_time:
+            if is_indecision(row, body_pct):
+                indc_high  = row['high']
+                indc_low   = row['low']
+                state      = WAIT_BREAKOUT
+                wait_count = 0
+            else:
+                wait_count += 1
+                if wait_count > max_wait_bars or next_is_new_day or force_close_time:
+                    state = IDLE; bias = 0; wait_count = 0
+
+        # ── IDLE — pattern épuisement + filtre ADX ──
+        if state == IDLE and trading_allowed and not force_close_time:
+            if row['bias'] != 0 and adx_val < adx_threshold:
+                bias       = int(row['bias'])
+                state      = WAIT_INDECISION
+                wait_count = 0
+
+        equity_curve.append({'time': timestamp, 'account': account})
+
+    # Fermer position ouverte en fin de données
+    if state == IN_POSITION:
+        exit_price = df.iloc[-1]['close']
+        if bias == 1:
+            pnl_pts = (exit_price - entry_price) * conv
+        else:
+            pnl_pts = (entry_price - exit_price) * conv
+        pnl_usd = pnl_pts * POINT_VALUE * contracts - frais_rt / 2
+        account += pnl_usd
+        trades.append({
+            'entry_time': entry_time, 'exit_time': df.index[-1],
+            'direction':  'LONG' if bias == 1 else 'SHORT',
+            'entry_price': entry_price, 'exit_price': exit_price,
+            'sl_price': sl_price, 'tp_price': tp_price,
+            'sl_pts': sl_pts, 'tp_pts': tp_pts,
+            'sl_usd': sl_pts * POINT_VALUE * contracts,
+            'tp_usd': tp_pts * POINT_VALUE * contracts,
+            'pnl_pts': pnl_pts, 'pnl_usd': pnl_usd,
+            'account': account, 'raison': 'Fin données',
+            'duree_bars': n - entry_bar, 'daily_pnl': daily_pnl,
+            'contracts': contracts,
+        })
+
+    if current_date is not None:
+        if daily_stopped:
+            n_daily_limit += 1
+        daily_stats.append({'date': current_date, 'pnl': daily_pnl, 'stopped': daily_stopped})
+
+    eq_df = (pd.DataFrame(equity_curve).set_index('time') if equity_curve else pd.DataFrame())
+    stats = compute_stats(trades, equity_curve, daily_stats, halted, account, contracts=contracts)
+    stats['params']        = {'sl_pts': sl_pts, 'tp_pts': tp_pts, 'contracts': contracts}
+    stats['n_daily_limit'] = n_daily_limit
+
+    return {
+        'trades':       trades,
+        'equity_curve': eq_df,
+        'daily_stats':  daily_stats,
+        'stats':        stats,
+        'halted':       halted,
+    }
+
+
+def optimize_sl_tp(df: pd.DataFrame, conv: float = 1.0,
+                   contracts: int = 2,
+                   body_pct: float = 0.15,
+                   max_wait_bars: int = 2,
+                   adx_threshold: float = 20.0) -> list:
+    """
+    Grid search sur toutes les combinaisons SL × TP fixes valides (TP > SL).
+    Score = profit_factor × win_rate × rr_bonus × freq_bonus
+    """
+    combos = [(sl, tp)
+              for sl in SL_FIXED_PTS
+              for tp in TP_FIXED_PTS
+              if tp > sl]
+
+    total = len(combos)
+    print(f"\n🔍 Grille SL×TP fixes — {total} combinaisons valides (ADX≤{adx_threshold:.0f}, body<{body_pct:.0%}, {contracts}c)")
+    print(f"   SL candidats : {SL_FIXED_PTS} pts")
+    print(f"   TP candidats : {TP_FIXED_PTS} pts")
+
+    results = []
+    for idx, (sl, tp) in enumerate(combos):
+        try:
+            res = backtest_sl_tp_fixed(
+                df, conv=conv,
+                sl_pts=sl, tp_pts=tp,
+                body_pct=body_pct,
+                max_wait_bars=max_wait_bars,
+                adx_threshold=adx_threshold,
+                contracts=contracts,
+            )
+            s = res['stats']
+            if s['n_trades'] < 3:
+                results.append({
+                    'sl_pts': sl, 'tp_pts': tp, 'rr': tp / sl,
+                    'win_rate': 0, 'profit_factor': 0, 'total_pnl_usd': 0,
+                    'max_dd_usd': 0, 'n_trades': 0, 'score': 0,
+                    'avg_pnl_per_day': 0, 'n_daily_limit': 0,
+                    'equity_curve': res.get('equity_curve', pd.DataFrame()),
+                    'trades': res.get('trades', []),
+                })
+                continue
+
+            rr = tp / sl
+            # rr_bonus
+            if rr >= 1.5:
+                rr_bonus = 1.2
+            elif rr >= 1.0:
+                rr_bonus = 1.0
+            else:
+                rr_bonus = 0.8
+
+            # freq_bonus
+            tpd = s['trades_per_day']
+            if 3 <= tpd <= 8:
+                freq_bonus = 1.2
+            elif 1 <= tpd < 3:
+                freq_bonus = 1.0
+            else:
+                freq_bonus = 0.7
+
+            pf    = max(s['profit_factor'], 0)
+            wr    = s['win_rate'] / 100
+            score = pf * wr * rr_bonus * freq_bonus
+
+            results.append({
+                'sl_pts':          sl,
+                'tp_pts':          tp,
+                'rr':              rr,
+                'win_rate':        s['win_rate'],
+                'profit_factor':   pf,
+                'total_pnl_usd':   s['total_pnl_usd'],
+                'max_dd_usd':      s['max_dd_usd'],
+                'n_trades':        s['n_trades'],
+                'trades_per_day':  s['trades_per_day'],
+                'score':           score,
+                'rr_bonus':        rr_bonus,
+                'freq_bonus':      freq_bonus,
+                'avg_pnl_per_day': s.get('avg_pnl_per_day', 0),
+                'n_daily_limit':   s.get('n_daily_limit', 0),
+                'equity_curve':    res.get('equity_curve', pd.DataFrame()),
+                'trades':          res.get('trades', []),
+            })
+        except Exception as e:
+            results.append({
+                'sl_pts': sl, 'tp_pts': tp, 'rr': tp / sl,
+                'win_rate': 0, 'profit_factor': 0, 'total_pnl_usd': 0,
+                'max_dd_usd': 0, 'n_trades': 0, 'score': 0,
+                'avg_pnl_per_day': 0, 'n_daily_limit': 0,
+                'equity_curve': pd.DataFrame(), 'trades': [],
+            })
+
+        if (idx + 1) % 5 == 0 or idx + 1 == total:
+            print(f"  ... {idx+1}/{total} ({(idx+1)/total*100:.0f}%)")
+
+    # Trier par score décroissant
+    results.sort(key=lambda x: x['score'], reverse=True)
+    return results
+
+
+def generate_sl_tp_heatmap(results: list,
+                            output_path: str = "trading/nasdaq_sl_tp_heatmap.png"):
+    """
+    Rapport visuel 3 panneaux :
+    1. Heatmap SL × TP colorée par Profit Factor
+    2. Scatter plot DD vs PnL (taille=trades, couleur=WR)
+    3. Equity curves Top 5
+    """
+    import matplotlib.colors as mcolors
+
+    fig = plt.figure(figsize=(22, 16))
+    fig.patch.set_facecolor('#0d1117')
+    gs  = gridspec.GridSpec(2, 2, figure=fig,
+                            hspace=0.45, wspace=0.32,
+                            height_ratios=[1.2, 1.0])
+
+    C = dict(
+        bg='#0d1117', panel='#161b22', text='#e6edf3',
+        green='#3fb950', red='#f85149', blue='#58a6ff',
+        gold='#d29922', grey='#8b949e', orange='#f0883e',
+        purple='#bc8cff', cyan='#39d353',
+    )
+
+    def style_ax(ax, title):
+        ax.set_facecolor(C['panel'])
+        ax.tick_params(colors=C['text'], labelsize=9)
+        for spine in ax.spines.values():
+            spine.set_color('#30363d')
+        ax.xaxis.label.set_color(C['text'])
+        ax.yaxis.label.set_color(C['text'])
+        ax.set_title(title, fontsize=11, fontweight='bold', pad=10, color=C['text'])
+
+    # Construire la matrice SL × TP pour la heatmap
+    sl_vals = sorted(SL_FIXED_PTS)
+    tp_vals = sorted(TP_FIXED_PTS)
+
+    # PF matrix
+    pf_matrix = np.full((len(sl_vals), len(tp_vals)), np.nan)
+    pnl_matrix = np.full((len(sl_vals), len(tp_vals)), np.nan)
+    wr_matrix  = np.full((len(sl_vals), len(tp_vals)), np.nan)
+
+    for r in results:
+        if r['sl_pts'] in sl_vals and r['tp_pts'] in tp_vals:
+            si = sl_vals.index(r['sl_pts'])
+            ti = tp_vals.index(r['tp_pts'])
+            if r['tp_pts'] > r['sl_pts']:  # valide seulement
+                pf_matrix[si, ti]  = r['profit_factor'] if r['n_trades'] >= 3 else 0.0
+                pnl_matrix[si, ti] = r['total_pnl_usd']
+                wr_matrix[si, ti]  = r['win_rate']
+
+    # ── Panneau 1 : Heatmap Profit Factor ────────────────────
+    ax1 = fig.add_subplot(gs[0, 0])
+    style_ax(ax1, '🔥 Heatmap Profit Factor — SL × TP (pts NQ)')
+    ax1.set_facecolor(C['panel'])
+
+    # Colormap rouge→jaune→vert
+    cmap_pf = mcolors.LinearSegmentedColormap.from_list(
+        'pf_cmap',
+        [(0.0, '#8b0000'), (0.33, '#f85149'), (0.5, '#d29922'),
+         (0.67, '#3fb950'), (1.0, '#00ff88')],
+    )
+
+    pf_plot = np.ma.masked_invalid(pf_matrix)
+    vmax_pf = max(3.0, float(np.nanmax(pf_matrix[~np.isnan(pf_matrix)])) if not np.all(np.isnan(pf_matrix)) else 3.0)
+    im1 = ax1.imshow(pf_plot, aspect='auto', cmap=cmap_pf,
+                     vmin=0, vmax=vmax_pf, origin='lower')
+
+    ax1.set_xticks(range(len(tp_vals)))
+    ax1.set_xticklabels([str(t) for t in tp_vals], color=C['text'])
+    ax1.set_yticks(range(len(sl_vals)))
+    ax1.set_yticklabels([str(s) for s in sl_vals], color=C['text'])
+    ax1.set_xlabel('TP (pts NQ)', color=C['text'])
+    ax1.set_ylabel('SL (pts NQ)', color=C['text'])
+
+    # Annotations dans les cellules
+    for si, sl in enumerate(sl_vals):
+        for ti, tp in enumerate(tp_vals):
+            if tp > sl and not np.isnan(pf_matrix[si, ti]):
+                pf_val = pf_matrix[si, ti]
+                text_color = 'white' if pf_val < vmax_pf * 0.6 else '#0d1117'
+                ax1.text(ti, si, f'{pf_val:.2f}', ha='center', va='center',
+                         color=text_color, fontsize=7.5, fontweight='bold')
+            elif tp <= sl:
+                ax1.text(ti, si, '—', ha='center', va='center',
+                         color=C['grey'], fontsize=8)
+
+    cb1 = fig.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04)
+    cb1.ax.tick_params(colors=C['text'], labelsize=8)
+    cb1.set_label('Profit Factor', color=C['text'], fontsize=9)
+
+    # ── Panneau 2 : Scatter DD vs PnL ────────────────────────
+    ax2 = fig.add_subplot(gs[0, 1])
+    style_ax(ax2, '💠 Scatter — Max DD vs P&L Total (couleur = Win Rate)')
+    ax2.set_facecolor(C['panel'])
+
+    valid = [r for r in results if r['n_trades'] >= 3]
+    if valid:
+        xs   = [abs(r['max_dd_usd']) for r in valid]
+        ys   = [r['total_pnl_usd']   for r in valid]
+        wrs  = [r['win_rate']        for r in valid]
+        nts  = [max(10, r['n_trades'] * 8) for r in valid]
+
+        cmap_wr = mcolors.LinearSegmentedColormap.from_list(
+            'wr_cmap', ['#f85149', '#d29922', '#3fb950'])
+        sc = ax2.scatter(xs, ys, c=wrs, s=nts, cmap=cmap_wr,
+                         vmin=30, vmax=70, alpha=0.8, edgecolors='#30363d', linewidth=0.5)
+        cb2 = fig.colorbar(sc, ax=ax2, fraction=0.046, pad=0.04)
+        cb2.ax.tick_params(colors=C['text'], labelsize=8)
+        cb2.set_label('Win Rate (%)', color=C['text'], fontsize=9)
+
+        ax2.axhline(y=0, color=C['grey'], linestyle='--', linewidth=0.8, alpha=0.6)
+
+        # Annoter les TOP 5
+        top5 = [r for r in results[:5] if r['n_trades'] >= 3]
+        for r in top5:
+            ax2.annotate(
+                f"SL{int(r['sl_pts'])}/TP{int(r['tp_pts'])}",
+                xy=(abs(r['max_dd_usd']), r['total_pnl_usd']),
+                fontsize=7, color=C['gold'], fontweight='bold',
+                xytext=(5, 5), textcoords='offset points',
+            )
+
+    ax2.set_xlabel('Max Drawdown ($)', color=C['text'])
+    ax2.set_ylabel('P&L Total ($)', color=C['text'])
+    ax2.xaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'${x:,.0f}'))
+    ax2.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'${x:+,.0f}'))
+
+    # ── Panneau 3 : Equity Curves Top 5 ──────────────────────
+    ax3 = fig.add_subplot(gs[1, :])
+    style_ax(ax3, '📈 Equity Curves — Top 5 Combinaisons SL/TP Fixes')
+    ax3.set_facecolor(C['panel'])
+
+    palette = [C['gold'], C['green'], C['blue'], C['orange'], C['purple']]
+    top5_all = [r for r in results[:5] if r['n_trades'] >= 3 and not r['equity_curve'].empty]
+
+    ax3.axhline(y=ACCOUNT_SIZE, color=C['grey'], linestyle=':', linewidth=0.8, alpha=0.6)
+    ax3.axhline(y=ACCOUNT_SIZE + MAX_DD_LIMIT, color=C['red'], linestyle='--', linewidth=1,
+                label=f'Max DD Apex -8% ({ACCOUNT_SIZE + MAX_DD_LIMIT:,.0f}$)')
+
+    for k, r in enumerate(top5_all):
+        eq = r['equity_curve']
+        if not eq.empty and 'account' in eq.columns:
+            rr_val = r['tp_pts'] / r['sl_pts']
+            label  = (f"#{k+1} SL{int(r['sl_pts'])}/TP{int(r['tp_pts'])} pts "
+                      f"| RR {rr_val:.1f} | WR {r['win_rate']:.0f}% "
+                      f"| PF {r['profit_factor']:.2f} "
+                      f"| PnL ${r['total_pnl_usd']:+,.0f}")
+            ax3.plot(eq.index, eq['account'], color=palette[k % len(palette)],
+                     linewidth=1.5, label=label, alpha=0.9)
+
+    ax3.set_ylabel('Compte (USD)', color=C['text'])
+    ax3.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f'${x:,.0f}'))
+    ax3.legend(facecolor=C['panel'], labelcolor=C['text'], fontsize=8, loc='upper left')
+
+    # Titre global
+    fig.suptitle(
+        f'NQ Futures 5M — Optimisation SL×TP Fixes  |  Apex 100k$ — 2 Contrats  |  '
+        f'ADX≤{SL_TP_ADX_THRESHOLD} | body<{SL_TP_BODY_PCT:.0%} | wait≤{SL_TP_MAX_WAIT}bars  |  '
+        f'{datetime.now().strftime("%Y-%m-%d %H:%M")}',
+        fontsize=12, fontweight='bold', color=C['text'], y=0.998,
+    )
+
+    plt.savefig(output_path, dpi=150, bbox_inches='tight',
+                facecolor=C['bg'], edgecolor='none')
+    plt.close()
+    print(f"\n✅ Heatmap sauvegardée : {output_path}")
+
+
+def run_sl_tp_opt():
+    """
+    Mode sl_tp_opt : NQ=F 5M — grille SL fixe × TP fixe — 2 contrats.
+    ADX ≤ 20, body < 15%, max_wait = 2 barres, sortie 15h50 ET.
+    """
+    import json
+
+    print("=" * 60)
+    print("OPTIMISATION SL/TP FIXES — NQ 5M | ADX=20 | 2 CONTRATS")
+    print("=" * 60)
+
+    # Téléchargement NQ=F 5M (60j)
+    print("\n📥 Téléchargement NQ=F 5M (60j)...")
+    try:
+        df_raw, conv = download_data(interval='5m', period='60d')
+    except Exception as e:
+        print(f"❌ Erreur téléchargement : {e}")
+        return
+
+    df = filter_rth(df_raw)
+
+    if len(df) < 50:
+        print("❌ Données insuffisantes après filtre RTH.")
+        return
+
+    try:
+        idx = df.index
+        if idx.tz is None:
+            idx_et = idx.tz_localize('UTC').tz_convert('America/New_York')
+        else:
+            idx_et = idx.tz_convert('America/New_York')
+        n_days_trading = len(set(t.date() for t in idx_et))
+    except Exception:
+        n_days_trading = max(1, len(df) // 78)
+
+    print(f"\nDonnées : NQ=F 5M | {n_days_trading} jours RTH | {len(df)} barres")
+
+    # Lancer l'optimisation
+    results = optimize_sl_tp(
+        df, conv=conv,
+        contracts=SL_TP_CONTRACTS,
+        body_pct=SL_TP_BODY_PCT,
+        max_wait_bars=SL_TP_MAX_WAIT,
+        adx_threshold=SL_TP_ADX_THRESHOLD,
+    )
+
+    # Préparer les données pour JSON (sans equity_curve ni trades)
+    results_json = []
+    for r in results:
+        results_json.append({
+            'sl_pts':          r['sl_pts'],
+            'tp_pts':          r['tp_pts'],
+            'rr':              round(r['rr'], 3),
+            'win_rate':        round(r['win_rate'], 2),
+            'profit_factor':   round(r['profit_factor'], 3),
+            'total_pnl_usd':   round(r['total_pnl_usd'], 2),
+            'max_dd_usd':      round(r['max_dd_usd'], 2),
+            'n_trades':        r['n_trades'],
+            'trades_per_day':  round(r.get('trades_per_day', 0), 2),
+            'score':           round(r['score'], 4),
+            'avg_pnl_per_day': round(r.get('avg_pnl_per_day', 0), 2),
+            'n_daily_limit':   r.get('n_daily_limit', 0),
+            'sl_usd_trade':    int(r['sl_pts'] * POINT_VALUE * SL_TP_CONTRACTS),
+            'tp_usd_trade':    int(r['tp_pts'] * POINT_VALUE * SL_TP_CONTRACTS),
+        })
+
+    json_path = "trading/sl_tp_results.json"
+    with open(json_path, 'w') as f:
+        json.dump({
+            'config': {
+                'ticker': 'NQ=F', 'interval': '5m', 'period': '60d',
+                'contracts': SL_TP_CONTRACTS, 'point_value': POINT_VALUE,
+                'account_size': ACCOUNT_SIZE,
+                'daily_loss_limit': DAILY_LOSS_LIMIT,
+                'max_dd_limit': MAX_DD_LIMIT,
+                'adx_threshold': SL_TP_ADX_THRESHOLD,
+                'body_pct': SL_TP_BODY_PCT,
+                'max_wait': SL_TP_MAX_WAIT,
+                'n_days_trading': n_days_trading,
+                'n_bars': len(df),
+            },
+            'results': results_json,
+        }, f, indent=2)
+    print(f"💾 Résultats sauvegardés : {json_path}")
+
+    # Générer la heatmap
+    generate_sl_tp_heatmap(results, output_path="trading/nasdaq_sl_tp_heatmap.png")
+
+    # ── Affichage console TOP 10 ────────────────────────────
+    top10 = [r for r in results[:10] if r['n_trades'] >= 3]
+
+    print()
+    print("=" * 60)
+    print("OPTIMISATION SL/TP FIXES — NQ 5M | ADX=20 | 2 CONTRATS")
+    print("=" * 60)
+    print(f"Données : NQ=F 5M | {n_days_trading} jours RTH | ADX≤{SL_TP_ADX_THRESHOLD}")
+    print()
+    print("CLASSEMENT PAR SCORE (top 10) :")
+    print(f"{'Rank':>4} | {'SL pts':>6} | {'TP pts':>6} | {'RR':>5} | {'WR%':>5} | {'PF':>5} | "
+          f"{'PnL$':>7} | {'DD$':>7} | {'Trades':>6} | {'Score':>6}")
+    print("-" * 80)
+    for k, r in enumerate(top10, 1):
+        print(f"{k:>4} | {int(r['sl_pts']):>6} | {int(r['tp_pts']):>6} | "
+              f"{r['rr']:>5.2f} | {r['win_rate']:>5.1f} | {r['profit_factor']:>5.2f} | "
+              f"{r['total_pnl_usd']:>+7,.0f} | {r['max_dd_usd']:>+7,.0f} | "
+              f"{r['n_trades']:>6} | {r['score']:>6.3f}")
+
+    if not top10:
+        print("  ⚠️  Aucune combinaison valide (moins de 3 trades).")
+        return
+
+    best = top10[0]
+    sl_best = best['sl_pts']
+    tp_best = best['tp_pts']
+    rr_best = best['rr']
+    wr_best = best['win_rate']
+    pf_best = best['profit_factor']
+    pnl_best = best['total_pnl_usd']
+    dd_best  = best['max_dd_usd']
+    avg_day  = best.get('avg_pnl_per_day', 0)
+    dd_pct   = abs(dd_best) / ACCOUNT_SIZE * 100
+    n_daily  = best.get('n_daily_limit', 0)
+    sl_usd   = int(sl_best * POINT_VALUE * SL_TP_CONTRACTS)
+    tp_usd   = int(tp_best * POINT_VALUE * SL_TP_CONTRACTS)
+
+    print()
+    print(f"🏆 MEILLEURE COMBINAISON :")
+    print(f"SL = {int(sl_best)} pts ({sl_usd}$/trade avec {SL_TP_CONTRACTS} contrats)")
+    print(f"TP = {int(tp_best)} pts ({tp_usd}$/trade avec {SL_TP_CONTRACTS} contrats)")
+    print(f"Ratio R/R = {rr_best:.1f}:1")
+    print(f"Win Rate = {wr_best:.1f}% | Profit Factor = {pf_best:.2f}")
+    print(f"P&L Total = {pnl_best:+,.0f}$ | P&L Moyen/jour = {avg_day:+.0f}$")
+    print(f"Max Drawdown = {dd_best:+,.0f}$ ({dd_pct:.1f}% du compte)")
+    print(f"Jours daily limit touchés = {n_daily}")
+    print()
+    print(f"SÉCURITÉ APEX :")
+    apex_sl_ok = sl_usd < abs(DAILY_LOSS_LIMIT)
+    apex_dd_ok = dd_pct < 8.0
+    print(f"{'✅' if apex_sl_ok else '⚠️ '} SL max par trade = {sl_usd}$ "
+          f"({'sous' if apex_sl_ok else 'DÉPASSE'} limite daily loss {abs(DAILY_LOSS_LIMIT):.0f}$)")
+    print(f"{'✅' if apex_dd_ok else '⚠️ '} Max drawdown backtest = {dd_pct:.1f}% "
+          f"({'< 8%' if apex_dd_ok else '> 8%'} limite Apex)")
     print("=" * 60)
 
 
