@@ -30,9 +30,11 @@ strategy("JP v7 ETH 30M",
 // ???????????????????????????????????????????????????????????????
 
 // ?? Mode test ????????????????????????????????????????????????????
-g_test   = "[config] Mode"
-testMode = input.bool(false, "[TEST] MODE TEST ? desactive les alertes webhook", group=g_test,
-           tooltip="TRUE = DRY RUN Pine Script, aucun signal envoye au bot.")
+g_test      = "[config] Mode"
+testMode    = input.bool(false, "[TEST] MODE TEST ? desactive les alertes webhook", group=g_test,
+              tooltip="TRUE = DRY RUN Pine Script, aucun signal envoye au bot.")
+useHAFilter = input.bool(true,  "Filtre Heikin Ashi 1H (tendance de fond)", group=g_test,
+              tooltip="ON = LONG seulement si HA 1H haussier, SHORT seulement si HA 1H baissier. Desactiver pour comparer sans filtre.")
 
 // ?? Coin cible - FIXE ETH (ne pas modifier) ???????????????????
 hlCoin   = "ETH"
@@ -249,8 +251,8 @@ haOpen1H  = request.security(ticker.heikinashi(syminfo.tickerid), "60", open)
 haBull1H  = haClose1H > haOpen1H  // 1H HA haussier → LONG autorisé
 haBear1H  = haClose1H < haOpen1H  // 1H HA baissier → SHORT autorisé
 
-validL     = not strongBear and haBull1H
-validS     = not strongBull and haBear1H
+validL     = not strongBear and (not useHAFilter or haBull1H)
+validS     = not strongBull and (not useHAFilter or haBear1H)
 
 // SL / TP (sizing SL/TP conserve la logique originale ? qty remplace par Labouchere)
 calcQty(ep, sp) =>
@@ -530,8 +532,8 @@ bgcolor(isRanging   ? color.new(color.red,   90) : na, title="Ranging")
 bgcolor(isTrending  ? color.new(color.green, 88) : na, title="Trending")
 bgcolor(isExplosive ? color.new(color.green, 65) : na, title="Explosive")
 bgcolor(dailyStop   ? color.new(color.red,   80) : na, title="Stop journalier")
-bgcolor(haBull1H    ? color.new(color.blue,  94) : na, title="HA 1H Haussier")
-bgcolor(haBear1H    ? color.new(color.orange,94) : na, title="HA 1H Baissier")
+bgcolor(useHAFilter and haBull1H ? color.new(color.blue,  94) : na, title="HA 1H Haussier")
+bgcolor(useHAFilter and haBear1H ? color.new(color.orange,94) : na, title="HA 1H Baissier")
 
 // ???????????????????????????????????????????????????????????????
 //  TABLEAU CONDITIONS (bas-gauche)
