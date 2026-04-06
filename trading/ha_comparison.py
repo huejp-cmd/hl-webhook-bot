@@ -45,8 +45,9 @@ CONFIGS = {
 }
 
 INITIAL_CAPITAL = 10_000.0
-QTY_PCT         = 0.02   # 2% du capital par trade
+QTY_PCT         = 0.02   # 2% du capital par trade (risque de base)
 HL_API_URL      = "https://api.hyperliquid.xyz/info"
+LEVERAGES       = [2, 3]  # leverages à comparer
 
 WINDOWS = {
     "30J":  30,
@@ -238,7 +239,7 @@ def get_ha_state(ts_ms, ha_map_1h):
 # ─────────────────────────────────────────────────────
 # BACKTEST ENGINE (avec option filtre HA)
 # ─────────────────────────────────────────────────────
-def run_backtest(candles, params, ha_map_1h=None, use_ha_filter=False):
+def run_backtest(candles, params, ha_map_1h=None, use_ha_filter=False, leverage=2):
     """
     Simule la stratégie sur `candles` (avec timestamps).
     use_ha_filter=True : filtre les signaux selon HA 1H.
@@ -323,7 +324,7 @@ def run_backtest(candles, params, ha_map_1h=None, use_ha_filter=False):
             if risk <= 0:
                 continue
             tp      = price + risk * params["tp_mult"]
-            qty     = (capital * QTY_PCT) / risk
+            qty     = (capital * QTY_PCT) / risk * (leverage / 2)
             entry_p = price
             in_long = True
 
@@ -336,7 +337,7 @@ def run_backtest(candles, params, ha_map_1h=None, use_ha_filter=False):
             if risk <= 0:
                 continue
             tp      = price - risk * params["tp_mult"]
-            qty     = (capital * QTY_PCT) / risk
+            qty     = (capital * QTY_PCT) / risk * (leverage / 2)
             entry_p = price
             in_short = True
 
@@ -396,8 +397,13 @@ def main():
 
         params = {k: cfg[k] for k in ["hma_fast","hma_slow","tp_mult","adx_thresh","rsi_low","rsi_high"]}
 
-        print(f"\n  {'Fenêtre':<8}  {'Version':<20}  {'Trades':>6}  {'WR%':>6}  {'PF':>5}  {'DD%':>6}  {'Ret%':>8}")
-        print(f"  {'-'*8}  {'-'*20}  {'-'*6}  {'-'*6}  {'-'*5}  {'-'*6}  {'-'*8}")
+        # Config optimale : SOL → HA ON, ETH → HA OFF (validé backtest)
+        use_ha = (coin == "SOL")
+        config_label = "HA ON" if use_ha else "HA OFF"
+
+        print(f"\n  Config optimale validée : {config_label}")
+        print(f"\n  {'Fenêtre':<8}  {'Version':<18}  {'Trades':>6}  {'WR%':>6}  {'PF':>5}  {'DD%':>6}  {'Ret%':>8}")
+        print(f"  {'-'*8}  {'-'*18}  {'-'*6}  {'-'*6}  {'-'*5}  {'-'*6}  {'-'*8}")
 
         for win_name, win_days in WINDOWS.items():
             sliced = slice_window(candles, win_days)
@@ -405,21 +411,19 @@ def main():
                 print(f"  {win_name:<8}  ⚠ Pas assez de données ({len(sliced)} bougies)")
                 continue
 
-            # Version A : sans filtre HA
-            res_a = run_backtest(sliced, params, use_ha_filter=False)
-            # Version B : avec filtre HA 1H
-            res_b = run_backtest(sliced, params, ha_map_1h=ha_map, use_ha_filter=True)
-
-            def fmt(r, label):
-                if r is None:
-                    return f"  {win_name:<8}  {label:<20}  {'—':>6}  {'—':>6}  {'—':>5}  {'—':>6}  {'—':>8}"
-                sign = "+" if r["return"] >= 0 else ""
-                return (f"  {win_name:<8}  {label:<20}  {r['trades']:>6}  "
-                        f"{r['win_rate']:>5.1f}%  {r['pf']:>5.2f}  "
-                        f"{r['dd']:>5.1f}%  {sign}{r['return']:>7.1f}%")
-
-            print(fmt(res_a, "Sans filtre HA"))
-            print(fmt(res_b, "Avec filtre HA 1H"))
+            for lev in LEVERAGES:
+                res = run_backtest(sliced, params,
+                                   ha_map_1h=ha_map if use_ha else None,
+                                   use_ha_filter=use_ha,
+                                   leverage=lev)
+                label = f"Levier ×{lev} ({config_label})"
+                if res is None:
+                    print(f"  {win_name:<8}  {label:<18}  {'—':>6}  {'—':>6}  {'—':>5}  {'—':>6}  {'—':>8}")
+                else:
+                    sign = "+" if res["return"] >= 0 else ""
+                    print(f"  {win_name:<8}  {label:<18}  {res['trades']:>6}  "
+                          f"{res['win_rate']:>5.1f}%  {res['pf']:>5.2f}  "
+                          f"{res['dd']:>5.1f}%  {sign}{res['return']:>7.1f}%")
             print()
 
     print("=" * 60)

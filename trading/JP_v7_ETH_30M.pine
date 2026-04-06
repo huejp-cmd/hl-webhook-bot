@@ -44,8 +44,8 @@ whSymbol = "ETHUSDT.P"
 g_lab            = " Labouchere"
 unitFactor       = input.float(0.5,   "Facteur unite (% capital/unite)", group=g_lab, step=0.1, minval=0.1,
                    tooltip="Chaque unite = X% du capital. 0.5 = 0.5%/unite.")
-leverageLabMult  = input.float(2.0,   "Levier Labouchere", group=g_lab, step=0.5, minval=1.0,
-                   tooltip="Levier applique au sizing Labouchere.")
+leverageLabMult  = input.float(3.0,   "Levier Labouchere", group=g_lab, step=0.5, minval=1.0,
+                   tooltip="Levier applique au sizing Labouchere. Backtest : x3 = +44.7% 1an vs +30.1% en x2 (DD 16.7% vs 11.4%).")
 capMultLab       = input.float(4.0,   "Plafond (? pertes cumulees)", group=g_lab, step=0.5, minval=1.0,
                    tooltip="bet_units ? max(CAP_MULT ? cumul_pertes, 2). Securite anti-emballement.")
 startCapitalLab  = input.float(500.0, "Capital depart USDC", group=g_lab, step=100, minval=100,
