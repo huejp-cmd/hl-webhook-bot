@@ -33,8 +33,8 @@ strategy("JP v7 ETH 30M",
 g_test      = "[config] Mode"
 testMode    = input.bool(false, "[TEST] MODE TEST ? desactive les alertes webhook", group=g_test,
               tooltip="TRUE = DRY RUN Pine Script, aucun signal envoye au bot.")
-useHAFilter = input.bool(true,  "Filtre Heikin Ashi 1H (tendance de fond)", group=g_test,
-              tooltip="ON = LONG seulement si HA 1H haussier, SHORT seulement si HA 1H baissier. Desactiver pour comparer sans filtre.")
+useHAFilter = input.bool(false, "Filtre Heikin Ashi 1H (tendance de fond)", group=g_test,
+              tooltip="Backtest : filtre degrade les resultats ETH sur 90J/1an. Laisser OFF. ON = LONG seulement si HA 1H haussier, SHORT seulement si HA 1H baissier.")
 
 // ?? Coin cible - FIXE ETH (ne pas modifier) ???????????????????
 hlCoin   = "ETH"
