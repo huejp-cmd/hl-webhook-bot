@@ -81,11 +81,16 @@ DRY_RUN = os.environ.get("DRY_RUN", "true").lower() == "true"  # env ou True par
 #  TIMEOUTS LIMIT -> MARKET
 # =============================================================================
 # Entree : offset du prix limite (fraction du prix)
-# 0.0002 = 0.02% sous/au-dessus du marche -> maker fee 0.02%/side
-ENTRY_LIMIT_OFFSET  = 0.0002
+# 0.0 = prix exact du signal Pine Script (bar close)
+# La bougie 30M vient de se fermer -> la suivante ouvre au meme prix -> fill quasi garanti
+ENTRY_LIMIT_OFFSET  = 0.0
 
 # Entree : attente avant bascule market (secondes)
 ENTRY_LIMIT_TIMEOUT = 30
+
+# Entree : si le prix a derive de plus de X% pendant l'attente -> SKIP (pas de market chase)
+# 0.003 = 0.3% -> au-dela le trade n'est plus au prix prevu, on prefere rater que payer le slippage
+ENTRY_MAX_DRIFT_PCT = 0.003
 
 # TP : offset du prix limite pour le take profit
 # 0.0001 = 0.01% -> se remplit facilement quand le prix touche le TP
@@ -400,8 +405,20 @@ def _entry_limit_or_market(coin: str, is_buy: bool,
             if not _is_order_still_open(oid):
                 log.info("  Limite remplie avant timeout (maker 0.02%)")
                 return {"status": "filled_limit", "oid": oid}
-        log.info(f"  Timeout {ENTRY_LIMIT_TIMEOUT}s -- annulation limite, bascule market")
+        log.info(f"  Timeout {ENTRY_LIMIT_TIMEOUT}s -- annulation limite, vérification drift...")
         _cancel_order(coin, oid)
+
+    # -- Vérification drift avant fallback market --
+    try:
+        current_px = float(exchange.all_mids().get(coin, ref_price))
+        drift = abs(current_px - ref_price) / ref_price
+        if drift > ENTRY_MAX_DRIFT_PCT:
+            log.warning(f"  ⛔ SKIP : prix dérivé de {drift*100:.2f}% (max {ENTRY_MAX_DRIFT_PCT*100:.1f}%) "
+                        f"-- signal périmé, on ne chase pas")
+            return None
+        log.info(f"  Drift {drift*100:.3f}% acceptable -> bascule market")
+    except Exception as e:
+        log.warning(f"  Impossible de vérifier drift ({e}) -> bascule market quand même")
 
     # -- Fallback market --
     try:
