@@ -43,19 +43,24 @@ DRY_RUN     = os.environ.get("DRY_RUN",  "true").lower() == "true"
 
 HL_INFO_URL = "https://api.hyperliquid.xyz/info"
 
-# ── Indicator parameters (mirrors Pine Script v6.2) ──
+# ── Indicator parameters (mirrors Pine Script v7) ──
 ATR_LEN     = 10
 ADX_LEN     = 14
 RSI_LEN     = 100
 BB_LEN      = 20
 BB_MULT     = 2.0
 VOL_SMA_LEN = 20
-HMA_FAST    = 20  # SOL default (ETH uses 25 via COINS config)
-HMA_SLOW    = 60  # SOL default (ETH uses 40 via COINS config)
 VP_K        = 0.75   # VWAP band offset (×ATR)
-VOL_MULT    = 1.4    # volume threshold vs SMA
+VOL_MULT    = 1.4    # volume threshold vs SMA (Pine: 1.4)
 VWAP_BARS   = 24     # rolling window for VWAP/VAH/VAL
 ATR_SMA_LEN = 20     # SMA of ATR for volHigh detection
+ADX_TREND_THRESH = 25  # Pine Script: adx > 25 → isTrending (was 20, now fixed)
+
+# Per-coin HMA parameters (from Pine Script v7 optimized)
+COIN_PARAMS = {
+    "SOL": {"hma_fast": 20, "hma_slow": 50},  # JP_v7_SOL: HMA 20/50
+    "ETH": {"hma_fast": 25, "hma_slow": 40},  # JP_v7_ETH: HMA 25/40
+}
 
 TP_MULT_TREND = 5.0
 TP_MULT_EXPLO = 4.5
@@ -376,9 +381,14 @@ def detect_signal(coin: str, bars: list) -> tuple:
     closes  = np.array([b["c"] for b in bars], dtype=float)
     volumes = np.array([b["v"] for b in bars], dtype=float)
 
+    # ── Per-coin HMA parameters ──
+    params  = COIN_PARAMS.get(coin, {"hma_fast": 20, "hma_slow": 50})
+    hma_f   = params["hma_fast"]
+    hma_s   = params["hma_slow"]
+
     # ── Calculate all indicators ──
-    hma20   = calc_hma(closes, HMA_FAST)
-    hma50   = calc_hma(closes, HMA_SLOW)
+    hma20   = calc_hma(closes, hma_f)
+    hma50   = calc_hma(closes, hma_s)
     atr     = calc_atr(highs, lows, closes, ATR_LEN)
     atr_sma = calc_sma(atr, ATR_SMA_LEN)
     vol_sma = calc_sma(volumes, VOL_SMA_LEN)
@@ -431,21 +441,21 @@ def detect_signal(coin: str, bars: list) -> tuple:
         log.warning(f"[{coin}] NaN indicators {list(nan_fields.keys())} — need more bars")
         return None, 0.0, 0.0, c, {}
 
-    # ── REGIMES ──
+    # ── REGIMES (Pine Script v7: adx > 25 for trending) ──
     vol_high    = cur_atr > cur_atr_sma * 1.5
     vol_up      = v > cur_vol_sma * VOL_MULT
     explosive   = vol_high and (cur_rsi > 75 or cur_rsi < 25) and vol_up
-    is_trending = cur_adx > 20 and not explosive
-    is_ranging  = cur_adx < 15 and not (cur_adx > 20 or explosive)
+    is_trending = cur_adx > ADX_TREND_THRESH and not explosive
+    is_ranging  = cur_adx < 20 and not (cur_adx > ADX_TREND_THRESH or explosive)
     is_explosive = explosive and not (cur_adx > 20 or is_ranging)
 
     regime_str = ("TREND"     if is_trending  else
                   "EXPLOSIVE" if is_explosive else
                   "RANGE"     if is_ranging   else "NEUTRAL")
 
-    # ── LONG CONDITIONS ──
+    # ── LONG CONDITIONS (Pine Script: 35 < rsi < 65) ──
     bull_trend    = cur_di_plus > cur_di_minus and c > cur_hma50
-    pullback_long = l <= cur_hma20 and c > cur_hma20 and 35 < cur_rsi < 60
+    pullback_long = l <= cur_hma20 and c > cur_hma20 and 35 < cur_rsi < 65
     entry_lt      = is_trending and bull_trend and pullback_long
 
     vah_ok      = not math.isnan(cur_vah)
@@ -453,9 +463,9 @@ def detect_signal(coin: str, bars: list) -> tuple:
                    and (c - c_prev) > cur_atr * 0.8 and vol_up)
     entry_le    = is_explosive and breakout_up
 
-    # ── SHORT CONDITIONS ──
+    # ── SHORT CONDITIONS (Pine Script: 35 < rsi < 65) ──
     bear_trend     = cur_di_minus > cur_di_plus and c < cur_hma50
-    pullback_short = h >= cur_hma20 and c < cur_hma20 and 40 < cur_rsi < 65
+    pullback_short = h >= cur_hma20 and c < cur_hma20 and 35 < cur_rsi < 65
     entry_st       = is_trending and bear_trend and pullback_short
 
     val_ok        = not math.isnan(cur_val)
@@ -488,7 +498,7 @@ def detect_signal(coin: str, bars: list) -> tuple:
         f"regime={regime_str} volHigh={vol_high} volUp={vol_up}"
     )
     log.info(
-        f"[{coin}] HMA20={cur_hma20:.4f} HMA50={cur_hma50:.4f} | "
+        f"[{coin}] HMA{hma_f}={cur_hma20:.4f} HMA{hma_s}={cur_hma50:.4f} | "
         f"VAH={'n/a' if math.isnan(cur_vah) else f'{cur_vah:.4f}'} "
         f"VAL={'n/a' if math.isnan(cur_val) else f'{cur_val:.4f}'}"
     )
