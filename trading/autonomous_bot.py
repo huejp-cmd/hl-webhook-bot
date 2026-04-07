@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-Autonomous Trading Bot — JP v6.2 Logic
+Autonomous Trading Bot — JP v7.1 Logic
 ========================================
 Runs independently of TradingView.
-Fetches OHLCV directly from Hyperliquid, aggregates 1m → 29m,
+Fetches OHLCV directly from Hyperliquid, aggregates 1m → TF per coin,
 detects signals (trend + explosive), sizes via Labouchere INVERSÉ,
 and places orders on Hyperliquid perpetuals.
 
-Coins     : SOL, ETH
-Timeframe : 45M
+Coins     : SOL (29M), ETH (30M)
 Capital   : 500 USDC each
 Mode      : DRY_RUN=true by default (logs orders without placing them)
 """
@@ -33,8 +32,8 @@ import trade_journal
 #  CONFIGURATION
 # ==============================================================
 COINS       = ["SOL", "ETH"]
-TF_MINUTES  = 45
-BARS_NEEDED = 160          # 45m bars to fetch (covers RSI-100 + warmup)
+COIN_TF     = {"SOL": 29, "ETH": 30}   # timeframe per coin (minutes)
+BARS_NEEDED = 160          # bars to fetch per coin (covers RSI-100 + warmup)
 
 CAPITAL = {"SOL": 500.0, "ETH": 500.0}
 
@@ -159,10 +158,10 @@ def fetch_candles_1m(coin: str, n_1m_bars: int) -> list:
     return candles
 
 
-def aggregate_to_29m(candles_1m: list) -> list:
+def aggregate_to_tf(candles_1m: list, tf_minutes: int) -> list:
     """
-    Aggregate 1m candles → 29m bars aligned to midnight UTC.
-    Bar k covers minutes [k×29, (k+1)×29) since 00:00 UTC.
+    Aggregate 1m candles → tf_minutes bars aligned to midnight UTC.
+    Bar k covers minutes [k×tf, (k+1)×tf) since 00:00 UTC.
     Drops current (incomplete) bar.
     """
     if not candles_1m:
@@ -171,7 +170,7 @@ def aggregate_to_29m(candles_1m: list) -> list:
     def bar_key(t_ms):
         dt  = datetime.fromtimestamp(t_ms / 1000, tz=timezone.utc)
         min_of_day = dt.hour * 60 + dt.minute
-        return dt.strftime("%Y-%m-%d"), min_of_day // TF_MINUTES
+        return dt.strftime("%Y-%m-%d"), min_of_day // tf_minutes
 
     # Group 1m candles by (date, bar_index)
     groups: dict = {}
@@ -200,9 +199,9 @@ def aggregate_to_29m(candles_1m: list) -> list:
         now_ms = int(time.time() * 1000)
         if (now_ms - bars[-1]["T"]) < 90_000:
             bars.pop()
-            log.debug("Dropped last (still-forming) 29m bar")
+            log.debug(f"Dropped last (still-forming) {tf_minutes}m bar")
 
-    log.debug(f"Aggregated {len(candles_1m)} 1m → {len(bars)} 29m bars")
+    log.debug(f"Aggregated {len(candles_1m)} 1m → {len(bars)} {tf_minutes}m bars")
     return bars
 
 
@@ -797,10 +796,11 @@ def open_position(coin: str, side: str,
 # ==============================================================
 def process_coin(coin: str):
     """Full cycle: fetch → aggregate → indicators → signal → trade."""
+    tf = COIN_TF[coin]
     log.info(f"\n── [{coin}] ──────────────────────────────────────────")
 
-    # Fetch 1m data (enough for BARS_NEEDED 29m bars + warmup)
-    n_1m = BARS_NEEDED * TF_MINUTES + 120
+    # Fetch 1m data (enough for BARS_NEEDED TF bars + warmup)
+    n_1m = BARS_NEEDED * tf + 120
     try:
         candles_1m = fetch_candles_1m(coin, n_1m)
     except Exception as e:
@@ -811,11 +811,11 @@ def process_coin(coin: str):
         log.error(f"[{coin}] No 1m candles returned!")
         return
 
-    bars_29m = aggregate_to_29m(candles_1m)
-    log.info(f"[{coin}] {len(candles_1m)} 1m → {len(bars_29m)} 29m bars")
+    bars_29m = aggregate_to_tf(candles_1m, tf)
+    log.info(f"[{coin}] {len(candles_1m)} 1m → {len(bars_29m)} {tf}m bars")
 
     if len(bars_29m) < 60:
-        log.error(f"[{coin}] Too few 29m bars ({len(bars_29m)}) — waiting for more data")
+        log.error(f"[{coin}] Too few {tf}m bars ({len(bars_29m)}) — waiting for more data")
         return
 
     current_price = float(bars_29m[-1]["c"])
@@ -826,7 +826,7 @@ def process_coin(coin: str):
 
     # Detect signal
     try:
-        signal, sl, tp, price, meta = detect_signal(coin, bars_29m)
+        signal, sl, tp, price, meta = detect_signal(coin, bars_29m)  # bars already at coin TF
     except Exception as e:
         log.error(f"[{coin}] detect_signal error: {e}", exc_info=True)
         return
@@ -848,15 +848,15 @@ def process_coin(coin: str):
 # ==============================================================
 #  TIMING
 # ==============================================================
-def next_bar_close_utc() -> datetime:
+def next_bar_close_for_tf(tf_minutes: int) -> datetime:
     """
-    UTC datetime of the next 29m bar close.
-    Bars aligned from midnight UTC: bar k = [k×29 min, (k+1)×29 min).
+    UTC datetime of the next bar close for a given timeframe.
+    Bars aligned from midnight UTC: bar k = [k×tf min, (k+1)×tf min).
     """
-    now            = datetime.now(timezone.utc)
-    min_of_day     = now.hour * 60 + now.minute
-    current_bar    = min_of_day // TF_MINUTES
-    next_bar_min   = (current_bar + 1) * TF_MINUTES
+    now          = datetime.now(timezone.utc)
+    min_of_day   = now.hour * 60 + now.minute
+    current_bar  = min_of_day // tf_minutes
+    next_bar_min = (current_bar + 1) * tf_minutes
 
     if next_bar_min >= 1440:
         next_dt = (now.replace(hour=0, minute=0, second=8, microsecond=0)
@@ -871,9 +871,17 @@ def next_bar_close_utc() -> datetime:
 
     # Safeguard: if already past, skip to next bar
     if next_dt <= now:
-        next_dt += timedelta(minutes=TF_MINUTES)
+        next_dt += timedelta(minutes=tf_minutes)
 
     return next_dt
+
+
+def next_bar_close_utc() -> datetime:
+    """
+    Returns the earliest next bar close across all coins (SOL 29m, ETH 30m).
+    The main loop wakes at this time and processes whichever coin(s) are due.
+    """
+    return min(next_bar_close_for_tf(tf) for tf in COIN_TF.values())
 
 
 # ==============================================================
@@ -881,9 +889,9 @@ def next_bar_close_utc() -> datetime:
 # ==============================================================
 def run():
     log.info("=" * 60)
-    log.info("🤖 Autonomous Trading Bot — JP v6.2 Logic")
+    log.info("🤖 Autonomous Trading Bot — JP v7.1")
     log.info(f"   Coins     : {COINS}")
-    log.info(f"   Timeframe : {TF_MINUTES}m")
+    log.info(f"   Timeframes: SOL={COIN_TF['SOL']}m  ETH={COIN_TF['ETH']}m")
     log.info(f"   Capital   : {CAPITAL}")
     log.info(f"   DRY_RUN   : {DRY_RUN}")
     log.info(f"   MAINNET   : {MAINNET}")
@@ -914,7 +922,7 @@ def run():
         except Exception as e:
             log.error(f"Startup [{coin}]: {e}", exc_info=True)
 
-    # Main loop — wake at each 29m bar close
+    # Main loop — wake at earliest bar close across all coins
     while True:
         try:
             next_close = next_bar_close_utc()
@@ -928,17 +936,27 @@ def run():
                 )
                 time.sleep(wait_secs)
 
+            now_wakeup = datetime.now(timezone.utc)
             log.info(
                 f"\n{'='*60}\n"
                 f"🕯️  BAR CLOSE — "
-                f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}"
+                f"{now_wakeup.strftime('%Y-%m-%d %H:%M:%S UTC')}"
             )
 
+            # Only process coins whose bar is closing now (within ±90s tolerance)
             for coin in COINS:
-                try:
-                    process_coin(coin)
-                except Exception as e:
-                    log.error(f"[{coin}] process error: {e}", exc_info=True)
+                tf         = COIN_TF[coin]
+                coin_close = next_bar_close_for_tf(tf)
+                # coin_close is NEXT close; check if last close just happened
+                last_close = coin_close - timedelta(minutes=tf)
+                delta      = abs((now_wakeup - last_close).total_seconds())
+                if delta <= 90:
+                    try:
+                        process_coin(coin)
+                    except Exception as e:
+                        log.error(f"[{coin}] process error: {e}", exc_info=True)
+                else:
+                    log.info(f"[{coin}] Bar not due yet (next in {int((coin_close - now_wakeup).total_seconds())}s) — skipping")
 
         except KeyboardInterrupt:
             log.info("🛑 Bot stopped")
