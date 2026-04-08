@@ -385,3 +385,40 @@ if showTable
                text_color=sigL ? color.new(color.green, 0) : color.gray, bgcolor=sigLBg, text_size=size.small)
     table.cell(t, 2, 10, sigS ? "SHORT ▼" : "—",
                text_color=sigS ? color.red : color.gray, bgcolor=sigSBg, text_size=size.small)
+
+// ════════════════════════════════════════════════════════════
+//  ALERTE OBJECTIF CAPITAL
+// ════════════════════════════════════════════════════════════
+
+// Seuil configurable — défaut 70 000 USDC (Phase 1 → Phase 2)
+capitalTarget  = input.float(70000.0, "Objectif capital (alerte)", group="Alertes", step=5000,
+                 tooltip="Alerte quand l'equity atteint ce seuil. Retirer 50% et relancer avec la base restante.")
+capitalTarget2 = input.float(35000.0, "Base Phase 2 (info)",       group="Alertes", step=5000,
+                 tooltip="Capital de base après retrait des profits. Affiché dans le label.")
+
+// Déclenchement : première bougie qui franchit l'objectif
+equityNow     = strategy.initial_capital + strategy.netprofit
+targetHit     = equityNow >= capitalTarget and (equityNow - strategy.netprofit + strategy.netprofit[1]) < capitalTarget
+
+// Label sur le chart au moment du franchissement
+if targetHit
+    label.new(bar_index, high * 1.01,
+              "OBJECTIF " + str.tostring(int(capitalTarget)) + " USDC ATTEINT\n" +
+              "Retirer " + str.tostring(int(capitalTarget / 2)) + " USDC\n" +
+              "Relancer base : " + str.tostring(int(capitalTarget2)) + " USDC",
+              color=color.new(#FFD700, 0),
+              textcolor=color.black,
+              style=label.style_label_down,
+              size=size.normal)
+
+// Ligne horizontale objectif (visible sur tout le chart)
+hline(capitalTarget, "Objectif capital", color=color.new(#FFD700, 40), linestyle=hline.style_dashed, linewidth=2)
+
+// Alertes TradingView (configurer dans l'onglet Alertes de TradingView)
+alertcondition(targetHit,
+               title="OBJECTIF ATTEINT — Retirer les profits",
+               message="ETH Backtest : capital {{strategy.equity}} USDC atteint l'objectif de 70 000 USDC. Retirer 35 000 USDC et relancer avec une base de 35 000 USDC.")
+
+alertcondition(equityNow <= strategy.initial_capital * 0.5,
+               title="ALERTE PERTE -50%",
+               message="ETH Backtest : capital en baisse de 50%. Vérifier la stratégie.")
