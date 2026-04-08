@@ -1,184 +1,202 @@
 //@version=6
 //
-//  ╔══════════════════════════════════════════════════════════════╗
-//  ║  LuxAlgo — Ultimate Opening Range Breakout                  ║
-//  ║  VERSION STRATÉGIE — BACKTEST TradingView                   ║
-//  ║                                                             ║
-//  ║  Adapté depuis l'indicateur LuxAlgo v6 par JP               ║
-//  ║  Ajouts vs indicateur original :                            ║
-//  ║    • Entrées long/short automatiques au breakout            ║
-//  ║    • Sorties : Stop Loss (trail ATR) + TP multi-niveaux     ║
-//  ║    • Sizing : fixe, % capital ou risque fixe                ║
-//  ║    • Clôture forcée en fin de session                       ║
-//  ║    • Dashboard enrichi avec stats stratégie                 ║
-//  ╚══════════════════════════════════════════════════════════════╝
+//  LuxAlgo — Ultimate Opening Range Breakout
+//  VERSION STRATÉGIE — BACKTEST TradingView
+//  Adapté depuis l'indicateur LuxAlgo v6 par JP
+//
 
 strategy("LuxAlgo ORB — Backtest JP",
- shorttitle          = "ORB Backtest",
- overlay             = true,
- max_labels_count    = 500,
- max_lines_count     = 500,
- max_boxes_count     = 500,
- default_qty_type    = strategy.percent_of_equity,
- default_qty_value   = 10,
- initial_capital     = 10000,
- commission_type     = strategy.commission.percent,
- commission_value    = 0.07,
- slippage            = 2,
- calc_on_every_tick  = false)
+ shorttitle         = "ORB Backtest",
+ overlay            = true,
+ max_labels_count   = 500,
+ max_lines_count    = 500,
+ max_boxes_count    = 500,
+ default_qty_type   = strategy.percent_of_equity,
+ default_qty_value  = 10,
+ initial_capital    = 10000,
+ commission_type    = strategy.commission.percent,
+ commission_value   = 0.07,
+ slippage           = 2,
+ calc_on_every_tick = false)
 
-//─────────────────────────────────────────────────────────────────
-// Constants
-//─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// CONSTANTES
+// ─────────────────────────────────────────────────────────────
 DATA       = #DBDBDB
 HEADERS    = #808080
 BACKGROUND = #161616
 BORDERS    = #2E2E2E
 
-//─────────────────────────────────────────────────────────────────
-// Inputs — Session
-//─────────────────────────────────────────────────────────────────
-g_sess = "Session Opening Range"
-sessionInput  = input.session("0930-1000", "Plage d'ouverture (HHMM-HHMM)", group=g_sess,
-                tooltip="Heure de début et de fin du range d'ouverture.")
-sessionDays   = input.string("1234567", "Jours actifs (1=Dim, 7=Sam)", group=g_sess)
-timezoneInput = input.string("UTC-5", "Fuseau horaire", group=g_sess,
-                options=["UTC-12","UTC-11","UTC-10","UTC-9","UTC-8","UTC-7","UTC-6",
-                         "UTC-5","UTC-4","UTC-3","UTC-2","UTC-1","UTC+0","UTC+1",
-                         "UTC+2","UTC+3","UTC+4","UTC+5","UTC+6","UTC+7","UTC+8",
-                         "UTC+9","UTC+10","UTC+11","UTC+12"])
-srcInput      = input.string("High/Low", "Source du range", group=g_sess,
-                options=["High/Low","Close"])
+// ─────────────────────────────────────────────────────────────
+// INPUTS — Session
+// ─────────────────────────────────────────────────────────────
+g_sess        = "Session Opening Range"
+sessionInput  = input.session("0930-1000", "Plage ouverture (HHMM-HHMM)", group=g_sess)
+sessionDays   = input.string("1234567",    "Jours actifs",                 group=g_sess)
+timezoneInput = input.string("UTC-5",      "Fuseau horaire",               group=g_sess,
+               options=["UTC-12","UTC-11","UTC-10","UTC-9","UTC-8","UTC-7","UTC-6",
+                        "UTC-5","UTC-4","UTC-3","UTC-2","UTC-1","UTC+0","UTC+1",
+                        "UTC+2","UTC+3","UTC+4","UTC+5","UTC+6","UTC+7","UTC+8",
+                        "UTC+9","UTC+10","UTC+11","UTC+12"])
+srcInput      = input.string("High/Low",   "Source du range",  group=g_sess, options=["High/Low","Close"])
 
-//─────────────────────────────────────────────────────────────────
-// Inputs — Extensions
-//─────────────────────────────────────────────────────────────────
-g_ext = "Niveaux d'extension"
-showExt = input.bool(true,   "Afficher les extensions", group=g_ext)
-extType = input.string("Multiples", "Type", group=g_ext, options=["Multiples","Fibonacci"])
-mult1   = input.float(1.0,  "Multiplicateur 1", minval=0, group=g_ext)
-mult2   = input.float(2.0,  "Multiplicateur 2", minval=0, group=g_ext)
-mult3   = input.float(3.0,  "Multiplicateur 3", minval=0, group=g_ext)
+// ─────────────────────────────────────────────────────────────
+// INPUTS — Extensions
+// ─────────────────────────────────────────────────────────────
+g_ext   = "Niveaux d'extension"
+showExt = input.bool(true,       "Afficher extensions",  group=g_ext)
+extType = input.string("Multiples","Type",               group=g_ext, options=["Multiples","Fibonacci"])
+mult1   = input.float(1.0, "Multiplicateur 1", minval=0, group=g_ext)
+mult2   = input.float(2.0, "Multiplicateur 2", minval=0, group=g_ext)
+mult3   = input.float(3.0, "Multiplicateur 3", minval=0, group=g_ext)
 
-//─────────────────────────────────────────────────────────────────
-// Inputs — Stratégie (NOUVEAUX)
-//─────────────────────────────────────────────────────────────────
-g_strat = "⚙️ Stratégie (entrées / sorties)"
+// ─────────────────────────────────────────────────────────────
+// INPUTS — Stratégie
+// ─────────────────────────────────────────────────────────────
+g_strat     = "Stratégie"
+tradeDir    = input.string("Les deux", "Direction", group=g_strat,
+              options=["Long seulement","Short seulement","Les deux"])
+slType      = input.string("Trail ATR","Type Stop Loss", group=g_strat,
+              options=["Trail ATR","Fixe % prix","Fixe % range"])
+trailMult   = input.float(2.0, "ATR mult (trail)",  minval=0.1, step=0.1, group=g_strat)
+trailAtrLen = input.int(14,    "ATR length",         minval=1,             group=g_strat)
+fixedSlPct  = input.float(1.0, "SL fixe (%)",        minval=0.1, step=0.1, group=g_strat)
+tpMode      = input.string("Niveau 1 (x1)", "Take Profit", group=g_strat,
+              options=["Niveau 1 (x1)","Niveau 2 (x2)","Niveau 3 (x3)",
+                       "Partiel 50% N1+50% N2","Fin de session uniquement"])
+closeEOD    = input.bool(true,   "Fermer en fin de session", group=g_strat)
+eodSession  = input.string("1600","Heure clôture (HHMM)",    group=g_strat)
 
-tradeDir    = input.string("Les deux", "Direction des trades",
-              options=["Long seulement","Short seulement","Les deux"], group=g_strat)
+// ─────────────────────────────────────────────────────────────
+// INPUTS — Filtres
+// ─────────────────────────────────────────────────────────────
+g_filt        = "Filtres"
+useVolFilter  = input.bool(false,  "Volume élevé uniquement (HV)", group=g_filt)
+useMinRange   = input.bool(false,  "Range minimum requis",         group=g_filt)
+minRangePct   = input.float(0.2,   "Range min (% du prix)",        group=g_filt, minval=0.01, step=0.05)
 
-// Stop Loss
-slType      = input.string("Trail ATR", "Type de Stop Loss",
-              options=["Trail ATR","Fixe % range","Fixe % prix"], group=g_strat)
-trailMult   = input.float(2.0, "Multiplicateur ATR (trail)", minval=0.1, step=0.1, group=g_strat)
-trailAtrLen = input.int(14,    "Longueur ATR", minval=1, group=g_strat)
-fixedSlPct  = input.float(1.0, "SL fixe (% prix ou range)", minval=0.1, step=0.1, group=g_strat)
+// ─────────────────────────────────────────────────────────────
+// INPUTS — Style
+// ─────────────────────────────────────────────────────────────
+g_style      = "Style"
+bullColor    = input.color(#089981, "Couleur haussière",    group=g_style, inline="C")
+bearColor    = input.color(#f23645, "Couleur baissière",    group=g_style, inline="C")
+neutralColor = input.color(#5b9cf6, "Couleur range",        group=g_style, inline="C")
+bgTransp     = input.int(85,  "Transparence fond",   minval=0, maxval=100, group=g_style)
+showLabels   = input.bool(true,"Afficher labels",            group=g_style)
+szSignal     = input.string("Small","Taille labels signal",  group=g_style,
+               options=["Tiny","Small","Normal","Large"])
 
-// Take Profit
-tpMode      = input.string("Niveau 1 (×1)", "Sortie Take Profit",
-              options=["Niveau 1 (×1)","Niveau 2 (×2)","Niveau 3 (×3)",
-                       "Partiel 50% N1 + 50% N2","Fin de session uniquement"], group=g_strat)
-
-// Clôture forcée
-closeEOD    = input.bool(true, "Fermer toutes les positions en fin de session", group=g_strat,
-              tooltip="Ferme la position à la dernière bougie avant la clôture du marché.")
-eodSession  = input.string("1600", "Heure de clôture forcée (HHMM)", group=g_strat)
-
-// Filtres
-g_filt = "🔎 Filtres"
-useVolFilter  = input.bool(false, "Filtrer sur volume élevé uniquement", group=g_filt,
-                tooltip="N'entre que si le volume de la bougie de breakout est supérieur à la SMA20.")
-useMinRange   = input.bool(false, "Range minimum requis", group=g_filt)
-minRangePct   = input.float(0.2,  "Range min (% du prix)", minval=0.01, step=0.05, group=g_filt)
-
-//─────────────────────────────────────────────────────────────────
-// Inputs — Style
-//─────────────────────────────────────────────────────────────────
-g_style = "Style"
-bullColor    = input.color(#089981, "Couleur haussière",   group=g_style, inline="C")
-bearColor    = input.color(#f23645, "Couleur baissière",   group=g_style, inline="C")
-neutralColor = input.color(#5b9cf6, "Couleur range",       group=g_style, inline="C")
-bgTransp     = input.int(85, "Transparence fond", minval=0, maxval=100, group=g_style)
-showLabels   = input.bool(true, "Afficher labels niveaux", group=g_style)
-szSignal     = input.string("Small", "Taille labels signal",
-               options=["Tiny","Small","Normal","Large"], group=g_style)
-
-//─────────────────────────────────────────────────────────────────
-// Inputs — Volume Profile
-//─────────────────────────────────────────────────────────────────
-g_vp = "Volume Profile"
-showVP      = input.bool(true, "Afficher le Volume Profile", group=g_vp)
-vpRowsInput = input.int(14,   "Nombre de lignes", minval=5, maxval=50, group=g_vp)
-vpWidth     = input.int(30,   "Largeur (%)",      minval=1, maxval=100, group=g_vp)
+// ─────────────────────────────────────────────────────────────
+// INPUTS — Volume Profile
+// ─────────────────────────────────────────────────────────────
+g_vp        = "Volume Profile"
+showVP      = input.bool(true,  "Afficher Volume Profile",  group=g_vp)
+vpRowsInput = input.int(14,    "Nombre de lignes", minval=5, maxval=50, group=g_vp)
 vpColor     = input.color(color.new(#5b9cf6, 60), "Couleur VP", group=g_vp)
 
-//─────────────────────────────────────────────────────────────────
-// Inputs — Dashboard
-//─────────────────────────────────────────────────────────────────
-g_dash = "Dashboard"
-showDash    = input.bool(true, "Afficher le dashboard", group=g_dash)
-dashPos     = input.string("Top Right", "Position",
-              options=["Top Right","Bottom Right","Bottom Left"], group=g_dash)
-dashSize    = input.string("Small", "Taille",
-              options=["Tiny","Small","Normal","Large","Huge"], group=g_dash)
+// ─────────────────────────────────────────────────────────────
+// INPUTS — Dashboard
+// ─────────────────────────────────────────────────────────────
+g_dash    = "Dashboard"
+showDash  = input.bool(true,       "Afficher dashboard",  group=g_dash)
+dashPos   = input.string("Top Right","Position", group=g_dash,
+            options=["Top Right","Bottom Right","Bottom Left"])
+dashSize  = input.string("Small",   "Taille",    group=g_dash,
+            options=["Tiny","Small","Normal","Large","Huge"])
 
-parsedPos  = dashPos == "Top Right" ? position.top_right : dashPos == "Bottom Right" ? position.bottom_right : position.bottom_left
-parsedSize = dashSize == "Tiny" ? size.tiny : dashSize == "Small" ? size.small : dashSize == "Normal" ? size.normal : dashSize == "Large" ? size.large : size.huge
-szSig      = szSignal == "Tiny" ? size.tiny : szSignal == "Small" ? size.small : szSignal == "Normal" ? size.normal : size.large
+// Conversion position/taille
+var parsedPos  = dashPos  == "Top Right"    ? position.top_right   :
+                 dashPos  == "Bottom Right" ? position.bottom_right : position.bottom_left
+var parsedSize = dashSize == "Tiny"   ? size.tiny  :
+                 dashSize == "Small"  ? size.small :
+                 dashSize == "Normal" ? size.normal:
+                 dashSize == "Large"  ? size.large : size.huge
+szSig          = szSignal == "Tiny"   ? size.tiny  :
+                 szSignal == "Small"  ? size.small :
+                 szSignal == "Normal" ? size.normal : size.large
 
-//─────────────────────────────────────────────────────────────────
-// Helper Functions
-//─────────────────────────────────────────────────────────────────
-cell(table t, int col, int row, string txt, color clr=#FFFFFF, align=text.align_right, color bg=na, float h=0) =>
-    t.cell(col, row, txt, text_color=clr, text_size=parsedSize, text_halign=align, bgcolor=bg, height=h)
+// ─────────────────────────────────────────────────────────────
+// FONCTIONS UTILITAIRES (définies au niveau global)
+// ─────────────────────────────────────────────────────────────
+tableCell(table t, int col, int row, string txt, color clr=color.white, halign=text.align_right, color bg=na, float h=0) =>
+    table.cell(t, col, row, txt, text_color=clr, text_size=parsedSize, text_halign=halign, bgcolor=bg, height=h)
 
-divider(table t, int row, int last) =>
-    t.merge_cells(0, row, last, row)
-    cell(t, 0, row, "━━━━━━━━━━━━━━", align=text.align_center, h=0.5, clr=BORDERS)
+tableDivider(table t, int row, int lastCol) =>
+    table.merge_cells(t, 0, row, lastCol, row)
+    table.cell(t, 0, row, "━━━━━━━━━━━━━━", text_color=BORDERS, text_size=parsedSize,
+               text_halign=text.align_center, height=0.5)
 
-getExt(float m, float rng, float hi, float lo) =>
-    [hi + rng * m, lo - rng * m]
+getExtLevels(float m, float rng, float hi, float lo) =>
+    float up = hi + rng * m
+    float dn = lo - rng * m
+    [up, dn]
 
-//─────────────────────────────────────────────────────────────────
-// Session / Range Calculation
-//─────────────────────────────────────────────────────────────────
+hitRateLabel(int hits, int total, string prefix) =>
+    pct = total > 0 ? math.round(hits / total * 100) : 0
+    prefix + " (" + str.tostring(pct) + "%)"
+
+// ─────────────────────────────────────────────────────────────
+// VARIABLES D'ÉTAT
+// ─────────────────────────────────────────────────────────────
 atrVal = ta.atr(200)
 var float dynamicTickSize = na
 
 inSession  = not na(time(timeframe.period, sessionInput + ":" + sessionDays, timezoneInput))
 isNewDay   = ta.change(time("D", "", timezoneInput)) != 0
 
-var float orHigh      = na
-var float orLow       = na
+var float orHigh       = na
+var float orLow        = na
 var bool  sessionEnded = false
 
-var int   totalSessions = 0
-var int   countU1=0, countU2=0, countU3=0
-var int   countD1=0, countD2=0, countD3=0
-var bool  dayU1=false, dayU2=false, dayU3=false
-var bool  dayD1=false, dayD2=false, dayD3=false
+var int totalSessions = 0
+var int countU1 = 0
+var int countU2 = 0
+var int countU3 = 0
+var int countD1 = 0
+var int countD2 = 0
+var int countD3 = 0
 
-var map<float,float> volMap    = map.new<float,float>()
-var int   sessionStartBar      = 0
-var int   profileAnchor        = 0
-var box[] activeVPBoxes        = array.new_box()
+var bool dayU1 = false
+var bool dayU2 = false
+var bool dayU3 = false
+var bool dayD1 = false
+var bool dayD2 = false
+var bool dayD3 = false
 
+var map<float,float> volMap = map.new<float,float>()
+var int sessionStartBar     = 0
+var int profileAnchor       = 0
+var box[] activeVPBoxes     = array.new_box()
+
+var float trailStop = na
+var int   activeDir = 0
+
+var bool canUp = true
+var bool canDn = true
+
+// ─────────────────────────────────────────────────────────────
+// CALCUL DU RANGE D'OUVERTURE
+// ─────────────────────────────────────────────────────────────
 if isNewDay or (inSession and not inSession[1])
-    orHigh        := na
-    orLow         := na
-    sessionEnded  := false
-    dayU1 := false; dayU2 := false; dayU3 := false
-    dayD1 := false; dayD2 := false; dayD3 := false
+    orHigh       := na
+    orLow        := na
+    sessionEnded := false
+    dayU1 := false
+    dayU2 := false
+    dayU3 := false
+    dayD1 := false
+    dayD2 := false
+    dayD3 := false
     volMap.clear()
     sessionStartBar := bar_index
     profileAnchor   := bar_index
     activeVPBoxes.clear()
-    dynamicTickSize := math.max(syminfo.mintick, nz(atrVal, high-low) / vpRowsInput)
+    dynamicTickSize := math.max(syminfo.mintick, nz(atrVal, high - low) / vpRowsInput)
 
 if inSession
-    curH = srcInput == "High/Low" ? high : math.max(open, close)
-    curL = srcInput == "High/Low" ? low  : math.min(open, close)
+    float curH = srcInput == "High/Low" ? high : math.max(open, close)
+    float curL = srcInput == "High/Low" ? low  : math.min(open, close)
     orHigh := na(orHigh) ? curH : math.max(orHigh, curH)
     orLow  := na(orLow)  ? curL : math.min(orLow,  curL)
     profileAnchor := bar_index
@@ -186,11 +204,12 @@ if inSession
     if rng > 0
         dynamicTickSize := math.max(syminfo.mintick, rng / vpRowsInput)
     float pl = math.round(close / dynamicTickSize) * dynamicTickSize
-    volMap.put(pl, (volMap.contains(pl) ? volMap.get(pl) : 0) + volume)
+    float curVol = volMap.contains(pl) ? volMap.get(pl) : 0.0
+    volMap.put(pl, curVol + volume)
 
 if not inSession and inSession[1]
-    sessionEnded    := true
-    totalSessions   += 1
+    sessionEnded  := true
+    totalSessions += 1
 
 float orRange = orHigh - orLow
 
@@ -198,22 +217,35 @@ float f1 = extType == "Fibonacci" ? 0.382 : mult1
 float f2 = extType == "Fibonacci" ? 0.618 : mult2
 float f3 = extType == "Fibonacci" ? 1.0   : mult3
 
-[u1, d1] = getExt(f1, orRange, orHigh, orLow)
-[u2, d2] = getExt(f2, orRange, orHigh, orLow)
-[u3, d3] = getExt(f3, orRange, orHigh, orLow)
+[u1, d1] = getExtLevels(f1, orRange, orHigh, orLow)
+[u2, d2] = getExtLevels(f2, orRange, orHigh, orLow)
+[u3, d3] = getExtLevels(f3, orRange, orHigh, orLow)
 
+// Comptage hit rates
 if sessionEnded
-    if not na(u1) and high >= u1 and not dayU1 => countU1 += 1; dayU1 := true
-    if not na(u2) and high >= u2 and not dayU2 => countU2 += 1; dayU2 := true
-    if not na(u3) and high >= u3 and not dayU3 => countU3 += 1; dayU3 := true
-    if not na(d1) and low  <= d1 and not dayD1 => countD1 += 1; dayD1 := true
-    if not na(d2) and low  <= d2 and not dayD2 => countD2 += 1; dayD2 := true
-    if not na(d3) and low  <= d3 and not dayD3 => countD3 += 1; dayD3 := true
+    if not na(u1) and high >= u1 and not dayU1
+        countU1 += 1
+        dayU1   := true
+    if not na(u2) and high >= u2 and not dayU2
+        countU2 += 1
+        dayU2   := true
+    if not na(u3) and high >= u3 and not dayU3
+        countU3 += 1
+        dayU3   := true
+    if not na(d1) and low <= d1 and not dayD1
+        countD1 += 1
+        dayD1   := true
+    if not na(d2) and low <= d2 and not dayD2
+        countD2 += 1
+        dayD2   := true
+    if not na(d3) and low <= d3 and not dayD3
+        countD3 += 1
+        dayD3   := true
 
-//─────────────────────────────────────────────────────────────────
-// Plotting Limits
-//─────────────────────────────────────────────────────────────────
-orStart      = str.substring(sessionInput, 0, 4)
+// ─────────────────────────────────────────────────────────────
+// LIMITES D'AFFICHAGE
+// ─────────────────────────────────────────────────────────────
+orStart         = str.substring(sessionInput, 0, 4)
 plottingSession = orStart + "-" + eodSession
 bool displayAllowed = not na(time(timeframe.period, plottingSession + ":" + sessionDays, timezoneInput))
 
@@ -226,76 +258,69 @@ plotD1   = displayAllowed and showExt ? d1 : na
 plotD2   = displayAllowed and showExt ? d2 : na
 plotD3   = displayAllowed and showExt ? d3 : na
 
-//─────────────────────────────────────────────────────────────────
-// Breakout Signals + Filtres
-//─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// SIGNAUX DE BREAKOUT
+// ─────────────────────────────────────────────────────────────
 atrTrail = ta.atr(trailAtrLen)
 volSMA   = ta.sma(volume, 20)
 isHV     = volume > volSMA
 volSuffix = isHV ? " (HV)" : " (LV)"
 
-var bool canUp = true
-var bool canDn = true
-
 if isNewDay or inSession
-    canUp := true
-    canDn := true
+    canUp     := true
+    canDn     := true
+    activeDir := 0
+    trailStop := na
 
 bool rawUp = ta.crossover(close, orHigh)  and not inSession and sessionEnded and displayAllowed
 bool rawDn = ta.crossunder(close, orLow)  and not inSession and sessionEnded and displayAllowed
 
-// Filtre volume
-bool volOk = not useVolFilter or isHV
-// Filtre range minimum
-bool rangeOk = not useMinRange or (orRange / close * 100 >= minRangePct)
+bool volOk   = not useVolFilter or isHV
+bool rangeOk = not useMinRange  or (orRange / close * 100 >= minRangePct)
 
 bool breakoutUp = rawUp and canUp and volOk and rangeOk
 bool breakoutDn = rawDn and canDn and volOk and rangeOk
 
-if breakoutUp => canUp := false
-if breakoutDn => canDn := false
+if breakoutUp
+    canUp := false
+if breakoutDn
+    canDn := false
 
-//─────────────────────────────────────────────────────────────────
-// Trailing Stop Logic
-//─────────────────────────────────────────────────────────────────
-var float trailStop = na
-var int   activeDir = 0  // 1=Long -1=Short 0=Flat
+// ─────────────────────────────────────────────────────────────
+// CALCUL SL / TP
+// ─────────────────────────────────────────────────────────────
+float slLong  = na
+float slShort = na
+float tpLong  = na
+float tpShort = na
 
-if isNewDay or inSession
-    activeDir := 0
-    trailStop := na
+if slType == "Trail ATR"
+    slLong  := low  - atrTrail * trailMult
+    slShort := high + atrTrail * trailMult
+else if slType == "Fixe % prix"
+    slLong  := close * (1 - fixedSlPct / 100)
+    slShort := close * (1 + fixedSlPct / 100)
+else
+    slLong  := orHigh - orRange * fixedSlPct
+    slShort := orLow  + orRange * fixedSlPct
 
-// Calcul SL selon type
-calcSL(isLong, entryPx) =>
-    float sl = na
-    if slType == "Trail ATR"
-        sl := isLong ? low  - (atrTrail * trailMult)
-                     : high + (atrTrail * trailMult)
-    else if slType == "Fixe % prix"
-        sl := isLong ? entryPx * (1 - fixedSlPct/100)
-                     : entryPx * (1 + fixedSlPct/100)
-    else // Fixe % range
-        sl := isLong ? orHigh - orRange * fixedSlPct
-                     : orLow  + orRange * fixedSlPct
-    sl
+if tpMode == "Niveau 1 (x1)"
+    tpLong  := u1
+    tpShort := d1
+else if tpMode == "Niveau 2 (x2)"
+    tpLong  := u2
+    tpShort := d2
+else if tpMode == "Niveau 3 (x3)"
+    tpLong  := u3
+    tpShort := d3
+else if tpMode == "Partiel 50% N1+50% N2"
+    tpLong  := u1
+    tpShort := d1
+// "Fin de session uniquement" => tp reste na
 
-// TP selon niveau choisi
-calcTP(isLong) =>
-    float tp = na
-    if tpMode == "Niveau 1 (×1)"
-        tp := isLong ? u1 : d1
-    else if tpMode == "Niveau 2 (×2)"
-        tp := isLong ? u2 : d2
-    else if tpMode == "Niveau 3 (×3)"
-        tp := isLong ? u3 : d3
-    else if tpMode == "Partiel 50% N1 + 50% N2"
-        tp := isLong ? u1 : d1  // TP1 — le TP2 est géré séparément
-    // "Fin de session uniquement" → na (clôture forcée EOD)
-    tp
-
-//─────────────────────────────────────────────────────────────────
-// ═══ ENTRÉES STRATÉGIE ═══
-//─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// ENTRÉES STRATÉGIE
+// ─────────────────────────────────────────────────────────────
 longOk  = tradeDir != "Short seulement"
 shortOk = tradeDir != "Long seulement"
 
@@ -303,87 +328,88 @@ if breakoutUp and longOk
     label.new(bar_index, high, "BULL BREAK" + volSuffix,
               color=bullColor, style=label.style_label_down,
               textcolor=color.white, size=szSig)
-    slVal = calcSL(true, orHigh)
-    tpVal = calcTP(true)
     strategy.entry("Long", strategy.long)
-    if not na(tpVal) and not na(slVal)
-        strategy.exit("XLong", from_entry="Long", stop=slVal, limit=tpVal)
-    else if not na(slVal)
-        strategy.exit("XLong", from_entry="Long", stop=slVal)
+    if not na(tpLong) and not na(slLong)
+        strategy.exit("XLong", from_entry="Long", stop=slLong, limit=tpLong)
+    else if not na(slLong)
+        strategy.exit("XLong", from_entry="Long", stop=slLong)
     activeDir := 1
-    trailStop := slType == "Trail ATR" ? low - atrTrail * trailMult : slVal
+    trailStop := slLong
 
 if breakoutDn and shortOk
     label.new(bar_index, low, "BEAR BREAK" + volSuffix,
               color=bearColor, style=label.style_label_up,
               textcolor=color.white, size=szSig)
-    slVal = calcSL(false, orLow)
-    tpVal = calcTP(false)
     strategy.entry("Short", strategy.short)
-    if not na(tpVal) and not na(slVal)
-        strategy.exit("XShort", from_entry="Short", stop=slVal, limit=tpVal)
-    else if not na(slVal)
-        strategy.exit("XShort", from_entry="Short", stop=slVal)
+    if not na(tpShort) and not na(slShort)
+        strategy.exit("XShort", from_entry="Short", stop=slShort, limit=tpShort)
+    else if not na(slShort)
+        strategy.exit("XShort", from_entry="Short", stop=slShort)
     activeDir := -1
-    trailStop := slType == "Trail ATR" ? high + atrTrail * trailMult : slVal
+    trailStop := slShort
 
-// ─── Mise à jour Trail ATR ─────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// TRAIL ATR — mise à jour
+// ─────────────────────────────────────────────────────────────
 if slType == "Trail ATR"
     if activeDir == 1 and strategy.position_size > 0
-        newTrail = low - atrTrail * trailMult
+        float newTrail = low - atrTrail * trailMult
         trailStop := math.max(nz(trailStop, newTrail), newTrail)
         if close < trailStop
             strategy.close("Long", comment="Trail SL")
             activeDir := 0
+
     if activeDir == -1 and strategy.position_size < 0
-        newTrail = high + atrTrail * trailMult
+        float newTrail = high + atrTrail * trailMult
         trailStop := math.min(nz(trailStop, newTrail), newTrail)
         if close > trailStop
             strategy.close("Short", comment="Trail SL")
             activeDir := 0
 
-// ─── Mode Partiel : TP2 sur 50% restant ───────────────────────
-if tpMode == "Partiel 50% N1 + 50% N2"
-    if strategy.position_size > 0 and high >= u1
+// ─────────────────────────────────────────────────────────────
+// SORTIE PARTIELLE N1 + N2
+// ─────────────────────────────────────────────────────────────
+if tpMode == "Partiel 50% N1+50% N2"
+    if strategy.position_size > 0 and not na(u2) and high >= u1
         strategy.exit("XLong_P2", from_entry="Long", qty_percent=50, limit=u2)
-    if strategy.position_size < 0 and low <= d1
+    if strategy.position_size < 0 and not na(d2) and low <= d1
         strategy.exit("XShort_P2", from_entry="Short", qty_percent=50, limit=d2)
 
-// ─── Clôture forcée fin de session ────────────────────────────
-eodTriggered = closeEOD and not displayAllowed and displayAllowed[1]
+// ─────────────────────────────────────────────────────────────
+// CLÔTURE FORCÉE FIN DE SESSION
+// ─────────────────────────────────────────────────────────────
+bool eodTriggered = closeEOD and not displayAllowed and displayAllowed[1]
 if eodTriggered
     strategy.close_all(comment="EOD")
     activeDir := 0
     trailStop := na
 
-// Réinitialiser activeDir si plus en position
 if strategy.position_size == 0
     activeDir := 0
     trailStop := na
 
-//─────────────────────────────────────────────────────────────────
-// Visuels
-//─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// VISUELS
+// ─────────────────────────────────────────────────────────────
 bgcolor(inSession ? color.new(neutralColor, 90) : na, title="Session BG")
 
 pHigh = plot(plotHigh, "OR High", color.new(neutralColor, 20), 2, plot.style_linebr)
 pLow  = plot(plotLow,  "OR Low",  color.new(neutralColor, 20), 2, plot.style_linebr)
 fill(pHigh, pLow, plotHigh, plotLow,
-     color.new(neutralColor, bgTransp), color.new(neutralColor, bgTransp), "Range Fill")
+     color.new(neutralColor, bgTransp),
+     color.new(neutralColor, bgTransp), "Range Fill")
 
 pu1 = plot(plotU1, "Ext U1", color.new(bullColor, 40), 1, plot.style_linebr)
 pu2 = plot(plotU2, "Ext U2", color.new(bullColor, 40), 1, plot.style_linebr)
 pu3 = plot(plotU3, "Ext U3", color.new(bullColor, 40), 1, plot.style_linebr)
-pd1 = plot(plotD1, "Ext D1", color.new(bearColor,  40), 1, plot.style_linebr)
-pd2 = plot(plotD2, "Ext D2", color.new(bearColor,  40), 1, plot.style_linebr)
-pd3 = plot(plotD3, "Ext D3", color.new(bearColor,  40), 1, plot.style_linebr)
+pd1 = plot(plotD1, "Ext D1", color.new(bearColor, 40), 1, plot.style_linebr)
+pd2 = plot(plotD2, "Ext D2", color.new(bearColor, 40), 1, plot.style_linebr)
+pd3 = plot(plotD3, "Ext D3", color.new(bearColor, 40), 1, plot.style_linebr)
 
-fill(pHigh, pu1, plotU1, plotHigh, color.new(bullColor, bgTransp+10), color.new(bullColor, bgTransp), "Bull Z1")
-fill(pu1,   pu2, plotU2, plotU1,   color.new(bullColor, bgTransp+5),  color.new(bullColor, bgTransp+10), "Bull Z2")
-fill(pu2,   pu3, plotU3, plotU2,   color.new(bullColor, bgTransp),    color.new(bullColor, bgTransp+5),  "Bull Z3")
-fill(pLow,  pd1, plotLow,  plotD1, color.new(bearColor, bgTransp),    color.new(bearColor, bgTransp+10), "Bear Z1")
-fill(pd1,   pd2, plotD1,   plotD2, color.new(bearColor, bgTransp+10), color.new(bearColor, bgTransp+5),  "Bear Z2")
-fill(pd2,   pd3, plotD2,   plotD3, color.new(bearColor, bgTransp+5),  color.new(bearColor, bgTransp),    "Bear Z3")
+fill(pu1, pu2, plotU2, plotU1, color.new(bullColor, bgTransp+5),  color.new(bullColor, bgTransp+10), "Bull Z2")
+fill(pu2, pu3, plotU3, plotU2, color.new(bullColor, bgTransp),    color.new(bullColor, bgTransp+5),  "Bull Z3")
+fill(pd1, pd2, plotD1, plotD2, color.new(bearColor, bgTransp+10), color.new(bearColor, bgTransp+5),  "Bear Z2")
+fill(pd2, pd3, plotD2, plotD3, color.new(bearColor, bgTransp+5),  color.new(bearColor, bgTransp),    "Bear Z3")
 
 // Trailing stop visuel
 pTrail = plot(slType == "Trail ATR" ? trailStop : na, "Trail Stop",
@@ -392,23 +418,26 @@ pRef   = plot(slType == "Trail ATR" ? close : na, "Ref", color.new(chart.fg_colo
 fill(pTrail, pRef,
      top_value    = activeDir == 1 ? close : trailStop,
      bottom_value = activeDir == 1 ? trailStop : close,
-     top_color    = activeDir == 1 ? color.new(bullColor, 50) : color.new(bearColor, 100),
+     top_color    = activeDir == 1 ? color.new(bullColor, 50)  : color.new(bearColor, 100),
      bottom_color = activeDir == 1 ? color.new(bullColor, 100) : color.new(bearColor, 50),
      title="Trail Fill")
 
-//─────────────────────────────────────────────────────────────────
-// Volume Profile (barstate.islast)
-//─────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// VOLUME PROFILE + LABELS (barstate.islast)
+// ─────────────────────────────────────────────────────────────
 if barstate.islast
+    // Volume Profile
     if showVP and volMap.size() > 0
         if activeVPBoxes.size() > 0
             for b in activeVPBoxes
                 b.delete()
             activeVPBoxes.clear()
+
         float maxV = 0.0
         float[] prices = volMap.keys()
         for p in prices
             maxV := math.max(maxV, volMap.get(p))
+
         if prices.size() > 0
             prices.sort()
             int   pmb = 15
@@ -417,119 +446,139 @@ if barstate.islast
             for i = 0 to prices.size() - 1
                 float p = prices.get(i)
                 if p >= (orLow - lh/2) and p <= (orHigh + lh/2)
-                    float v   = volMap.get(p)
-                    bool  poc = v == maxV
+                    float v    = volMap.get(p)
+                    bool  isPOC = v == maxV
                     int   bars = math.max(1, math.round((v / math.max(1e-10, maxV)) * pmb))
-                    color cc  = poc ? color.new(vpColor, 0) : color.new(vpColor, 40)
-                    box nb = box.new(sx, p+lh/2, sx+bars, p-lh/2,
+                    color cc   = isPOC ? color.new(vpColor, 0) : color.new(vpColor, 40)
+                    box nb = box.new(sx, p + lh/2, sx + bars, p - lh/2,
                                      border_color=color.new(vpColor, 100), bgcolor=cc)
                     activeVPBoxes.push(nb)
 
+    // Labels niveaux
     if showLabels
-        label.delete(label.new(bar_index+2, orHigh, "OR High", color=neutralColor,
-                               style=label.style_label_left, textcolor=color.white, size=size.small)[1])
-        label.delete(label.new(bar_index+2, orLow,  "OR Low",  color=neutralColor,
-                               style=label.style_label_left, textcolor=color.white, size=size.small)[1])
-        if showExt
-            mkL(lvl, cnt, lbl, col) =>
-                str.tostring(lbl) + " (" + str.tostring(totalSessions > 0 ? math.round(cnt/totalSessions*100) : 0) + "%)"
-            label.delete(label.new(bar_index+2, u1, mkL(u1,countU1,"T1 ▲",bullColor), color=bullColor, style=label.style_label_left, textcolor=color.white, size=size.small)[1])
-            label.delete(label.new(bar_index+2, d1, mkL(d1,countD1,"T1 ▼",bearColor), color=bearColor, style=label.style_label_left, textcolor=color.white, size=size.small)[1])
-            label.delete(label.new(bar_index+2, u2, mkL(u2,countU2,"T2 ▲",bullColor), color=bullColor, style=label.style_label_left, textcolor=color.white, size=size.small)[1])
-            label.delete(label.new(bar_index+2, d2, mkL(d2,countD2,"T2 ▼",bearColor), color=bearColor, style=label.style_label_left, textcolor=color.white, size=size.small)[1])
-            label.delete(label.new(bar_index+2, u3, mkL(u3,countU3,"T3 ▲",bullColor), color=bullColor, style=label.style_label_left, textcolor=color.white, size=size.small)[1])
-            label.delete(label.new(bar_index+2, d3, mkL(d3,countD3,"T3 ▼",bearColor), color=bearColor, style=label.style_label_left, textcolor=color.white, size=size.small)[1])
+        label.delete(label.new(bar_index+2, orHigh, "OR High",
+                     color=neutralColor, style=label.style_label_left,
+                     textcolor=color.white, size=size.small)[1])
+        label.delete(label.new(bar_index+2, orLow,  "OR Low",
+                     color=neutralColor, style=label.style_label_left,
+                     textcolor=color.white, size=size.small)[1])
 
-//─────────────────────────────────────────────────────────────────
-// Dashboard
-//─────────────────────────────────────────────────────────────────
+        if showExt
+            string lblU1 = hitRateLabel(countU1, totalSessions, "T1 ▲")
+            string lblU2 = hitRateLabel(countU2, totalSessions, "T2 ▲")
+            string lblU3 = hitRateLabel(countU3, totalSessions, "T3 ▲")
+            string lblD1 = hitRateLabel(countD1, totalSessions, "T1 ▼")
+            string lblD2 = hitRateLabel(countD2, totalSessions, "T2 ▼")
+            string lblD3 = hitRateLabel(countD3, totalSessions, "T3 ▼")
+
+            label.delete(label.new(bar_index+2, u1, lblU1, color=bullColor, style=label.style_label_left, textcolor=color.white, size=size.small)[1])
+            label.delete(label.new(bar_index+2, d1, lblD1, color=bearColor, style=label.style_label_left, textcolor=color.white, size=size.small)[1])
+            label.delete(label.new(bar_index+2, u2, lblU2, color=bullColor, style=label.style_label_left, textcolor=color.white, size=size.small)[1])
+            label.delete(label.new(bar_index+2, d2, lblD2, color=bearColor, style=label.style_label_left, textcolor=color.white, size=size.small)[1])
+            label.delete(label.new(bar_index+2, u3, lblU3, color=bullColor, style=label.style_label_left, textcolor=color.white, size=size.small)[1])
+            label.delete(label.new(bar_index+2, d3, lblD3, color=bearColor, style=label.style_label_left, textcolor=color.white, size=size.small)[1])
+
+// ─────────────────────────────────────────────────────────────
+// DASHBOARD
+// ─────────────────────────────────────────────────────────────
 if showDash
     var table dash = table.new(parsedPos, 4, 18,
                     bgcolor=BACKGROUND, border_width=0,
                     frame_color=BORDERS, frame_width=1, force_overlay=false)
 
     if barstate.isfirst
-        dash.merge_cells(0, 0, 3, 0)
-        cell(dash, 0, 0, "ORB Backtest — JP", clr=DATA, align=text.align_center)
-        divider(dash, 1, 3)
-        cell(dash, 0, 2, "Niveau", clr=HEADERS, align=text.align_left)
-        cell(dash, 1, 2, "Hits",   clr=HEADERS)
-        cell(dash, 2, 2, "Total",  clr=HEADERS)
-        cell(dash, 3, 2, "Taux",   clr=HEADERS)
-        divider(dash, 3,  3)
-        divider(dash, 7,  3)
-        divider(dash, 11, 3)
-        dash.merge_cells(0, 12, 3, 12)
-        divider(dash, 13, 3)
-        cell(dash, 0, 14, "Performance stratégie", clr=HEADERS, align=text.align_left)
-        dash.merge_cells(0, 15, 3, 15)
-        dash.merge_cells(0, 16, 3, 16)
-        dash.merge_cells(0, 17, 3, 17)
+        table.merge_cells(dash, 0, 0, 3, 0)
+        tableCell(dash, 0, 0, "ORB Backtest — JP", clr=DATA, halign=text.align_center)
+
+        tableDivider(dash, 1, 3)
+
+        tableCell(dash, 0, 2, "Niveau", clr=HEADERS, halign=text.align_left)
+        tableCell(dash, 1, 2, "Hits",   clr=HEADERS)
+        tableCell(dash, 2, 2, "Total",  clr=HEADERS)
+        tableCell(dash, 3, 2, "Taux",   clr=HEADERS)
+
+        tableDivider(dash, 3,  3)
+        tableDivider(dash, 7,  3)
+        tableDivider(dash, 11, 3)
+
+        table.merge_cells(dash, 0, 12, 3, 12)
+        tableDivider(dash, 13, 3)
+
+        table.merge_cells(dash, 0, 15, 3, 15)
+        table.merge_cells(dash, 0, 16, 3, 16)
+        table.merge_cells(dash, 0, 17, 3, 17)
 
     if barstate.islast
-        tot = math.max(1, totalSessions)
+        int tot = math.max(1, totalSessions)
 
-        cell(dash, 0, 4, "Bull T1", clr=HEADERS, align=text.align_left)
-        cell(dash, 1, 4, str.tostring(countU1), clr=bullColor)
-        cell(dash, 2, 4, str.tostring(totalSessions), clr=bullColor)
-        cell(dash, 3, 4, str.tostring(math.round(countU1/tot*100)) + "%", clr=bullColor)
+        tableCell(dash, 0, 4, "Bull T1", clr=HEADERS, halign=text.align_left)
+        tableCell(dash, 1, 4, str.tostring(countU1), clr=bullColor)
+        tableCell(dash, 2, 4, str.tostring(totalSessions), clr=bullColor)
+        tableCell(dash, 3, 4, str.tostring(math.round(countU1/tot*100)) + "%", clr=bullColor)
 
-        cell(dash, 0, 5, "Bull T2", clr=HEADERS, align=text.align_left)
-        cell(dash, 1, 5, str.tostring(countU2), clr=bullColor)
-        cell(dash, 2, 5, str.tostring(totalSessions), clr=bullColor)
-        cell(dash, 3, 5, str.tostring(math.round(countU2/tot*100)) + "%", clr=bullColor)
+        tableCell(dash, 0, 5, "Bull T2", clr=HEADERS, halign=text.align_left)
+        tableCell(dash, 1, 5, str.tostring(countU2), clr=bullColor)
+        tableCell(dash, 2, 5, str.tostring(totalSessions), clr=bullColor)
+        tableCell(dash, 3, 5, str.tostring(math.round(countU2/tot*100)) + "%", clr=bullColor)
 
-        cell(dash, 0, 6, "Bull T3", clr=HEADERS, align=text.align_left)
-        cell(dash, 1, 6, str.tostring(countU3), clr=bullColor)
-        cell(dash, 2, 6, str.tostring(totalSessions), clr=bullColor)
-        cell(dash, 3, 6, str.tostring(math.round(countU3/tot*100)) + "%", clr=bullColor)
+        tableCell(dash, 0, 6, "Bull T3", clr=HEADERS, halign=text.align_left)
+        tableCell(dash, 1, 6, str.tostring(countU3), clr=bullColor)
+        tableCell(dash, 2, 6, str.tostring(totalSessions), clr=bullColor)
+        tableCell(dash, 3, 6, str.tostring(math.round(countU3/tot*100)) + "%", clr=bullColor)
 
-        cell(dash, 0, 8, "Bear T1", clr=HEADERS, align=text.align_left)
-        cell(dash, 1, 8, str.tostring(countD1), clr=bearColor)
-        cell(dash, 2, 8, str.tostring(totalSessions), clr=bearColor)
-        cell(dash, 3, 8, str.tostring(math.round(countD1/tot*100)) + "%", clr=bearColor)
+        tableCell(dash, 0, 8, "Bear T1", clr=HEADERS, halign=text.align_left)
+        tableCell(dash, 1, 8, str.tostring(countD1), clr=bearColor)
+        tableCell(dash, 2, 8, str.tostring(totalSessions), clr=bearColor)
+        tableCell(dash, 3, 8, str.tostring(math.round(countD1/tot*100)) + "%", clr=bearColor)
 
-        cell(dash, 0, 9, "Bear T2", clr=HEADERS, align=text.align_left)
-        cell(dash, 1, 9, str.tostring(countD2), clr=bearColor)
-        cell(dash, 2, 9, str.tostring(totalSessions), clr=bearColor)
-        cell(dash, 3, 9, str.tostring(math.round(countD2/tot*100)) + "%", clr=bearColor)
+        tableCell(dash, 0, 9, "Bear T2", clr=HEADERS, halign=text.align_left)
+        tableCell(dash, 1, 9, str.tostring(countD2), clr=bearColor)
+        tableCell(dash, 2, 9, str.tostring(totalSessions), clr=bearColor)
+        tableCell(dash, 3, 9, str.tostring(math.round(countD2/tot*100)) + "%", clr=bearColor)
 
-        cell(dash, 0, 10, "Bear T3", clr=HEADERS, align=text.align_left)
-        cell(dash, 1, 10, str.tostring(countD3), clr=bearColor)
-        cell(dash, 2, 10, str.tostring(totalSessions), clr=bearColor)
-        cell(dash, 3, 10, str.tostring(math.round(countD3/tot*100)) + "%", clr=bearColor)
+        tableCell(dash, 0, 10, "Bear T3", clr=HEADERS, halign=text.align_left)
+        tableCell(dash, 1, 10, str.tostring(countD3), clr=bearColor)
+        tableCell(dash, 2, 10, str.tostring(totalSessions), clr=bearColor)
+        tableCell(dash, 3, 10, str.tostring(math.round(countD3/tot*100)) + "%", clr=bearColor)
 
-        cell(dash, 0, 12, "Suivi : " + str.tostring(totalSessions) + " sessions (" + sessionInput + ")",
-             clr=DATA, align=text.align_center)
+        tableCell(dash, 0, 12,
+                  "Suivi : " + str.tostring(totalSessions) + " sessions (" + sessionInput + ")",
+                  clr=DATA, halign=text.align_center)
 
-        // Stats stratégie
+        // Ligne vide séparatrice
+        tableCell(dash, 0, 14, "Performance stratégie", clr=HEADERS, halign=text.align_left)
+
         float netPnl   = strategy.netprofit
-        float winRate  = strategy.wintrades + strategy.losstrades > 0 ?
-                         strategy.wintrades / (strategy.wintrades + strategy.losstrades) * 100 : 0
-        float pnlColor_r = netPnl >= 0 ? 0.0  : 1.0
-        float pnlColor_g = netPnl >= 0 ? 1.0  : 0.0
-        color pnlClr   = color.rgb(pnlColor_r * 255, pnlColor_g * 255, 0)
+        float wins     = strategy.wintrades
+        float losses   = strategy.losstrades
+        float total_tr = wins + losses
+        float winRate  = total_tr > 0 ? wins / total_tr * 100 : 0
+        float pf       = strategy.grossloss != 0 ?
+                         math.abs(strategy.grossprofit / strategy.grossloss) : 0.0
+
+        color pnlClr   = netPnl >= 0 ? bullColor : bearColor
         color wrClr    = winRate >= 50 ? bullColor : bearColor
 
-        cell(dash, 0, 15, "PnL net : " + (netPnl >= 0 ? "+" : "") +
-             str.tostring(math.round(netPnl, 2)) + " | " +
-             str.tostring(math.round(netPnl / strategy.initial_capital * 100, 1)) + "%",
-             clr=pnlClr, align=text.align_center)
+        string pnlStr  = (netPnl >= 0 ? "+" : "") +
+                         str.tostring(math.round(netPnl, 2)) + " | " +
+                         str.tostring(math.round(netPnl / strategy.initial_capital * 100, 1)) + "%"
 
-        cell(dash, 0, 16, "Win Rate : " + str.tostring(math.round(winRate, 1)) + "% | " +
-             str.tostring(strategy.wintrades) + "W / " +
-             str.tostring(strategy.losstrades) + "L | " +
-             str.tostring(strategy.wintrades + strategy.losstrades) + " trades",
-             clr=wrClr, align=text.align_center)
+        string wrStr   = str.tostring(math.round(winRate, 1)) + "% | " +
+                         str.tostring(int(wins)) + "W / " +
+                         str.tostring(int(losses)) + "L | " +
+                         str.tostring(int(total_tr)) + " trades"
 
-        cell(dash, 0, 17, "Max DD : " + str.tostring(math.round(strategy.max_drawdown_percent, 1)) +
-             "% | Profit Factor : " + str.tostring(math.round(strategy.grossprofit / math.max(1, math.abs(strategy.grossloss)), 2)),
-             clr=DATA, align=text.align_center)
+        string ddStr   = "Max DD : " + str.tostring(math.round(strategy.max_drawdown_percent, 1)) +
+                         "% | PF : " + str.tostring(math.round(pf, 2))
 
-//─────────────────────────────────────────────────────────────────
-// Alertes
-//─────────────────────────────────────────────────────────────────
+        tableCell(dash, 0, 15, "PnL net : " + pnlStr, clr=pnlClr, halign=text.align_center)
+        tableCell(dash, 0, 16, "Win : "    + wrStr,   clr=wrClr,  halign=text.align_center)
+        tableCell(dash, 0, 17, ddStr,                 clr=DATA,   halign=text.align_center)
+
+// ─────────────────────────────────────────────────────────────
+// ALERTES
+// ─────────────────────────────────────────────────────────────
 alertcondition(breakoutUp, "ORB Bull Break", "Breakout haussier — au-dessus du range d'ouverture.")
 alertcondition(breakoutDn, "ORB Bear Break", "Breakout baissier — en-dessous du range d'ouverture.")
-alertcondition(ta.cross(close, u3), "ORB Target 3 Haussier", "Prix atteint Target 3 Bull.")
-alertcondition(ta.cross(close, d3), "ORB Target 3 Baissier", "Prix atteint Target 3 Bear.")
+alertcondition(ta.cross(close, u3), "ORB Target 3 Bull", "Prix atteint Target 3 haussier.")
+alertcondition(ta.cross(close, d3), "ORB Target 3 Bear", "Prix atteint Target 3 baissier.")
