@@ -1,0 +1,27 @@
+📊 DIVERGENCE PRIX HYPERLIQUID vs BINANCE — 30 jours
+=======================================================
+
+ETH 30M (1440 barres alignées) [vs Binance] :
+  Écart moyen    : -0.0495%
+  Écart médian   : -0.0494%
+  Std deviation  : 0.0139%
+  Min/Max        : -0.1071% / +0.0683%
+  P5/P95         : -0.0722% / -0.0281%
+
+SOL 30M (1440 barres alignées) [vs Binance] :
+  Écart moyen    : -0.0593%
+  Écart médian   : -0.0590%
+  Std deviation  : 0.0212%
+  Min/Max        : -0.3050% / +0.0260%
+  P5/P95         : -0.0928% / -0.0255%
+
+Impact sur trades :
+  → Sur un trade ETH (entry ~2100$, SL ~2% = 42.00$) :
+     Écart moyen en $ : 0.0495% × 2100 = 1.0396$ (2.5% du SL)
+  → Sur un trade SOL (entry ~140$, SL ~2% = 2.80$) :
+     Écart moyen en $ : 0.0593% × 140 = 0.0830$ (3.0% du SL)
+
+Conclusion : écart négligeable par rapport au SL de 2%
+  (impact max = 3.0% du SL)
+
+Généré le : 2026-04-08 07:33 UTC

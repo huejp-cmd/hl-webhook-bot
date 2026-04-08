@@ -1,0 +1,227 @@
+//@version=5
+//
+//  NQ Range Bar Strategy v2 — Apex 50K
+//  Auteur     : JP (codé par OpenClaw)
+//  Instrument : NQ Futures (CME:NQ1! ou NQ JUN26)
+//  Chart type : RANGE BARS — 80R (= 20 points NQ)
+//
+//  RÈGLES :
+//  ────────
+//  SHORT → Candle rouge + close < HMA20 + HMA20 en baisse
+//           Entrée : clôture du candle
+//           SL     : haut du candle rouge
+//           TP     : entrée - 30 points (= 600$ / contrat)
+//
+//  LONG  → Candle verte + close > HMA20 + HMA20 en hausse
+//           Entrée : clôture du candle
+//           SL     : bas du candle vert
+//           TP     : entrée + 30 points (= 600$ / contrat)
+//
+//  Heures actives : 09h30 – 15h50 ET
+//  Compte         : Apex 50K — 2 contrats
+//
+// ════════════════════════════════════════════════════════════════
+
+strategy("NQ Range Bar v2 — Apex 50K (1 contrat)",
+ overlay          = true,
+ default_qty_type = strategy.fixed,
+ default_qty_value = 1,
+ commission_type  = strategy.commission.cash_per_contract,
+ commission_value = 5.0,
+ initial_capital  = 50000,
+ calc_on_every_tick = false,
+ process_orders_on_close = true,
+ pyramiding       = 0)
+
+// ─────────────────────────────────────────────────────────────
+//  PARAMÈTRES
+// ─────────────────────────────────────────────────────────────
+hmaLen         = input.int  (20,    "HMA Period",                  minval=5, maxval=50)
+tpPts          = input.float(30.0,  "Take Profit (points)",        minval=5.0, step=5.0)
+slBuffer       = input.float(5.0,   "Buffer SL au-dessus du haut (pts)", minval=0.0, step=1.0,
+                 tooltip="Ajoute X pts au-dessus du haut de la barre pour éviter SL trop serré")
+cooldownBars   = input.int  (3,     "Cooldown après trade (barres)", minval=0, maxval=10,
+                 tooltip="Nb de barres à attendre après un trade avant de prendre le suivant")
+contracts      = 1
+pointValue     = 20.0  // $20 par point NQ
+
+// Règles Apex
+dailyLossLimit = input.float(1000.0, "Perte journalière max ($)",  group="Apex 50K", minval=100, step=100)
+maxDrawdown    = input.float(2000.0, "Drawdown max ($)",            group="Apex 50K", minval=100, step=100)
+showLabels     = input.bool (true,   "Afficher les labels")
+
+// ─────────────────────────────────────────────────────────────
+//  INDICATEURS
+// ─────────────────────────────────────────────────────────────
+hma20     = ta.hma(close, hmaLen)
+hmaRising = hma20 > hma20[2]   // HMA20 en hausse
+hmaFalling= hma20 < hma20[2]   // HMA20 en baisse
+
+isRed   = close < open
+isGreen = close > open
+
+// ─────────────────────────────────────────────────────────────
+//  FILTRE HORAIRE — 09h30 à 15h50 ET
+// ─────────────────────────────────────────────────────────────
+inSession = not na(time("D", "0930-1550", "America/New_York"))
+
+// ─────────────────────────────────────────────────────────────
+//  PROTECTIONS APEX
+// ─────────────────────────────────────────────────────────────
+var float dailyStartEquity = na
+if na(dailyStartEquity) or dayofweek != dayofweek[1]
+    dailyStartEquity := strategy.equity
+
+dailyPnL   = strategy.equity - dailyStartEquity
+peakEquity = ta.highest(strategy.equity, 10000)
+currentDD  = peakEquity - strategy.equity
+apexOk     = dailyPnL > -dailyLossLimit and currentDD < maxDrawdown
+
+// ─────────────────────────────────────────────────────────────
+//  COOLDOWN après trade
+// ─────────────────────────────────────────────────────────────
+var int lastExitBar = 0
+if strategy.position_size == 0 and strategy.position_size[1] != 0
+    lastExitBar := bar_index  // vient de fermer une position
+
+cooledDown = bar_index - lastExitBar >= cooldownBars
+
+// ─────────────────────────────────────────────────────────────
+//  SIGNAUX
+// ─────────────────────────────────────────────────────────────
+
+// SHORT : candle rouge + close < HMA20 + HMA20 en baisse + casse sous le bas du candle précédent
+shortSignal = isRed and close < hma20 and hmaFalling and close < low[1]
+
+// LONG : candle verte + close > HMA20 + HMA20 en hausse + casse au-dessus du haut du candle précédent
+longSignal  = isGreen and close > hma20 and hmaRising and close > high[1]
+
+// ─────────────────────────────────────────────────────────────
+//  EXÉCUTION
+// ─────────────────────────────────────────────────────────────
+
+// Fermeture forcée si limites Apex atteintes
+if not apexOk and strategy.position_size != 0
+    strategy.close_all(comment="⛔ Apex")
+
+// ENTRÉE SHORT
+if shortSignal and inSession and apexOk and noPosition
+    sl_price = high + slBuffer  // SL = haut + buffer
+    tp_price = close - tpPts
+    strategy.entry("Short", strategy.short, qty=contracts)
+    strategy.exit("Exit Short", from_entry="Short",
+     stop=sl_price, limit=tp_price,
+     comment_loss="SL", comment_profit="TP +" + str.tostring(tpPts) + "pts")
+    if showLabels
+        label.new(bar_index, high + 2,
+         "▼ SHORT\nSL: " + str.tostring(math.round(sl_price, 0)) +
+         "\nTP: " + str.tostring(math.round(tp_price, 0)),
+         color=color.new(color.red, 10), textcolor=color.white,
+         style=label.style_label_down, size=size.small)
+
+// ENTRÉE LONG
+if longSignal and inSession and apexOk and noPosition
+    sl_price = low - slBuffer   // SL = bas - buffer
+    tp_price = close + tpPts
+    strategy.entry("Long", strategy.long, qty=contracts)
+    strategy.exit("Exit Long", from_entry="Long",
+     stop=sl_price, limit=tp_price,
+     comment_loss="SL", comment_profit="TP +" + str.tostring(tpPts) + "pts")
+    if showLabels
+        label.new(bar_index, low - 2,
+         "▲ LONG\nSL: " + str.tostring(math.round(sl_price, 0)) +
+         "\nTP: " + str.tostring(math.round(tp_price, 0)),
+         color=color.new(color.green, 10), textcolor=color.white,
+         style=label.style_label_up, size=size.small)
+
+// Sortie fin de session
+if not inSession and strategy.position_size != 0
+    strategy.close_all(comment="Fin session")
+
+// ─────────────────────────────────────────────────────────────
+//  AFFICHAGE
+// ─────────────────────────────────────────────────────────────
+plot(hma20, "HMA20", color=color.yellow, linewidth=2)
+
+// ── SIGNAUX VISUELS ──────────────────────────────────────────
+// Un seul ordre à la fois + cooldown respecté
+noPosition = strategy.position_size == 0 and cooledDown
+
+// Flèche verte ▲ sous la barre = signal LONG
+plotshape(longSignal and noPosition,
+ title="Signal LONG", style=shape.triangleup,
+ location=location.belowbar, color=color.new(color.lime, 0),
+ size=size.normal, text="BUY", textcolor=color.white)
+
+// Flèche rouge ▼ au-dessus de la barre = signal SHORT
+plotshape(shortSignal and noPosition,
+ title="Signal SHORT", style=shape.triangledown,
+ location=location.abovebar, color=color.new(color.red, 0),
+ size=size.normal, text="SELL", textcolor=color.white)
+
+// Colorier la barre signal
+barcolor(longSignal  and noPosition ? color.new(color.lime, 30) : na)
+barcolor(shortSignal and noPosition ? color.new(color.red,  30) : na)
+
+// ── LIGNES TP / SL ───────────────────────────────────────────
+if longSignal and noPosition
+    tp_l = close + tpPts
+    sl_l = low
+    // Ligne TP verte
+    line.new(bar_index, tp_l, bar_index + 8, tp_l,
+     color=color.new(color.lime, 0), width=2, style=line.style_dashed)
+    label.new(bar_index + 8, tp_l, "TP +" + str.tostring(tpPts) + "pts",
+     color=color.new(color.lime, 20), textcolor=color.white,
+     style=label.style_label_left, size=size.tiny)
+    // Ligne SL rouge
+    line.new(bar_index, sl_l, bar_index + 8, sl_l,
+     color=color.new(color.red, 20), width=1, style=line.style_dotted)
+    label.new(bar_index + 8, sl_l, "SL",
+     color=color.new(color.red, 30), textcolor=color.white,
+     style=label.style_label_left, size=size.tiny)
+
+if shortSignal and noPosition
+    tp_s = close - tpPts
+    sl_s = high
+    // Ligne TP verte
+    line.new(bar_index, tp_s, bar_index + 8, tp_s,
+     color=color.new(color.lime, 0), width=2, style=line.style_dashed)
+    label.new(bar_index + 8, tp_s, "TP -" + str.tostring(tpPts) + "pts",
+     color=color.new(color.lime, 20), textcolor=color.white,
+     style=label.style_label_left, size=size.tiny)
+    // Ligne SL rouge
+    line.new(bar_index, sl_s, bar_index + 8, sl_s,
+     color=color.new(color.red, 20), width=1, style=line.style_dotted)
+    label.new(bar_index + 8, sl_s, "SL",
+     color=color.new(color.red, 30), textcolor=color.white,
+     style=label.style_label_left, size=size.tiny)
+
+// Fond rouge si Apex limit atteinte
+bgcolor(not apexOk ? color.new(color.red, 85) : na)
+
+// Tableau récap
+var table t = table.new(position.top_right, 2, 6,
+ border_color=color.gray, border_width=1, bgcolor=color.rgb(20,20,20,10))
+
+if barstate.islast
+    slDollars = (close - low) * pointValue * contracts
+    table.cell(t, 0, 0, "HMA20",      text_color=color.gray,  text_size=size.small)
+    table.cell(t, 1, 0, hmaRising ? "↑ hausse" : hmaFalling ? "↓ baisse" : "→ plat",
+     text_color=hmaRising ? color.green : hmaFalling ? color.red : color.gray,
+     text_size=size.small)
+    table.cell(t, 0, 1, "Signal",     text_color=color.gray,  text_size=size.small)
+    table.cell(t, 1, 1, longSignal ? "▲ LONG" : shortSignal ? "▼ SHORT" : "—",
+     text_color=longSignal ? color.green : shortSignal ? color.red : color.gray,
+     text_size=size.small)
+    table.cell(t, 0, 2, "TP",         text_color=color.gray,  text_size=size.small)
+    table.cell(t, 1, 2, str.tostring(tpPts) + "pts = $" + str.tostring(tpPts * pointValue * contracts),
+     text_color=color.teal, text_size=size.small)
+    table.cell(t, 0, 3, "Contrats",   text_color=color.gray,  text_size=size.small)
+    table.cell(t, 1, 3, str.tostring(contracts),
+     text_color=color.white, text_size=size.small)
+    table.cell(t, 0, 4, "PnL jour",   text_color=color.gray,  text_size=size.small)
+    table.cell(t, 1, 4, "$" + str.tostring(math.round(dailyPnL, 0)),
+     text_color=dailyPnL >= 0 ? color.green : color.red, text_size=size.small)
+    table.cell(t, 0, 5, "Apex",       text_color=color.gray,  text_size=size.small)
+    table.cell(t, 1, 5, apexOk ? "✅ OK" : "⛔ STOP",
+     text_color=apexOk ? color.green : color.red, text_size=size.small)

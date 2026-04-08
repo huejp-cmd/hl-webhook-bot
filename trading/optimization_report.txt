@@ -1,11 +1,14 @@
-=== RAPPORT OPTIMISATION — SOL ===
-Date : 2026-04-03 11:48
+=== RAPPORT OPTIMISATION — ETH ===
+Date : 2026-04-05 11:13
 
-TF 1H — Best combo :
-  hma_fast=15, hma_slow=60, tp_mult=5.0, adx_thresh=25, rsi_low=40, rsi_high=60
-  WR=41.7%, DD=5.9%, PF=3.25, Score=0.23, Trades=12, Return=39.8%
+TF 30M — Best combo :
+  hma_fast=25, hma_slow=40, tp_mult=4.0, adx_thresh=20, rsi_low=45, rsi_high=60
+  Score robustesse=0.07
+  30D: WR=40.0% DD=7.8% Ret=+20.5% PF=2.40 T=10
+  90D: WR=32.4% DD=7.8% Ret=+46.5% PF=1.86 T=34
+  1Y: WR=33.3% DD=9.6% Ret=+60.8% PF=1.93 T=39
   Top 3 :
-    #1  hma_fast=15, hma_slow=60, tp_mult=5.0, adx_thresh=25  → Score=0.23  WR=41.7%  DD=5.9%
-    #2  hma_fast=15, hma_slow=40, tp_mult=3.0, adx_thresh=30  → Score=0.19  WR=46.7%  DD=5.9%
-    #3  hma_fast=15, hma_slow=50, tp_mult=3.0, adx_thresh=30  → Score=0.08  WR=38.1%  DD=7.8%
+    #1  hma_fast=25, hma_slow=40, tp_mult=4.0, adx_thresh=20  → Score(robust)=0.07  30D: WR=40.0% DD=7.8% Ret=+20.5% PF=2.40 T=10  |  90D: WR=32.4% DD=7.8% Ret=+46.5% PF=1.86 T=34  |  1Y: WR=33.3% DD=9.6% Ret=+60.8% PF=1.93 T=39
+    #2  hma_fast=25, hma_slow=40, tp_mult=5.0, adx_thresh=20  → Score(robust)=0.06  30D: WR=37.5% DD=5.9% Ret=+20.3% PF=2.71 T=8  |  90D: WR=31.0% DD=7.8% Ret=+57.4% PF=2.19 T=29  |  1Y: WR=29.4% DD=9.6% Ret=+59.7% PF=2.05 T=34
+    #3  hma_fast=25, hma_slow=60, tp_mult=3.0, adx_thresh=25  → Score(robust)=0.05  30D: WR=30.0% DD=7.8% Ret=+3.4% PF=1.23 T=10  |  90D: WR=39.5% DD=7.8% Ret=+50.6% PF=1.84 T=38  |  1Y: WR=36.4% DD=9.8% Ret=+44.3% PF=1.66 T=44
 

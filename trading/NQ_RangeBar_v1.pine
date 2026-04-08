@@ -1,0 +1,223 @@
+//@version=5
+//
+//  NQ Range Bar Strategy v1 — Apex 50K
+//  Auteur     : JP (codé par OpenClaw)
+//  Instrument : NQ Futures (CME:NQ1! ou NQ JUN26)
+//  Chart type : RANGE BARS (20 points recommandé)
+//  Compte     : Apex 50 000$
+//
+//  LOGIQUE :
+//  ─────────
+//  LONG  → Barre ROUGE (corps ≥ bodyMin pts) + ADX ≤ adxThresh
+//           Entrée au breakout du High + breakoutPts
+//           (max maxWaitBars barres pour le breakout, sinon signal annulé)
+//
+//  SHORT → Barre VERTE (corps ≥ bodyMin pts) + ADX ≤ adxThresh
+//           Entrée au breakout du Low - breakoutPts
+//
+//  SL    = entrée ∓ slPts points
+//  TP    = entrée ± tpPts points
+//
+//  PROTECTIONS APEX 50K :
+//  ──────────────────────
+//  - Perte journalière max : 1 000$ → stop trading si atteint
+//  - Drawdown max          : 2 000$ → stop trading si atteint
+//  - 2 contrats fixes
+//
+//  Heures actives : 09h30 – 15h50 ET (New York)
+//
+//  COMMENT UTILISER :
+//  1. Ouvrir chart NQ1! ou NQ JUN26 sur TradingView
+//  2. Changer le type de chart → Range → taille : 20
+//  3. Charger ce script → Strategy Tester pour le backtest
+//
+// ════════════════════════════════════════════════════════════════
+
+strategy("NQ Range Bar v1 — Apex 50K",
+ overlay          = true,
+ default_qty_type = strategy.fixed,
+ default_qty_value = 2,
+ commission_type  = strategy.commission.cash_per_contract,
+ commission_value = 5.0,
+ initial_capital  = 50000,
+ calc_on_every_tick = false,
+ pyramiding       = 0)
+
+// ─────────────────────────────────────────────────────────────
+//  PARAMÈTRES
+// ─────────────────────────────────────────────────────────────
+g_sig  = "Signaux"
+g_risk = "Gestion du risque"
+g_filt = "Filtres"
+g_apex = "Règles Apex"
+
+adxThresh   = input.int  (25,    "ADX Seuil (≤)",             group=g_filt, minval=5,   maxval=50)
+adxLen      = input.int  (14,    "ADX Period",                 group=g_filt, minval=5,   maxval=30)
+bodyMin     = input.float(5.0,   "Corps min barre (points)",   group=g_filt, minval=1.0, step=1.0)
+breakoutPts = input.float(2.0,   "Breakout (points)",          group=g_sig,  minval=0.5, step=0.5)
+maxWaitBars = input.int  (3,     "Barres d'attente max",       group=g_sig,  minval=1,   maxval=10)
+slPts       = input.float(15.0,  "Stop Loss (points)",         group=g_risk, minval=5.0, step=1.0)
+tpPts       = input.float(40.0,  "Take Profit (points)",       group=g_risk, minval=10.0,step=1.0)
+showLabels  = input.bool (true,  "Afficher les labels")
+
+// Règles Apex
+dailyLossLimit = input.float(1000.0, "Perte journalière max ($)", group=g_apex, minval=100, step=100)
+maxDrawdown    = input.float(2000.0, "Drawdown max ($)",           group=g_apex, minval=100, step=100)
+contracts      = 2  // Fixe — 2 contrats Apex 50K
+pointValue     = 20.0 // $20 par point NQ
+
+// ─────────────────────────────────────────────────────────────
+//  FILTRE HORAIRE — 09h30 à 15h50 ET
+// ─────────────────────────────────────────────────────────────
+inSession = not na(time("D", "0930-1550", "America/New_York"))
+
+// ─────────────────────────────────────────────────────────────
+//  PROTECTIONS APEX
+// ─────────────────────────────────────────────────────────────
+var float dailyStartEquity = na
+if na(dailyStartEquity) or dayofweek != dayofweek[1]
+    dailyStartEquity := strategy.equity
+
+dailyPnL    = strategy.equity - dailyStartEquity
+peakEquity  = ta.highest(strategy.equity, 10000)
+currentDD   = peakEquity - strategy.equity
+
+apexDailyOk = dailyPnL > -dailyLossLimit
+apexDDOk    = currentDD < maxDrawdown
+apexOk      = apexDailyOk and apexDDOk
+
+// ─────────────────────────────────────────────────────────────
+//  ADX / DMI
+// ─────────────────────────────────────────────────────────────
+[diplus, diminus, adx_val] = ta.dmi(adxLen, adxLen)
+adxOk = adx_val <= adxThresh
+
+// ─────────────────────────────────────────────────────────────
+//  CARACTÉRISTIQUES DE LA BARRE
+// ─────────────────────────────────────────────────────────────
+body    = math.abs(close - open)
+isRed   = close < open
+isGreen = close > open
+bodyOk  = body >= bodyMin
+
+// ─────────────────────────────────────────────────────────────
+//  ÉTAT DU SIGNAL EN ATTENTE
+// ─────────────────────────────────────────────────────────────
+var float sigLevel = na
+var int   sigBar   = na
+var int   sigDir   = 0  // +1 LONG, -1 SHORT
+
+// ─────────────────────────────────────────────────────────────
+//  LOGIQUE PRINCIPALE
+// ─────────────────────────────────────────────────────────────
+
+// Fermeture forcée si limites Apex atteintes
+if not apexOk and strategy.position_size != 0
+    strategy.close_all(comment="⛔ Limite Apex")
+    sigLevel := na
+    sigBar   := na
+    sigDir   := 0
+
+// Détection nouveau signal
+if inSession and apexOk and strategy.position_size == 0 and na(sigBar)
+    if isRed and bodyOk and adxOk
+        sigLevel := high + breakoutPts
+        sigBar   := bar_index
+        sigDir   := 1
+        if showLabels
+            label.new(bar_index, low - 3, "▲ " + str.tostring(math.round(high + breakoutPts, 0)),
+             color=color.new(color.green, 20), textcolor=color.white,
+             style=label.style_label_up, size=size.small)
+
+    else if isGreen and bodyOk and adxOk
+        sigLevel := low - breakoutPts
+        sigBar   := bar_index
+        sigDir   := -1
+        if showLabels
+            label.new(bar_index, high + 3, "▼ " + str.tostring(math.round(low - breakoutPts, 0)),
+             color=color.new(color.red, 20), textcolor=color.white,
+             style=label.style_label_down, size=size.small)
+
+// Gestion breakout
+if not na(sigBar) and strategy.position_size == 0 and apexOk
+    barsWaited = bar_index - sigBar
+
+    if barsWaited > maxWaitBars
+        sigLevel := na
+        sigBar   := na
+        sigDir   := 0
+
+    else if sigDir == 1 and high >= sigLevel and inSession
+        sl_price = sigLevel - slPts
+        tp_price = sigLevel + tpPts
+        strategy.entry("Long", strategy.long, qty=contracts,
+         comment="L ×" + str.tostring(contracts))
+        strategy.exit("Exit Long", from_entry="Long",
+         stop=sl_price, limit=tp_price,
+         comment_loss="SL", comment_profit="TP")
+        sigLevel := na
+        sigBar   := na
+        sigDir   := 0
+
+    else if sigDir == -1 and low <= sigLevel and inSession
+        sl_price = sigLevel + slPts
+        tp_price = sigLevel - tpPts
+        strategy.entry("Short", strategy.short, qty=contracts,
+         comment="S ×" + str.tostring(contracts))
+        strategy.exit("Exit Short", from_entry="Short",
+         stop=sl_price, limit=tp_price,
+         comment_loss="SL", comment_profit="TP")
+        sigLevel := na
+        sigBar   := na
+        sigDir   := 0
+
+// Sortie fin de session
+if not inSession and strategy.position_size != 0
+    strategy.close_all(comment="Fin session")
+    sigLevel := na
+    sigBar   := na
+    sigDir   := 0
+
+// ─────────────────────────────────────────────────────────────
+//  AFFICHAGE
+// ─────────────────────────────────────────────────────────────
+plot(not na(sigBar) ? sigLevel : na, "Signal Level",
+ color=sigDir == 1 ? color.green : color.red,
+ style=plot.style_linebr, linewidth=1)
+
+// Fond rouge si limite Apex atteinte
+bgcolor(not apexOk ? color.new(color.red, 85) : na, title="⛔ Limite Apex")
+
+// Tableau info
+var table info = table.new(position.top_right, 2, 8,
+ border_color=color.gray, border_width=1,
+ bgcolor=color.rgb(20, 20, 20, 10))
+
+if barstate.islast
+    rr = math.round(tpPts / slPts, 1)
+    riskPerTrade = slPts * pointValue * contracts
+    table.cell(info, 0, 0, "ADX",         text_color=color.gray,   text_size=size.small)
+    table.cell(info, 1, 0, str.tostring(math.round(adx_val, 1)),
+     text_color=adxOk ? color.green : color.red, text_size=size.small)
+    table.cell(info, 0, 1, "Signal",       text_color=color.gray,   text_size=size.small)
+    table.cell(info, 1, 1, not na(sigBar) ? (sigDir == 1 ? "▲ LONG" : "▼ SHORT") : "—",
+     text_color=sigDir==1 ? color.green : sigDir==-1 ? color.red : color.gray,
+     text_size=size.small)
+    table.cell(info, 0, 2, "Contrats",     text_color=color.gray,   text_size=size.small)
+    table.cell(info, 1, 2, str.tostring(contracts),
+     text_color=color.white, text_size=size.small)
+    table.cell(info, 0, 3, "Risque/trade", text_color=color.gray,   text_size=size.small)
+    table.cell(info, 1, 3, "$" + str.tostring(riskPerTrade),
+     text_color=color.orange, text_size=size.small)
+    table.cell(info, 0, 4, "SL",           text_color=color.gray,   text_size=size.small)
+    table.cell(info, 1, 4, str.tostring(slPts) + " pts",
+     text_color=color.red, text_size=size.small)
+    table.cell(info, 0, 5, "TP",           text_color=color.gray,   text_size=size.small)
+    table.cell(info, 1, 5, str.tostring(tpPts) + " pts",
+     text_color=color.teal, text_size=size.small)
+    table.cell(info, 0, 6, "R/R",          text_color=color.gray,   text_size=size.small)
+    table.cell(info, 1, 6, "1:" + str.tostring(rr),
+     text_color=color.white, text_size=size.small)
+    table.cell(info, 0, 7, "PnL jour",     text_color=color.gray,   text_size=size.small)
+    table.cell(info, 1, 7, "$" + str.tostring(math.round(dailyPnL, 0)),
+     text_color=dailyPnL >= 0 ? color.green : color.red, text_size=size.small)

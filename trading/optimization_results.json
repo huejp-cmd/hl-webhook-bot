@@ -1,18 +1,906 @@
 {
-  "run_date": "2026-04-03 11:48",
+  "run_date": "2026-04-05 11:13",
   "config": {
     "coins": [
-      "SOL"
+      "ETH"
     ],
     "timeframes": [
-      "1H"
+      "30M"
     ],
-    "combos": 10
+    "combos": 150
   },
   "results": [
     {
-      "timeframe": "1H",
-      "coin": "SOL",
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 40,
+        "tp_mult": 4.0,
+        "adx_thresh": 20,
+        "rsi_low": 45,
+        "rsi_high": 60
+      },
+      "score": 0.067,
+      "30D": {
+        "win_rate": 0.4,
+        "profit_factor": 2.404,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": 20.518,
+        "num_trades": 10,
+        "score": 0.1239
+      },
+      "90D": {
+        "win_rate": 0.3235,
+        "profit_factor": 1.864,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": 46.508,
+        "num_trades": 34,
+        "score": 0.0777
+      },
+      "1Y": {
+        "win_rate": 0.3333,
+        "profit_factor": 1.932,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 60.837,
+        "num_trades": 39,
+        "score": 0.067
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 40,
+        "tp_mult": 5.0,
+        "adx_thresh": 20,
+        "rsi_low": 45,
+        "rsi_high": 60
+      },
+      "score": 0.0626,
+      "30D": {
+        "win_rate": 0.375,
+        "profit_factor": 2.708,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 20.312,
+        "num_trades": 8,
+        "score": 0.1727
+      },
+      "90D": {
+        "win_rate": 0.3103,
+        "profit_factor": 2.185,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": 57.418,
+        "num_trades": 29,
+        "score": 0.0873
+      },
+      "1Y": {
+        "win_rate": 0.2941,
+        "profit_factor": 2.046,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 59.718,
+        "num_trades": 34,
+        "score": 0.0626
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 60,
+        "tp_mult": 3.0,
+        "adx_thresh": 25,
+        "rsi_low": 45,
+        "rsi_high": 70
+      },
+      "score": 0.0474,
+      "30D": {
+        "win_rate": 0.3,
+        "profit_factor": 1.227,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": 3.395,
+        "num_trades": 10,
+        "score": 0.0474
+      },
+      "90D": {
+        "win_rate": 0.3947,
+        "profit_factor": 1.842,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": 50.587,
+        "num_trades": 38,
+        "score": 0.0936
+      },
+      "1Y": {
+        "win_rate": 0.3636,
+        "profit_factor": 1.658,
+        "max_drawdown_pct": 9.819,
+        "total_return_pct": 44.286,
+        "num_trades": 44,
+        "score": 0.0614
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 60,
+        "tp_mult": 3.0,
+        "adx_thresh": 25,
+        "rsi_low": 35,
+        "rsi_high": 70
+      },
+      "score": 0.0474,
+      "30D": {
+        "win_rate": 0.3,
+        "profit_factor": 1.227,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": 3.395,
+        "num_trades": 10,
+        "score": 0.0474
+      },
+      "90D": {
+        "win_rate": 0.3947,
+        "profit_factor": 1.842,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": 50.587,
+        "num_trades": 38,
+        "score": 0.0936
+      },
+      "1Y": {
+        "win_rate": 0.3636,
+        "profit_factor": 1.658,
+        "max_drawdown_pct": 9.819,
+        "total_return_pct": 44.286,
+        "num_trades": 44,
+        "score": 0.0614
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 60,
+        "tp_mult": 3.0,
+        "adx_thresh": 25,
+        "rsi_low": 40,
+        "rsi_high": 65
+      },
+      "score": 0.0466,
+      "30D": {
+        "win_rate": 0.3,
+        "profit_factor": 1.233,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 3.395,
+        "num_trades": 10,
+        "score": 0.0629
+      },
+      "90D": {
+        "win_rate": 0.3333,
+        "profit_factor": 1.45,
+        "max_drawdown_pct": 9.819,
+        "total_return_pct": 26.14,
+        "num_trades": 39,
+        "score": 0.0492
+      },
+      "1Y": {
+        "win_rate": 0.3256,
+        "profit_factor": 1.404,
+        "max_drawdown_pct": 9.819,
+        "total_return_pct": 25.846,
+        "num_trades": 43,
+        "score": 0.0466
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 60,
+        "tp_mult": 5.0,
+        "adx_thresh": 20,
+        "rsi_low": 35,
+        "rsi_high": 60
+      },
+      "score": 0.0438,
+      "30D": {
+        "win_rate": 0.25,
+        "profit_factor": 1.554,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 7.187,
+        "num_trades": 8,
+        "score": 0.0661
+      },
+      "90D": {
+        "win_rate": 0.2593,
+        "profit_factor": 1.634,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 30.098,
+        "num_trades": 27,
+        "score": 0.0441
+      },
+      "1Y": {
+        "win_rate": 0.2581,
+        "profit_factor": 1.63,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 34.692,
+        "num_trades": 31,
+        "score": 0.0438
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 40,
+        "tp_mult": 5.0,
+        "adx_thresh": 20,
+        "rsi_low": 40,
+        "rsi_high": 60
+      },
+      "score": 0.0378,
+      "30D": {
+        "win_rate": 0.2857,
+        "profit_factor": 1.853,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 9.374,
+        "num_trades": 7,
+        "score": 0.09
+      },
+      "90D": {
+        "win_rate": 0.3,
+        "profit_factor": 2.026,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 54.27,
+        "num_trades": 30,
+        "score": 0.0532
+      },
+      "1Y": {
+        "win_rate": 0.2564,
+        "profit_factor": 1.681,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 44.372,
+        "num_trades": 39,
+        "score": 0.0378
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 40,
+        "tp_mult": 4.0,
+        "adx_thresh": 20,
+        "rsi_low": 40,
+        "rsi_high": 60
+      },
+      "score": 0.0373,
+      "30D": {
+        "win_rate": 0.2308,
+        "profit_factor": 1.142,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 2.928,
+        "num_trades": 13,
+        "score": 0.0448
+      },
+      "90D": {
+        "win_rate": 0.2895,
+        "profit_factor": 1.551,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 35.134,
+        "num_trades": 38,
+        "score": 0.0393
+      },
+      "1Y": {
+        "win_rate": 0.2826,
+        "profit_factor": 1.506,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 39.627,
+        "num_trades": 46,
+        "score": 0.0373
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 40,
+        "tp_mult": 4.0,
+        "adx_thresh": 20,
+        "rsi_low": 35,
+        "rsi_high": 60
+      },
+      "score": 0.0373,
+      "30D": {
+        "win_rate": 0.2308,
+        "profit_factor": 1.142,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 2.928,
+        "num_trades": 13,
+        "score": 0.0448
+      },
+      "90D": {
+        "win_rate": 0.2895,
+        "profit_factor": 1.551,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 35.134,
+        "num_trades": 38,
+        "score": 0.0393
+      },
+      "1Y": {
+        "win_rate": 0.2826,
+        "profit_factor": 1.506,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 39.627,
+        "num_trades": 46,
+        "score": 0.0373
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 50,
+        "tp_mult": 3.0,
+        "adx_thresh": 25,
+        "rsi_low": 40,
+        "rsi_high": 65
+      },
+      "score": 0.0356,
+      "30D": {
+        "win_rate": 0.2727,
+        "profit_factor": 1.08,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": 1.327,
+        "num_trades": 11,
+        "score": 0.0379
+      },
+      "90D": {
+        "win_rate": 0.325,
+        "profit_factor": 1.385,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 23.618,
+        "num_trades": 40,
+        "score": 0.0394
+      },
+      "1Y": {
+        "win_rate": 0.3111,
+        "profit_factor": 1.307,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 20.862,
+        "num_trades": 45,
+        "score": 0.0356
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 40,
+        "tp_mult": 4.0,
+        "adx_thresh": 20,
+        "rsi_low": 35,
+        "rsi_high": 60
+      },
+      "score": 0.0349,
+      "30D": {
+        "win_rate": 0.25,
+        "profit_factor": 1.263,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 3.325,
+        "num_trades": 8,
+        "score": 0.0537
+      },
+      "90D": {
+        "win_rate": 0.2903,
+        "profit_factor": 1.553,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 28.17,
+        "num_trades": 31,
+        "score": 0.0395
+      },
+      "1Y": {
+        "win_rate": 0.275,
+        "profit_factor": 1.451,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 29.783,
+        "num_trades": 40,
+        "score": 0.0349
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 40,
+        "tp_mult": 4.0,
+        "adx_thresh": 20,
+        "rsi_low": 40,
+        "rsi_high": 60
+      },
+      "score": 0.0349,
+      "30D": {
+        "win_rate": 0.25,
+        "profit_factor": 1.263,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 3.325,
+        "num_trades": 8,
+        "score": 0.0537
+      },
+      "90D": {
+        "win_rate": 0.2903,
+        "profit_factor": 1.553,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 28.17,
+        "num_trades": 31,
+        "score": 0.0395
+      },
+      "1Y": {
+        "win_rate": 0.275,
+        "profit_factor": 1.451,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 29.783,
+        "num_trades": 40,
+        "score": 0.0349
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 40,
+        "tp_mult": 4.0,
+        "adx_thresh": 20,
+        "rsi_low": 45,
+        "rsi_high": 60
+      },
+      "score": 0.0349,
+      "30D": {
+        "win_rate": 0.25,
+        "profit_factor": 1.263,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 3.325,
+        "num_trades": 8,
+        "score": 0.0537
+      },
+      "90D": {
+        "win_rate": 0.2903,
+        "profit_factor": 1.553,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 28.17,
+        "num_trades": 31,
+        "score": 0.0395
+      },
+      "1Y": {
+        "win_rate": 0.275,
+        "profit_factor": 1.451,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 29.783,
+        "num_trades": 40,
+        "score": 0.0349
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 50,
+        "tp_mult": 3.0,
+        "adx_thresh": 20,
+        "rsi_low": 40,
+        "rsi_high": 60
+      },
+      "score": 0.0347,
+      "30D": {
+        "win_rate": 0.3636,
+        "profit_factor": 1.62,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": 9.599,
+        "num_trades": 11,
+        "score": 0.0759
+      },
+      "90D": {
+        "win_rate": 0.3438,
+        "profit_factor": 1.527,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 24.197,
+        "num_trades": 32,
+        "score": 0.046
+      },
+      "1Y": {
+        "win_rate": 0.3421,
+        "profit_factor": 1.515,
+        "max_drawdown_pct": 14.924,
+        "total_return_pct": 28.715,
+        "num_trades": 38,
+        "score": 0.0347
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 60,
+        "tp_mult": 3.0,
+        "adx_thresh": 20,
+        "rsi_low": 45,
+        "rsi_high": 60
+      },
+      "score": 0.0326,
+      "30D": {
+        "win_rate": 0.4,
+        "profit_factor": 1.861,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": 11.836,
+        "num_trades": 10,
+        "score": 0.0959
+      },
+      "90D": {
+        "win_rate": 0.3448,
+        "profit_factor": 1.535,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 21.998,
+        "num_trades": 29,
+        "score": 0.0464
+      },
+      "1Y": {
+        "win_rate": 0.3333,
+        "profit_factor": 1.459,
+        "max_drawdown_pct": 14.924,
+        "total_return_pct": 23.907,
+        "num_trades": 36,
+        "score": 0.0326
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 60,
+        "tp_mult": 4.0,
+        "adx_thresh": 20,
+        "rsi_low": 35,
+        "rsi_high": 60
+      },
+      "score": 0.0311,
+      "30D": {
+        "win_rate": 0.2222,
+        "profit_factor": 1.086,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": 1.258,
+        "num_trades": 9,
+        "score": 0.0311
+      },
+      "90D": {
+        "win_rate": 0.3,
+        "profit_factor": 1.628,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 30.786,
+        "num_trades": 30,
+        "score": 0.0508
+      },
+      "1Y": {
+        "win_rate": 0.2857,
+        "profit_factor": 1.534,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 30.284,
+        "num_trades": 35,
+        "score": 0.0456
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 60,
+        "tp_mult": 4.0,
+        "adx_thresh": 20,
+        "rsi_low": 45,
+        "rsi_high": 60
+      },
+      "score": 0.0311,
+      "30D": {
+        "win_rate": 0.2222,
+        "profit_factor": 1.086,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": 1.258,
+        "num_trades": 9,
+        "score": 0.0311
+      },
+      "90D": {
+        "win_rate": 0.3,
+        "profit_factor": 1.628,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 30.786,
+        "num_trades": 30,
+        "score": 0.0508
+      },
+      "1Y": {
+        "win_rate": 0.2857,
+        "profit_factor": 1.534,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 30.284,
+        "num_trades": 35,
+        "score": 0.0456
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 50,
+        "tp_mult": 3.0,
+        "adx_thresh": 25,
+        "rsi_low": 40,
+        "rsi_high": 60
+      },
+      "score": 0.0309,
+      "30D": {
+        "win_rate": 0.25,
+        "profit_factor": 0.961,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": -0.699,
+        "num_trades": 12,
+        "score": 0.0309
+      },
+      "90D": {
+        "win_rate": 0.3667,
+        "profit_factor": 1.687,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 29.318,
+        "num_trades": 30,
+        "score": 0.0644
+      },
+      "1Y": {
+        "win_rate": 0.3529,
+        "profit_factor": 1.597,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 29.016,
+        "num_trades": 34,
+        "score": 0.0587
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 40,
+        "tp_mult": 3.0,
+        "adx_thresh": 20,
+        "rsi_low": 45,
+        "rsi_high": 60
+      },
+      "score": 0.0284,
+      "30D": {
+        "win_rate": 0.2857,
+        "profit_factor": 1.153,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 3.154,
+        "num_trades": 14,
+        "score": 0.056
+      },
+      "90D": {
+        "win_rate": 0.2927,
+        "profit_factor": 1.195,
+        "max_drawdown_pct": 11.623,
+        "total_return_pct": 12.002,
+        "num_trades": 41,
+        "score": 0.0301
+      },
+      "1Y": {
+        "win_rate": 0.2857,
+        "profit_factor": 1.156,
+        "max_drawdown_pct": 11.623,
+        "total_return_pct": 11.479,
+        "num_trades": 49,
+        "score": 0.0284
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 40,
+        "tp_mult": 3.0,
+        "adx_thresh": 20,
+        "rsi_low": 40,
+        "rsi_high": 60
+      },
+      "score": 0.0284,
+      "30D": {
+        "win_rate": 0.2857,
+        "profit_factor": 1.153,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 3.154,
+        "num_trades": 14,
+        "score": 0.056
+      },
+      "90D": {
+        "win_rate": 0.2927,
+        "profit_factor": 1.195,
+        "max_drawdown_pct": 11.623,
+        "total_return_pct": 12.002,
+        "num_trades": 41,
+        "score": 0.0301
+      },
+      "1Y": {
+        "win_rate": 0.2857,
+        "profit_factor": 1.156,
+        "max_drawdown_pct": 11.623,
+        "total_return_pct": 11.479,
+        "num_trades": 49,
+        "score": 0.0284
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 60,
+        "tp_mult": 4.0,
+        "adx_thresh": 20,
+        "rsi_low": 35,
+        "rsi_high": 60
+      },
+      "score": 0.0282,
+      "30D": {
+        "win_rate": 0.4,
+        "profit_factor": 2.404,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": 20.518,
+        "num_trades": 10,
+        "score": 0.1239
+      },
+      "90D": {
+        "win_rate": 0.3103,
+        "profit_factor": 1.764,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 33.455,
+        "num_trades": 29,
+        "score": 0.048
+      },
+      "1Y": {
+        "win_rate": 0.2778,
+        "profit_factor": 1.515,
+        "max_drawdown_pct": 14.924,
+        "total_return_pct": 27.678,
+        "num_trades": 36,
+        "score": 0.0282
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 50,
+        "tp_mult": 5.0,
+        "adx_thresh": 25,
+        "rsi_low": 35,
+        "rsi_high": 60
+      },
+      "score": 0.0267,
+      "30D": {
+        "win_rate": 0.1667,
+        "profit_factor": 0.943,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": -0.569,
+        "num_trades": 6,
+        "score": 0.0267
+      },
+      "90D": {
+        "win_rate": 0.2273,
+        "profit_factor": 1.408,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 14.237,
+        "num_trades": 22,
+        "score": 0.028
+      },
+      "1Y": {
+        "win_rate": 0.25,
+        "profit_factor": 1.584,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 23.147,
+        "num_trades": 24,
+        "score": 0.0347
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 50,
+        "tp_mult": 5.0,
+        "adx_thresh": 25,
+        "rsi_low": 40,
+        "rsi_high": 60
+      },
+      "score": 0.0267,
+      "30D": {
+        "win_rate": 0.1667,
+        "profit_factor": 0.943,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": -0.569,
+        "num_trades": 6,
+        "score": 0.0267
+      },
+      "90D": {
+        "win_rate": 0.2273,
+        "profit_factor": 1.408,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 14.237,
+        "num_trades": 22,
+        "score": 0.028
+      },
+      "1Y": {
+        "win_rate": 0.25,
+        "profit_factor": 1.584,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 23.147,
+        "num_trades": 24,
+        "score": 0.0347
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 50,
+        "tp_mult": 4.0,
+        "adx_thresh": 20,
+        "rsi_low": 40,
+        "rsi_high": 60
+      },
+      "score": 0.0261,
+      "30D": {
+        "win_rate": 0.3,
+        "profit_factor": 1.608,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": 9.359,
+        "num_trades": 10,
+        "score": 0.0621
+      },
+      "90D": {
+        "win_rate": 0.2903,
+        "profit_factor": 1.587,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 28.17,
+        "num_trades": 31,
+        "score": 0.0403
+      },
+      "1Y": {
+        "win_rate": 0.2703,
+        "profit_factor": 1.442,
+        "max_drawdown_pct": 14.924,
+        "total_return_pct": 25.124,
+        "num_trades": 37,
+        "score": 0.0261
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
       "params": {
         "hma_fast": 15,
         "hma_slow": 60,
@@ -21,88 +909,72 @@
         "rsi_low": 40,
         "rsi_high": 60
       },
-      "win_rate": 0.4167,
-      "profit_factor": 3.247,
-      "max_drawdown_pct": 5.881,
-      "total_return_pct": 39.812,
-      "num_trades": 12,
-      "score": 0.23
+      "score": 0.0247,
+      "30D": {
+        "win_rate": 0.2,
+        "profit_factor": 1.188,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 2.942,
+        "num_trades": 10,
+        "score": 0.0247
+      },
+      "90D": {
+        "win_rate": 0.2727,
+        "profit_factor": 1.782,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": 28.225,
+        "num_trades": 22,
+        "score": 0.0626
+      },
+      "1Y": {
+        "win_rate": 0.2692,
+        "profit_factor": 1.754,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": 32.753,
+        "num_trades": 26,
+        "score": 0.0608
+      }
     },
     {
-      "timeframe": "1H",
-      "coin": "SOL",
+      "timeframe": "30M",
+      "coin": "ETH",
       "params": {
         "hma_fast": 15,
-        "hma_slow": 40,
-        "tp_mult": 3.0,
-        "adx_thresh": 30,
-        "rsi_low": 45,
-        "rsi_high": 65
-      },
-      "win_rate": 0.4667,
-      "profit_factor": 2.436,
-      "max_drawdown_pct": 5.881,
-      "total_return_pct": 27.923,
-      "num_trades": 15,
-      "score": 0.1933
-    },
-    {
-      "timeframe": "1H",
-      "coin": "SOL",
-      "params": {
-        "hma_fast": 15,
-        "hma_slow": 50,
-        "tp_mult": 3.0,
-        "adx_thresh": 30,
-        "rsi_low": 40,
-        "rsi_high": 70
-      },
-      "win_rate": 0.381,
-      "profit_factor": 1.724,
-      "max_drawdown_pct": 7.763,
-      "total_return_pct": 22.57,
-      "num_trades": 21,
-      "score": 0.0846
-    },
-    {
-      "timeframe": "1H",
-      "coin": "SOL",
-      "params": {
-        "hma_fast": 15,
-        "hma_slow": 50,
-        "tp_mult": 4.0,
-        "adx_thresh": 20,
-        "rsi_low": 45,
-        "rsi_high": 60
-      },
-      "win_rate": 0.3333,
-      "profit_factor": 1.864,
-      "max_drawdown_pct": 11.416,
-      "total_return_pct": 29.161,
-      "num_trades": 21,
-      "score": 0.0544
-    },
-    {
-      "timeframe": "1H",
-      "coin": "SOL",
-      "params": {
-        "hma_fast": 25,
         "hma_slow": 60,
-        "tp_mult": 3.0,
-        "adx_thresh": 20,
-        "rsi_low": 45,
+        "tp_mult": 5.0,
+        "adx_thresh": 25,
+        "rsi_low": 35,
         "rsi_high": 60
       },
-      "win_rate": 0.2857,
-      "profit_factor": 1.153,
-      "max_drawdown_pct": 7.763,
-      "total_return_pct": 3.154,
-      "num_trades": 14,
-      "score": 0.0424
+      "score": 0.0247,
+      "30D": {
+        "win_rate": 0.2,
+        "profit_factor": 1.188,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 2.942,
+        "num_trades": 10,
+        "score": 0.0247
+      },
+      "90D": {
+        "win_rate": 0.2727,
+        "profit_factor": 1.782,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": 28.225,
+        "num_trades": 22,
+        "score": 0.0626
+      },
+      "1Y": {
+        "win_rate": 0.2692,
+        "profit_factor": 1.754,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": 32.753,
+        "num_trades": 26,
+        "score": 0.0608
+      }
     },
     {
-      "timeframe": "1H",
-      "coin": "SOL",
+      "timeframe": "30M",
+      "coin": "ETH",
       "params": {
         "hma_fast": 25,
         "hma_slow": 60,
@@ -111,34 +983,368 @@
         "rsi_low": 45,
         "rsi_high": 70
       },
-      "win_rate": 0.2,
-      "profit_factor": 0.953,
-      "max_drawdown_pct": 11.416,
-      "total_return_pct": -1.906,
-      "num_trades": 25,
-      "score": 0.0167
+      "score": 0.0235,
+      "30D": {
+        "win_rate": 0.2222,
+        "profit_factor": 1.085,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 1.258,
+        "num_trades": 9,
+        "score": 0.0251
+      },
+      "90D": {
+        "win_rate": 0.2647,
+        "profit_factor": 1.362,
+        "max_drawdown_pct": 13.521,
+        "total_return_pct": 20.633,
+        "num_trades": 34,
+        "score": 0.0267
+      },
+      "1Y": {
+        "win_rate": 0.25,
+        "profit_factor": 1.272,
+        "max_drawdown_pct": 13.521,
+        "total_return_pct": 17.766,
+        "num_trades": 40,
+        "score": 0.0235
+      }
     },
     {
-      "timeframe": "1H",
-      "coin": "SOL",
+      "timeframe": "30M",
+      "coin": "ETH",
       "params": {
         "hma_fast": 20,
-        "hma_slow": 40,
-        "tp_mult": 3.0,
-        "adx_thresh": 20,
-        "rsi_low": 45,
-        "rsi_high": 65
+        "hma_slow": 60,
+        "tp_mult": 5.0,
+        "adx_thresh": 25,
+        "rsi_low": 35,
+        "rsi_high": 70
       },
-      "win_rate": 0.2188,
-      "profit_factor": 0.806,
-      "max_drawdown_pct": 11.416,
-      "total_return_pct": -9.261,
-      "num_trades": 32,
-      "score": 0.0155
+      "score": 0.0224,
+      "30D": {
+        "win_rate": 0.2222,
+        "profit_factor": 1.338,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 5.043,
+        "num_trades": 9,
+        "score": 0.0506
+      },
+      "90D": {
+        "win_rate": 0.2564,
+        "profit_factor": 1.604,
+        "max_drawdown_pct": 18.293,
+        "total_return_pct": 44.372,
+        "num_trades": 39,
+        "score": 0.0225
+      },
+      "1Y": {
+        "win_rate": 0.2558,
+        "profit_factor": 1.601,
+        "max_drawdown_pct": 18.293,
+        "total_return_pct": 49.47,
+        "num_trades": 43,
+        "score": 0.0224
+      }
     },
     {
-      "timeframe": "1H",
-      "coin": "SOL",
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 60,
+        "tp_mult": 5.0,
+        "adx_thresh": 25,
+        "rsi_low": 40,
+        "rsi_high": 70
+      },
+      "score": 0.0224,
+      "30D": {
+        "win_rate": 0.2222,
+        "profit_factor": 1.338,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 5.043,
+        "num_trades": 9,
+        "score": 0.0506
+      },
+      "90D": {
+        "win_rate": 0.2564,
+        "profit_factor": 1.604,
+        "max_drawdown_pct": 18.293,
+        "total_return_pct": 44.372,
+        "num_trades": 39,
+        "score": 0.0225
+      },
+      "1Y": {
+        "win_rate": 0.2558,
+        "profit_factor": 1.601,
+        "max_drawdown_pct": 18.293,
+        "total_return_pct": 49.47,
+        "num_trades": 43,
+        "score": 0.0224
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 40,
+        "tp_mult": 4.0,
+        "adx_thresh": 20,
+        "rsi_low": 40,
+        "rsi_high": 65
+      },
+      "score": 0.0219,
+      "30D": {
+        "win_rate": 0.4,
+        "profit_factor": 2.423,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 20.518,
+        "num_trades": 10,
+        "score": 0.1648
+      },
+      "90D": {
+        "win_rate": 0.2308,
+        "profit_factor": 1.149,
+        "max_drawdown_pct": 12.095,
+        "total_return_pct": 9.043,
+        "num_trades": 39,
+        "score": 0.0219
+      },
+      "1Y": {
+        "win_rate": 0.25,
+        "profit_factor": 1.271,
+        "max_drawdown_pct": 12.095,
+        "total_return_pct": 19.708,
+        "num_trades": 44,
+        "score": 0.0263
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 50,
+        "tp_mult": 4.0,
+        "adx_thresh": 25,
+        "rsi_low": 40,
+        "rsi_high": 60
+      },
+      "score": 0.0215,
+      "30D": {
+        "win_rate": 0.1667,
+        "profit_factor": 0.76,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": -2.377,
+        "num_trades": 6,
+        "score": 0.0215
+      },
+      "90D": {
+        "win_rate": 0.2727,
+        "profit_factor": 1.45,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 14.858,
+        "num_trades": 22,
+        "score": 0.0346
+      },
+      "1Y": {
+        "win_rate": 0.28,
+        "profit_factor": 1.499,
+        "max_drawdown_pct": 13.187,
+        "total_return_pct": 19.134,
+        "num_trades": 25,
+        "score": 0.0318
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 60,
+        "tp_mult": 3.0,
+        "adx_thresh": 20,
+        "rsi_low": 35,
+        "rsi_high": 60
+      },
+      "score": 0.0209,
+      "30D": {
+        "win_rate": 0.2308,
+        "profit_factor": 0.87,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": -2.685,
+        "num_trades": 13,
+        "score": 0.0209
+      },
+      "90D": {
+        "win_rate": 0.2941,
+        "profit_factor": 1.198,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 10.277,
+        "num_trades": 34,
+        "score": 0.0367
+      },
+      "1Y": {
+        "win_rate": 0.2683,
+        "profit_factor": 1.059,
+        "max_drawdown_pct": 11.623,
+        "total_return_pct": 3.549,
+        "num_trades": 41,
+        "score": 0.0244
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 60,
+        "tp_mult": 3.0,
+        "adx_thresh": 20,
+        "rsi_low": 40,
+        "rsi_high": 60
+      },
+      "score": 0.0209,
+      "30D": {
+        "win_rate": 0.2308,
+        "profit_factor": 0.87,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": -2.685,
+        "num_trades": 13,
+        "score": 0.0209
+      },
+      "90D": {
+        "win_rate": 0.2941,
+        "profit_factor": 1.198,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 10.277,
+        "num_trades": 34,
+        "score": 0.0367
+      },
+      "1Y": {
+        "win_rate": 0.2683,
+        "profit_factor": 1.059,
+        "max_drawdown_pct": 11.623,
+        "total_return_pct": 3.549,
+        "num_trades": 41,
+        "score": 0.0244
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 40,
+        "tp_mult": 5.0,
+        "adx_thresh": 25,
+        "rsi_low": 35,
+        "rsi_high": 70
+      },
+      "score": 0.0203,
+      "30D": {
+        "win_rate": 0.1667,
+        "profit_factor": 0.945,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": -0.569,
+        "num_trades": 6,
+        "score": 0.0203
+      },
+      "90D": {
+        "win_rate": 0.25,
+        "profit_factor": 1.541,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 27.496,
+        "num_trades": 28,
+        "score": 0.0337
+      },
+      "1Y": {
+        "win_rate": 0.25,
+        "profit_factor": 1.547,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 31.998,
+        "num_trades": 32,
+        "score": 0.0339
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 40,
+        "tp_mult": 4.0,
+        "adx_thresh": 25,
+        "rsi_low": 45,
+        "rsi_high": 70
+      },
+      "score": 0.0198,
+      "30D": {
+        "win_rate": 0.2222,
+        "profit_factor": 1.086,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 1.258,
+        "num_trades": 9,
+        "score": 0.0411
+      },
+      "90D": {
+        "win_rate": 0.275,
+        "profit_factor": 1.435,
+        "max_drawdown_pct": 19.927,
+        "total_return_pct": 29.783,
+        "num_trades": 40,
+        "score": 0.0198
+      },
+      "1Y": {
+        "win_rate": 0.2766,
+        "profit_factor": 1.446,
+        "max_drawdown_pct": 19.927,
+        "total_return_pct": 36.834,
+        "num_trades": 47,
+        "score": 0.0201
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 50,
+        "tp_mult": 4.0,
+        "adx_thresh": 25,
+        "rsi_low": 35,
+        "rsi_high": 60
+      },
+      "score": 0.0198,
+      "30D": {
+        "win_rate": 0.1818,
+        "profit_factor": 0.844,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": -2.752,
+        "num_trades": 11,
+        "score": 0.0198
+      },
+      "90D": {
+        "win_rate": 0.3448,
+        "profit_factor": 2.015,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 47.073,
+        "num_trades": 29,
+        "score": 0.0723
+      },
+      "1Y": {
+        "win_rate": 0.3333,
+        "profit_factor": 1.931,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 49.498,
+        "num_trades": 33,
+        "score": 0.067
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
       "params": {
         "hma_fast": 20,
         "hma_slow": 40,
@@ -147,16 +1353,2218 @@
         "rsi_low": 35,
         "rsi_high": 70
       },
-      "win_rate": 0.1923,
-      "profit_factor": 0.909,
-      "max_drawdown_pct": 11.416,
-      "total_return_pct": -3.868,
-      "num_trades": 26,
-      "score": 0.0153
+      "score": 0.018,
+      "30D": {
+        "win_rate": 0.1818,
+        "profit_factor": 0.85,
+        "max_drawdown_pct": 8.118,
+        "total_return_pct": -2.752,
+        "num_trades": 11,
+        "score": 0.019
+      },
+      "90D": {
+        "win_rate": 0.2439,
+        "profit_factor": 1.225,
+        "max_drawdown_pct": 16.625,
+        "total_return_pct": 15.411,
+        "num_trades": 41,
+        "score": 0.018
+      },
+      "1Y": {
+        "win_rate": 0.2444,
+        "profit_factor": 1.228,
+        "max_drawdown_pct": 16.625,
+        "total_return_pct": 17.313,
+        "num_trades": 45,
+        "score": 0.0181
+      }
     },
     {
-      "timeframe": "1H",
-      "coin": "SOL",
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 40,
+        "tp_mult": 4.0,
+        "adx_thresh": 25,
+        "rsi_low": 40,
+        "rsi_high": 70
+      },
+      "score": 0.018,
+      "30D": {
+        "win_rate": 0.1818,
+        "profit_factor": 0.85,
+        "max_drawdown_pct": 8.118,
+        "total_return_pct": -2.752,
+        "num_trades": 11,
+        "score": 0.019
+      },
+      "90D": {
+        "win_rate": 0.2439,
+        "profit_factor": 1.225,
+        "max_drawdown_pct": 16.625,
+        "total_return_pct": 15.411,
+        "num_trades": 41,
+        "score": 0.018
+      },
+      "1Y": {
+        "win_rate": 0.2444,
+        "profit_factor": 1.228,
+        "max_drawdown_pct": 16.625,
+        "total_return_pct": 17.313,
+        "num_trades": 45,
+        "score": 0.0181
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 60,
+        "tp_mult": 3.0,
+        "adx_thresh": 20,
+        "rsi_low": 35,
+        "rsi_high": 70
+      },
+      "score": 0.0153,
+      "30D": {
+        "win_rate": 0.2308,
+        "profit_factor": 0.872,
+        "max_drawdown_pct": 13.187,
+        "total_return_pct": -2.685,
+        "num_trades": 13,
+        "score": 0.0153
+      },
+      "90D": {
+        "win_rate": 0.2885,
+        "profit_factor": 1.163,
+        "max_drawdown_pct": 13.187,
+        "total_return_pct": 13.489,
+        "num_trades": 52,
+        "score": 0.0254
+      },
+      "1Y": {
+        "win_rate": 0.2712,
+        "profit_factor": 1.074,
+        "max_drawdown_pct": 17.014,
+        "total_return_pct": 6.565,
+        "num_trades": 59,
+        "score": 0.0171
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 60,
+        "tp_mult": 3.0,
+        "adx_thresh": 20,
+        "rsi_low": 40,
+        "rsi_high": 70
+      },
+      "score": 0.0153,
+      "30D": {
+        "win_rate": 0.2308,
+        "profit_factor": 0.872,
+        "max_drawdown_pct": 13.187,
+        "total_return_pct": -2.685,
+        "num_trades": 13,
+        "score": 0.0153
+      },
+      "90D": {
+        "win_rate": 0.2885,
+        "profit_factor": 1.163,
+        "max_drawdown_pct": 13.187,
+        "total_return_pct": 13.489,
+        "num_trades": 52,
+        "score": 0.0254
+      },
+      "1Y": {
+        "win_rate": 0.2712,
+        "profit_factor": 1.074,
+        "max_drawdown_pct": 17.014,
+        "total_return_pct": 6.565,
+        "num_trades": 59,
+        "score": 0.0171
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 40,
+        "tp_mult": 5.0,
+        "adx_thresh": 20,
+        "rsi_low": 40,
+        "rsi_high": 60
+      },
+      "score": 0.0145,
+      "30D": {
+        "win_rate": 0.25,
+        "profit_factor": 1.568,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 10.972,
+        "num_trades": 12,
+        "score": 0.0667
+      },
+      "90D": {
+        "win_rate": 0.2121,
+        "profit_factor": 1.256,
+        "max_drawdown_pct": 15.408,
+        "total_return_pct": 15.246,
+        "num_trades": 33,
+        "score": 0.0173
+      },
+      "1Y": {
+        "win_rate": 0.1951,
+        "profit_factor": 1.143,
+        "max_drawdown_pct": 15.408,
+        "total_return_pct": 10.053,
+        "num_trades": 41,
+        "score": 0.0145
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 40,
+        "tp_mult": 5.0,
+        "adx_thresh": 30,
+        "rsi_low": 45,
+        "rsi_high": 70
+      },
+      "score": 0.0145,
+      "30D": {
+        "win_rate": 0.1429,
+        "profit_factor": 0.79,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": -2.557,
+        "num_trades": 7,
+        "score": 0.0145
+      },
+      "90D": {
+        "win_rate": 0.2609,
+        "profit_factor": 1.63,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": 25.661,
+        "num_trades": 23,
+        "score": 0.0548
+      },
+      "1Y": {
+        "win_rate": 0.28,
+        "profit_factor": 1.773,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": 35.462,
+        "num_trades": 25,
+        "score": 0.0639
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 40,
+        "tp_mult": 5.0,
+        "adx_thresh": 20,
+        "rsi_low": 35,
+        "rsi_high": 65
+      },
+      "score": 0.0138,
+      "30D": {
+        "win_rate": 0.3,
+        "profit_factor": 1.92,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 15.548,
+        "num_trades": 10,
+        "score": 0.0505
+      },
+      "90D": {
+        "win_rate": 0.1892,
+        "profit_factor": 1.104,
+        "max_drawdown_pct": 13.681,
+        "total_return_pct": 6.299,
+        "num_trades": 37,
+        "score": 0.0153
+      },
+      "1Y": {
+        "win_rate": 0.1905,
+        "profit_factor": 1.113,
+        "max_drawdown_pct": 15.408,
+        "total_return_pct": 7.852,
+        "num_trades": 42,
+        "score": 0.0138
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 60,
+        "tp_mult": 4.0,
+        "adx_thresh": 25,
+        "rsi_low": 40,
+        "rsi_high": 70
+      },
+      "score": 0.0135,
+      "30D": {
+        "win_rate": 0.1667,
+        "profit_factor": 0.766,
+        "max_drawdown_pct": 8.118,
+        "total_return_pct": -4.697,
+        "num_trades": 12,
+        "score": 0.0157
+      },
+      "90D": {
+        "win_rate": 0.225,
+        "profit_factor": 1.101,
+        "max_drawdown_pct": 18.293,
+        "total_return_pct": 6.862,
+        "num_trades": 40,
+        "score": 0.0135
+      },
+      "1Y": {
+        "win_rate": 0.25,
+        "profit_factor": 1.251,
+        "max_drawdown_pct": 18.293,
+        "total_return_pct": 21.681,
+        "num_trades": 48,
+        "score": 0.0171
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 50,
+        "tp_mult": 5.0,
+        "adx_thresh": 25,
+        "rsi_low": 35,
+        "rsi_high": 70
+      },
+      "score": 0.0132,
+      "30D": {
+        "win_rate": 0.2222,
+        "profit_factor": 1.338,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 5.043,
+        "num_trades": 9,
+        "score": 0.0506
+      },
+      "90D": {
+        "win_rate": 0.2045,
+        "profit_factor": 1.212,
+        "max_drawdown_pct": 18.757,
+        "total_return_pct": 16.264,
+        "num_trades": 44,
+        "score": 0.0132
+      },
+      "1Y": {
+        "win_rate": 0.2083,
+        "profit_factor": 1.237,
+        "max_drawdown_pct": 18.757,
+        "total_return_pct": 20.37,
+        "num_trades": 48,
+        "score": 0.0137
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 50,
+        "tp_mult": 3.0,
+        "adx_thresh": 20,
+        "rsi_low": 45,
+        "rsi_high": 65
+      },
+      "score": 0.0123,
+      "30D": {
+        "win_rate": 0.3333,
+        "profit_factor": 1.404,
+        "max_drawdown_pct": 13.187,
+        "total_return_pct": 7.407,
+        "num_trades": 12,
+        "score": 0.0355
+      },
+      "90D": {
+        "win_rate": 0.2889,
+        "profit_factor": 1.179,
+        "max_drawdown_pct": 18.293,
+        "total_return_pct": 11.741,
+        "num_trades": 45,
+        "score": 0.0186
+      },
+      "1Y": {
+        "win_rate": 0.2692,
+        "profit_factor": 1.067,
+        "max_drawdown_pct": 23.277,
+        "total_return_pct": 4.924,
+        "num_trades": 52,
+        "score": 0.0123
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 50,
+        "tp_mult": 5.0,
+        "adx_thresh": 25,
+        "rsi_low": 35,
+        "rsi_high": 65
+      },
+      "score": 0.012,
+      "30D": {
+        "win_rate": 0.2222,
+        "profit_factor": 1.338,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 5.043,
+        "num_trades": 9,
+        "score": 0.0506
+      },
+      "90D": {
+        "win_rate": 0.2,
+        "profit_factor": 1.191,
+        "max_drawdown_pct": 19.927,
+        "total_return_pct": 10.682,
+        "num_trades": 35,
+        "score": 0.012
+      },
+      "1Y": {
+        "win_rate": 0.2051,
+        "profit_factor": 1.228,
+        "max_drawdown_pct": 19.927,
+        "total_return_pct": 14.591,
+        "num_trades": 39,
+        "score": 0.0126
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 50,
+        "tp_mult": 5.0,
+        "adx_thresh": 25,
+        "rsi_low": 45,
+        "rsi_high": 65
+      },
+      "score": 0.012,
+      "30D": {
+        "win_rate": 0.2222,
+        "profit_factor": 1.338,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 5.043,
+        "num_trades": 9,
+        "score": 0.0506
+      },
+      "90D": {
+        "win_rate": 0.2,
+        "profit_factor": 1.191,
+        "max_drawdown_pct": 19.927,
+        "total_return_pct": 10.682,
+        "num_trades": 35,
+        "score": 0.012
+      },
+      "1Y": {
+        "win_rate": 0.2051,
+        "profit_factor": 1.228,
+        "max_drawdown_pct": 19.927,
+        "total_return_pct": 14.591,
+        "num_trades": 39,
+        "score": 0.0126
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 40,
+        "tp_mult": 3.0,
+        "adx_thresh": 25,
+        "rsi_low": 35,
+        "rsi_high": 70
+      },
+      "score": 0.012,
+      "30D": {
+        "win_rate": 0.1818,
+        "profit_factor": 0.65,
+        "max_drawdown_pct": 9.819,
+        "total_return_pct": -6.32,
+        "num_trades": 11,
+        "score": 0.012
+      },
+      "90D": {
+        "win_rate": 0.3256,
+        "profit_factor": 1.372,
+        "max_drawdown_pct": 15.122,
+        "total_return_pct": 25.846,
+        "num_trades": 43,
+        "score": 0.0295
+      },
+      "1Y": {
+        "win_rate": 0.3333,
+        "profit_factor": 1.416,
+        "max_drawdown_pct": 15.122,
+        "total_return_pct": 35.483,
+        "num_trades": 51,
+        "score": 0.0312
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 60,
+        "tp_mult": 5.0,
+        "adx_thresh": 25,
+        "rsi_low": 45,
+        "rsi_high": 70
+      },
+      "score": 0.0118,
+      "30D": {
+        "win_rate": 0.1429,
+        "profit_factor": 0.793,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": -2.557,
+        "num_trades": 7,
+        "score": 0.0118
+      },
+      "90D": {
+        "win_rate": 0.25,
+        "profit_factor": 1.533,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 27.496,
+        "num_trades": 28,
+        "score": 0.0336
+      },
+      "1Y": {
+        "win_rate": 0.2424,
+        "profit_factor": 1.488,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 29.358,
+        "num_trades": 33,
+        "score": 0.0316
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 60,
+        "tp_mult": 5.0,
+        "adx_thresh": 25,
+        "rsi_low": 40,
+        "rsi_high": 70
+      },
+      "score": 0.0118,
+      "30D": {
+        "win_rate": 0.1429,
+        "profit_factor": 0.793,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": -2.557,
+        "num_trades": 7,
+        "score": 0.0118
+      },
+      "90D": {
+        "win_rate": 0.25,
+        "profit_factor": 1.533,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 27.496,
+        "num_trades": 28,
+        "score": 0.0336
+      },
+      "1Y": {
+        "win_rate": 0.2424,
+        "profit_factor": 1.488,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 29.358,
+        "num_trades": 33,
+        "score": 0.0316
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 60,
+        "tp_mult": 5.0,
+        "adx_thresh": 20,
+        "rsi_low": 40,
+        "rsi_high": 70
+      },
+      "score": 0.0118,
+      "30D": {
+        "win_rate": 0.1818,
+        "profit_factor": 1.046,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 0.883,
+        "num_trades": 11,
+        "score": 0.0167
+      },
+      "90D": {
+        "win_rate": 0.2045,
+        "profit_factor": 1.206,
+        "max_drawdown_pct": 19.927,
+        "total_return_pct": 16.264,
+        "num_trades": 44,
+        "score": 0.0124
+      },
+      "1Y": {
+        "win_rate": 0.2,
+        "profit_factor": 1.177,
+        "max_drawdown_pct": 19.927,
+        "total_return_pct": 15.603,
+        "num_trades": 50,
+        "score": 0.0118
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 60,
+        "tp_mult": 4.0,
+        "adx_thresh": 25,
+        "rsi_low": 40,
+        "rsi_high": 65
+      },
+      "score": 0.0118,
+      "30D": {
+        "win_rate": 0.2222,
+        "profit_factor": 1.086,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 1.258,
+        "num_trades": 9,
+        "score": 0.0411
+      },
+      "90D": {
+        "win_rate": 0.2162,
+        "profit_factor": 1.053,
+        "max_drawdown_pct": 16.625,
+        "total_return_pct": 3.026,
+        "num_trades": 37,
+        "score": 0.0137
+      },
+      "1Y": {
+        "win_rate": 0.2195,
+        "profit_factor": 1.074,
+        "max_drawdown_pct": 19.927,
+        "total_return_pct": 4.724,
+        "num_trades": 41,
+        "score": 0.0118
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 40,
+        "tp_mult": 4.0,
+        "adx_thresh": 20,
+        "rsi_low": 40,
+        "rsi_high": 70
+      },
+      "score": 0.0113,
+      "30D": {
+        "win_rate": 0.1667,
+        "profit_factor": 0.771,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": -4.697,
+        "num_trades": 12,
+        "score": 0.0113
+      },
+      "90D": {
+        "win_rate": 0.2407,
+        "profit_factor": 1.205,
+        "max_drawdown_pct": 19.927,
+        "total_return_pct": 18.789,
+        "num_trades": 54,
+        "score": 0.0146
+      },
+      "1Y": {
+        "win_rate": 0.25,
+        "profit_factor": 1.262,
+        "max_drawdown_pct": 19.927,
+        "total_return_pct": 27.8,
+        "num_trades": 60,
+        "score": 0.0158
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 50,
+        "tp_mult": 3.0,
+        "adx_thresh": 25,
+        "rsi_low": 40,
+        "rsi_high": 65
+      },
+      "score": 0.0113,
+      "30D": {
+        "win_rate": 0.1429,
+        "profit_factor": 0.481,
+        "max_drawdown_pct": 6.101,
+        "total_return_pct": -6.101,
+        "num_trades": 7,
+        "score": 0.0113
+      },
+      "90D": {
+        "win_rate": 0.3103,
+        "profit_factor": 1.291,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 12.791,
+        "num_trades": 29,
+        "score": 0.0417
+      },
+      "1Y": {
+        "win_rate": 0.2941,
+        "profit_factor": 1.202,
+        "max_drawdown_pct": 11.623,
+        "total_return_pct": 10.277,
+        "num_trades": 34,
+        "score": 0.0304
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 40,
+        "tp_mult": 3.0,
+        "adx_thresh": 25,
+        "rsi_low": 35,
+        "rsi_high": 60
+      },
+      "score": 0.0113,
+      "30D": {
+        "win_rate": 0.1429,
+        "profit_factor": 0.481,
+        "max_drawdown_pct": 6.101,
+        "total_return_pct": -6.101,
+        "num_trades": 7,
+        "score": 0.0113
+      },
+      "90D": {
+        "win_rate": 0.2692,
+        "profit_factor": 1.063,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 2.432,
+        "num_trades": 26,
+        "score": 0.0298
+      },
+      "1Y": {
+        "win_rate": 0.2812,
+        "profit_factor": 1.127,
+        "max_drawdown_pct": 13.187,
+        "total_return_pct": 6.158,
+        "num_trades": 32,
+        "score": 0.024
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 50,
+        "tp_mult": 3.0,
+        "adx_thresh": 20,
+        "rsi_low": 35,
+        "rsi_high": 60
+      },
+      "score": 0.0111,
+      "30D": {
+        "win_rate": 0.2,
+        "profit_factor": 0.729,
+        "max_drawdown_pct": 13.187,
+        "total_return_pct": -6.539,
+        "num_trades": 15,
+        "score": 0.0111
+      },
+      "90D": {
+        "win_rate": 0.2821,
+        "profit_factor": 1.13,
+        "max_drawdown_pct": 13.187,
+        "total_return_pct": 7.819,
+        "num_trades": 39,
+        "score": 0.0242
+      },
+      "1Y": {
+        "win_rate": 0.25,
+        "profit_factor": 0.96,
+        "max_drawdown_pct": 14.197,
+        "total_return_pct": -2.768,
+        "num_trades": 48,
+        "score": 0.0169
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 60,
+        "tp_mult": 5.0,
+        "adx_thresh": 25,
+        "rsi_low": 35,
+        "rsi_high": 65
+      },
+      "score": 0.0111,
+      "30D": {
+        "win_rate": 0.2222,
+        "profit_factor": 1.338,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 5.043,
+        "num_trades": 9,
+        "score": 0.0506
+      },
+      "90D": {
+        "win_rate": 0.1875,
+        "profit_factor": 1.089,
+        "max_drawdown_pct": 16.625,
+        "total_return_pct": 4.769,
+        "num_trades": 32,
+        "score": 0.0123
+      },
+      "1Y": {
+        "win_rate": 0.1944,
+        "profit_factor": 1.138,
+        "max_drawdown_pct": 19.927,
+        "total_return_pct": 8.469,
+        "num_trades": 36,
+        "score": 0.0111
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 60,
+        "tp_mult": 3.0,
+        "adx_thresh": 20,
+        "rsi_low": 35,
+        "rsi_high": 65
+      },
+      "score": 0.0109,
+      "30D": {
+        "win_rate": 0.2308,
+        "profit_factor": 0.87,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": -2.685,
+        "num_trades": 13,
+        "score": 0.0176
+      },
+      "90D": {
+        "win_rate": 0.2857,
+        "profit_factor": 1.152,
+        "max_drawdown_pct": 11.623,
+        "total_return_pct": 11.479,
+        "num_trades": 49,
+        "score": 0.0283
+      },
+      "1Y": {
+        "win_rate": 0.25,
+        "profit_factor": 0.959,
+        "max_drawdown_pct": 21.895,
+        "total_return_pct": -3.448,
+        "num_trades": 60,
+        "score": 0.0109
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 60,
+        "tp_mult": 3.0,
+        "adx_thresh": 20,
+        "rsi_low": 40,
+        "rsi_high": 65
+      },
+      "score": 0.0109,
+      "30D": {
+        "win_rate": 0.2308,
+        "profit_factor": 0.87,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": -2.685,
+        "num_trades": 13,
+        "score": 0.0176
+      },
+      "90D": {
+        "win_rate": 0.2857,
+        "profit_factor": 1.152,
+        "max_drawdown_pct": 11.623,
+        "total_return_pct": 11.479,
+        "num_trades": 49,
+        "score": 0.0283
+      },
+      "1Y": {
+        "win_rate": 0.25,
+        "profit_factor": 0.959,
+        "max_drawdown_pct": 21.895,
+        "total_return_pct": -3.448,
+        "num_trades": 60,
+        "score": 0.0109
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 60,
+        "tp_mult": 5.0,
+        "adx_thresh": 20,
+        "rsi_low": 35,
+        "rsi_high": 60
+      },
+      "score": 0.0101,
+      "30D": {
+        "win_rate": 0.1538,
+        "profit_factor": 0.863,
+        "max_drawdown_pct": 13.187,
+        "total_return_pct": -3.112,
+        "num_trades": 13,
+        "score": 0.0101
+      },
+      "90D": {
+        "win_rate": 0.1935,
+        "profit_factor": 1.119,
+        "max_drawdown_pct": 15.889,
+        "total_return_pct": 6.907,
+        "num_trades": 31,
+        "score": 0.0136
+      },
+      "1Y": {
+        "win_rate": 0.1795,
+        "profit_factor": 1.03,
+        "max_drawdown_pct": 15.889,
+        "total_return_pct": 2.09,
+        "num_trades": 39,
+        "score": 0.0116
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 50,
+        "tp_mult": 5.0,
+        "adx_thresh": 20,
+        "rsi_low": 45,
+        "rsi_high": 60
+      },
+      "score": 0.0101,
+      "30D": {
+        "win_rate": 0.1538,
+        "profit_factor": 0.863,
+        "max_drawdown_pct": 13.187,
+        "total_return_pct": -3.112,
+        "num_trades": 13,
+        "score": 0.0101
+      },
+      "90D": {
+        "win_rate": 0.1818,
+        "profit_factor": 1.044,
+        "max_drawdown_pct": 17.571,
+        "total_return_pct": 2.674,
+        "num_trades": 33,
+        "score": 0.0108
+      },
+      "1Y": {
+        "win_rate": 0.1795,
+        "profit_factor": 1.03,
+        "max_drawdown_pct": 17.571,
+        "total_return_pct": 2.09,
+        "num_trades": 39,
+        "score": 0.0105
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 40,
+        "tp_mult": 5.0,
+        "adx_thresh": 20,
+        "rsi_low": 45,
+        "rsi_high": 70
+      },
+      "score": 0.0098,
+      "30D": {
+        "win_rate": 0.1818,
+        "profit_factor": 1.046,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 0.883,
+        "num_trades": 11,
+        "score": 0.0167
+      },
+      "90D": {
+        "win_rate": 0.1818,
+        "profit_factor": 1.049,
+        "max_drawdown_pct": 18.293,
+        "total_return_pct": 3.581,
+        "num_trades": 44,
+        "score": 0.0104
+      },
+      "1Y": {
+        "win_rate": 0.1765,
+        "profit_factor": 1.011,
+        "max_drawdown_pct": 18.293,
+        "total_return_pct": 0.932,
+        "num_trades": 51,
+        "score": 0.0098
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 60,
+        "tp_mult": 4.0,
+        "adx_thresh": 20,
+        "rsi_low": 45,
+        "rsi_high": 65
+      },
+      "score": 0.0097,
+      "30D": {
+        "win_rate": 0.1667,
+        "profit_factor": 0.771,
+        "max_drawdown_pct": 13.187,
+        "total_return_pct": -4.697,
+        "num_trades": 12,
+        "score": 0.0097
+      },
+      "90D": {
+        "win_rate": 0.25,
+        "profit_factor": 1.264,
+        "max_drawdown_pct": 13.187,
+        "total_return_pct": 19.708,
+        "num_trades": 44,
+        "score": 0.024
+      },
+      "1Y": {
+        "win_rate": 0.2182,
+        "profit_factor": 1.066,
+        "max_drawdown_pct": 18.919,
+        "total_return_pct": 5.635,
+        "num_trades": 55,
+        "score": 0.0123
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 50,
+        "tp_mult": 4.0,
+        "adx_thresh": 20,
+        "rsi_low": 40,
+        "rsi_high": 65
+      },
+      "score": 0.0097,
+      "30D": {
+        "win_rate": 0.1667,
+        "profit_factor": 0.771,
+        "max_drawdown_pct": 13.187,
+        "total_return_pct": -4.697,
+        "num_trades": 12,
+        "score": 0.0097
+      },
+      "90D": {
+        "win_rate": 0.2391,
+        "profit_factor": 1.196,
+        "max_drawdown_pct": 13.187,
+        "total_return_pct": 14.967,
+        "num_trades": 46,
+        "score": 0.0217
+      },
+      "1Y": {
+        "win_rate": 0.2143,
+        "profit_factor": 1.041,
+        "max_drawdown_pct": 18.919,
+        "total_return_pct": 3.522,
+        "num_trades": 56,
+        "score": 0.0118
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 60,
+        "tp_mult": 5.0,
+        "adx_thresh": 25,
+        "rsi_low": 45,
+        "rsi_high": 70
+      },
+      "score": 0.0095,
+      "30D": {
+        "win_rate": 0.2,
+        "profit_factor": 1.179,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": 2.942,
+        "num_trades": 10,
+        "score": 0.0304
+      },
+      "90D": {
+        "win_rate": 0.2059,
+        "profit_factor": 1.211,
+        "max_drawdown_pct": 24.636,
+        "total_return_pct": 12.941,
+        "num_trades": 34,
+        "score": 0.0101
+      },
+      "1Y": {
+        "win_rate": 0.2,
+        "profit_factor": 1.173,
+        "max_drawdown_pct": 24.636,
+        "total_return_pct": 12.299,
+        "num_trades": 40,
+        "score": 0.0095
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 40,
+        "tp_mult": 4.0,
+        "adx_thresh": 20,
+        "rsi_low": 45,
+        "rsi_high": 70
+      },
+      "score": 0.0094,
+      "30D": {
+        "win_rate": 0.2727,
+        "profit_factor": 1.412,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 7.172,
+        "num_trades": 11,
+        "score": 0.0655
+      },
+      "90D": {
+        "win_rate": 0.2,
+        "profit_factor": 0.953,
+        "max_drawdown_pct": 20.235,
+        "total_return_pct": -3.405,
+        "num_trades": 45,
+        "score": 0.0094
+      },
+      "1Y": {
+        "win_rate": 0.2157,
+        "profit_factor": 1.046,
+        "max_drawdown_pct": 20.235,
+        "total_return_pct": 3.921,
+        "num_trades": 51,
+        "score": 0.0111
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 60,
+        "tp_mult": 5.0,
+        "adx_thresh": 30,
+        "rsi_low": 35,
+        "rsi_high": 70
+      },
+      "score": 0.0089,
+      "30D": {
+        "win_rate": 0.125,
+        "profit_factor": 0.681,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": -4.506,
+        "num_trades": 8,
+        "score": 0.0089
+      },
+      "90D": {
+        "win_rate": 0.2727,
+        "profit_factor": 1.717,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 28.225,
+        "num_trades": 22,
+        "score": 0.0487
+      },
+      "1Y": {
+        "win_rate": 0.28,
+        "profit_factor": 1.778,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 35.462,
+        "num_trades": 25,
+        "score": 0.0518
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 50,
+        "tp_mult": 5.0,
+        "adx_thresh": 30,
+        "rsi_low": 35,
+        "rsi_high": 70
+      },
+      "score": 0.0089,
+      "30D": {
+        "win_rate": 0.125,
+        "profit_factor": 0.681,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": -4.506,
+        "num_trades": 8,
+        "score": 0.0089
+      },
+      "90D": {
+        "win_rate": 0.25,
+        "profit_factor": 1.538,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 23.147,
+        "num_trades": 24,
+        "score": 0.04
+      },
+      "1Y": {
+        "win_rate": 0.2593,
+        "profit_factor": 1.609,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 30.098,
+        "num_trades": 27,
+        "score": 0.0434
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 40,
+        "tp_mult": 3.0,
+        "adx_thresh": 30,
+        "rsi_low": 45,
+        "rsi_high": 70
+      },
+      "score": 0.0089,
+      "30D": {
+        "win_rate": 0.1429,
+        "profit_factor": 0.486,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": -6.101,
+        "num_trades": 7,
+        "score": 0.0089
+      },
+      "90D": {
+        "win_rate": 0.3333,
+        "profit_factor": 1.417,
+        "max_drawdown_pct": 8.194,
+        "total_return_pct": 17.442,
+        "num_trades": 27,
+        "score": 0.0576
+      },
+      "1Y": {
+        "win_rate": 0.3667,
+        "profit_factor": 1.607,
+        "max_drawdown_pct": 8.194,
+        "total_return_pct": 29.318,
+        "num_trades": 30,
+        "score": 0.0719
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 50,
+        "tp_mult": 3.0,
+        "adx_thresh": 25,
+        "rsi_low": 40,
+        "rsi_high": 70
+      },
+      "score": 0.0084,
+      "30D": {
+        "win_rate": 0.1667,
+        "profit_factor": 0.589,
+        "max_drawdown_pct": 11.623,
+        "total_return_pct": -8.194,
+        "num_trades": 12,
+        "score": 0.0084
+      },
+      "90D": {
+        "win_rate": 0.2979,
+        "profit_factor": 1.212,
+        "max_drawdown_pct": 15.122,
+        "total_return_pct": 16.076,
+        "num_trades": 47,
+        "score": 0.0239
+      },
+      "1Y": {
+        "win_rate": 0.2909,
+        "profit_factor": 1.178,
+        "max_drawdown_pct": 15.122,
+        "total_return_pct": 15.534,
+        "num_trades": 55,
+        "score": 0.0227
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 40,
+        "tp_mult": 5.0,
+        "adx_thresh": 25,
+        "rsi_low": 40,
+        "rsi_high": 65
+      },
+      "score": 0.0084,
+      "30D": {
+        "win_rate": 0.2222,
+        "profit_factor": 1.338,
+        "max_drawdown_pct": 7.763,
+        "total_return_pct": 5.043,
+        "num_trades": 9,
+        "score": 0.0383
+      },
+      "90D": {
+        "win_rate": 0.1724,
+        "profit_factor": 0.984,
+        "max_drawdown_pct": 19.927,
+        "total_return_pct": -0.828,
+        "num_trades": 29,
+        "score": 0.0085
+      },
+      "1Y": {
+        "win_rate": 0.1714,
+        "profit_factor": 0.977,
+        "max_drawdown_pct": 19.927,
+        "total_return_pct": -1.392,
+        "num_trades": 35,
+        "score": 0.0084
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 50,
+        "tp_mult": 5.0,
+        "adx_thresh": 20,
+        "rsi_low": 35,
+        "rsi_high": 65
+      },
+      "score": 0.0078,
+      "30D": {
+        "win_rate": 0.2,
+        "profit_factor": 1.171,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 2.942,
+        "num_trades": 10,
+        "score": 0.0244
+      },
+      "90D": {
+        "win_rate": 0.1622,
+        "profit_factor": 0.916,
+        "max_drawdown_pct": 18.293,
+        "total_return_pct": -5.297,
+        "num_trades": 37,
+        "score": 0.0081
+      },
+      "1Y": {
+        "win_rate": 0.1591,
+        "profit_factor": 0.895,
+        "max_drawdown_pct": 18.293,
+        "total_return_pct": -7.719,
+        "num_trades": 44,
+        "score": 0.0078
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 60,
+        "tp_mult": 4.0,
+        "adx_thresh": 30,
+        "rsi_low": 35,
+        "rsi_high": 70
+      },
+      "score": 0.0072,
+      "30D": {
+        "win_rate": 0.125,
+        "profit_factor": 0.552,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": -6.242,
+        "num_trades": 8,
+        "score": 0.0072
+      },
+      "90D": {
+        "win_rate": 0.2308,
+        "profit_factor": 1.139,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 5.941,
+        "num_trades": 26,
+        "score": 0.0274
+      },
+      "1Y": {
+        "win_rate": 0.2333,
+        "profit_factor": 1.155,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": 7.688,
+        "num_trades": 30,
+        "score": 0.0281
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 60,
+        "tp_mult": 5.0,
+        "adx_thresh": 20,
+        "rsi_low": 40,
+        "rsi_high": 70
+      },
+      "score": 0.0067,
+      "30D": {
+        "win_rate": 0.1667,
+        "profit_factor": 0.947,
+        "max_drawdown_pct": 14.924,
+        "total_return_pct": -1.134,
+        "num_trades": 12,
+        "score": 0.0106
+      },
+      "90D": {
+        "win_rate": 0.1538,
+        "profit_factor": 0.863,
+        "max_drawdown_pct": 19.219,
+        "total_return_pct": -9.047,
+        "num_trades": 39,
+        "score": 0.0069
+      },
+      "1Y": {
+        "win_rate": 0.1522,
+        "profit_factor": 0.85,
+        "max_drawdown_pct": 19.219,
+        "total_return_pct": -11.373,
+        "num_trades": 46,
+        "score": 0.0067
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 50,
+        "tp_mult": 4.0,
+        "adx_thresh": 20,
+        "rsi_low": 40,
+        "rsi_high": 65
+      },
+      "score": 0.0065,
+      "30D": {
+        "win_rate": 0.2727,
+        "profit_factor": 1.392,
+        "max_drawdown_pct": 13.187,
+        "total_return_pct": 7.172,
+        "num_trades": 11,
+        "score": 0.0288
+      },
+      "90D": {
+        "win_rate": 0.1707,
+        "profit_factor": 0.78,
+        "max_drawdown_pct": 18.293,
+        "total_return_pct": -13.771,
+        "num_trades": 41,
+        "score": 0.0073
+      },
+      "1Y": {
+        "win_rate": 0.1702,
+        "profit_factor": 0.777,
+        "max_drawdown_pct": 20.235,
+        "total_return_pct": -15.82,
+        "num_trades": 47,
+        "score": 0.0065
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 50,
+        "tp_mult": 4.0,
+        "adx_thresh": 25,
+        "rsi_low": 45,
+        "rsi_high": 65
+      },
+      "score": 0.0064,
+      "30D": {
+        "win_rate": 0.2222,
+        "profit_factor": 1.086,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 1.258,
+        "num_trades": 9,
+        "score": 0.0411
+      },
+      "90D": {
+        "win_rate": 0.1842,
+        "profit_factor": 0.853,
+        "max_drawdown_pct": 24.636,
+        "total_return_pct": -8.383,
+        "num_trades": 38,
+        "score": 0.0064
+      },
+      "1Y": {
+        "win_rate": 0.1905,
+        "profit_factor": 0.893,
+        "max_drawdown_pct": 25.501,
+        "total_return_pct": -6.873,
+        "num_trades": 42,
+        "score": 0.0067
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 40,
+        "tp_mult": 5.0,
+        "adx_thresh": 25,
+        "rsi_low": 45,
+        "rsi_high": 70
+      },
+      "score": 0.0063,
+      "30D": {
+        "win_rate": 0.25,
+        "profit_factor": 1.563,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 7.187,
+        "num_trades": 8,
+        "score": 0.0665
+      },
+      "90D": {
+        "win_rate": 0.1765,
+        "profit_factor": 1.01,
+        "max_drawdown_pct": 27.62,
+        "total_return_pct": 0.62,
+        "num_trades": 34,
+        "score": 0.0065
+      },
+      "1Y": {
+        "win_rate": 0.175,
+        "profit_factor": 1.001,
+        "max_drawdown_pct": 27.62,
+        "total_return_pct": 0.048,
+        "num_trades": 40,
+        "score": 0.0063
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 60,
+        "tp_mult": 5.0,
+        "adx_thresh": 20,
+        "rsi_low": 45,
+        "rsi_high": 70
+      },
+      "score": 0.0063,
+      "30D": {
+        "win_rate": 0.1538,
+        "profit_factor": 0.861,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": -3.112,
+        "num_trades": 13,
+        "score": 0.0138
+      },
+      "90D": {
+        "win_rate": 0.1818,
+        "profit_factor": 1.046,
+        "max_drawdown_pct": 20.382,
+        "total_return_pct": 3.581,
+        "num_trades": 44,
+        "score": 0.0093
+      },
+      "1Y": {
+        "win_rate": 0.1569,
+        "profit_factor": 0.877,
+        "max_drawdown_pct": 21.975,
+        "total_return_pct": -10.079,
+        "num_trades": 51,
+        "score": 0.0063
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 40,
+        "tp_mult": 4.0,
+        "adx_thresh": 20,
+        "rsi_low": 40,
+        "rsi_high": 65
+      },
+      "score": 0.0063,
+      "30D": {
+        "win_rate": 0.2,
+        "profit_factor": 0.954,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": -0.767,
+        "num_trades": 10,
+        "score": 0.0199
+      },
+      "90D": {
+        "win_rate": 0.1795,
+        "profit_factor": 0.843,
+        "max_drawdown_pct": 22.429,
+        "total_return_pct": -10.216,
+        "num_trades": 39,
+        "score": 0.0067
+      },
+      "1Y": {
+        "win_rate": 0.1739,
+        "profit_factor": 0.81,
+        "max_drawdown_pct": 22.429,
+        "total_return_pct": -14.102,
+        "num_trades": 46,
+        "score": 0.0063
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 40,
+        "tp_mult": 4.0,
+        "adx_thresh": 20,
+        "rsi_low": 35,
+        "rsi_high": 65
+      },
+      "score": 0.0063,
+      "30D": {
+        "win_rate": 0.2,
+        "profit_factor": 0.954,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": -0.767,
+        "num_trades": 10,
+        "score": 0.0199
+      },
+      "90D": {
+        "win_rate": 0.1795,
+        "profit_factor": 0.843,
+        "max_drawdown_pct": 22.429,
+        "total_return_pct": -10.216,
+        "num_trades": 39,
+        "score": 0.0067
+      },
+      "1Y": {
+        "win_rate": 0.1739,
+        "profit_factor": 0.81,
+        "max_drawdown_pct": 22.429,
+        "total_return_pct": -14.102,
+        "num_trades": 46,
+        "score": 0.0063
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 40,
+        "tp_mult": 5.0,
+        "adx_thresh": 25,
+        "rsi_low": 35,
+        "rsi_high": 70
+      },
+      "score": 0.0063,
+      "30D": {
+        "win_rate": 0.25,
+        "profit_factor": 1.563,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 7.187,
+        "num_trades": 8,
+        "score": 0.0665
+      },
+      "90D": {
+        "win_rate": 0.1765,
+        "profit_factor": 1.01,
+        "max_drawdown_pct": 27.62,
+        "total_return_pct": 0.62,
+        "num_trades": 34,
+        "score": 0.0065
+      },
+      "1Y": {
+        "win_rate": 0.175,
+        "profit_factor": 1.001,
+        "max_drawdown_pct": 27.62,
+        "total_return_pct": 0.048,
+        "num_trades": 40,
+        "score": 0.0063
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 50,
+        "tp_mult": 4.0,
+        "adx_thresh": 20,
+        "rsi_low": 45,
+        "rsi_high": 60
+      },
+      "score": 0.0062,
+      "30D": {
+        "win_rate": 0.1429,
+        "profit_factor": 0.647,
+        "max_drawdown_pct": 14.924,
+        "total_return_pct": -8.471,
+        "num_trades": 14,
+        "score": 0.0062
+      },
+      "90D": {
+        "win_rate": 0.2632,
+        "profit_factor": 1.342,
+        "max_drawdown_pct": 14.924,
+        "total_return_pct": 22.622,
+        "num_trades": 38,
+        "score": 0.0237
+      },
+      "1Y": {
+        "win_rate": 0.2444,
+        "profit_factor": 1.231,
+        "max_drawdown_pct": 14.924,
+        "total_return_pct": 17.313,
+        "num_trades": 45,
+        "score": 0.0202
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 50,
+        "tp_mult": 4.0,
+        "adx_thresh": 20,
+        "rsi_low": 35,
+        "rsi_high": 60
+      },
+      "score": 0.0062,
+      "30D": {
+        "win_rate": 0.1429,
+        "profit_factor": 0.647,
+        "max_drawdown_pct": 14.924,
+        "total_return_pct": -8.471,
+        "num_trades": 14,
+        "score": 0.0062
+      },
+      "90D": {
+        "win_rate": 0.2632,
+        "profit_factor": 1.342,
+        "max_drawdown_pct": 14.924,
+        "total_return_pct": 22.622,
+        "num_trades": 38,
+        "score": 0.0237
+      },
+      "1Y": {
+        "win_rate": 0.2444,
+        "profit_factor": 1.231,
+        "max_drawdown_pct": 14.924,
+        "total_return_pct": 17.313,
+        "num_trades": 45,
+        "score": 0.0202
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 40,
+        "tp_mult": 5.0,
+        "adx_thresh": 30,
+        "rsi_low": 45,
+        "rsi_high": 70
+      },
+      "score": 0.0058,
+      "30D": {
+        "win_rate": 0.1111,
+        "profit_factor": 0.599,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": -6.416,
+        "num_trades": 9,
+        "score": 0.0058
+      },
+      "90D": {
+        "win_rate": 0.1935,
+        "profit_factor": 1.117,
+        "max_drawdown_pct": 21.975,
+        "total_return_pct": 6.907,
+        "num_trades": 31,
+        "score": 0.0098
+      },
+      "1Y": {
+        "win_rate": 0.2,
+        "profit_factor": 1.159,
+        "max_drawdown_pct": 21.975,
+        "total_return_pct": 10.682,
+        "num_trades": 35,
+        "score": 0.0105
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 50,
+        "tp_mult": 5.0,
+        "adx_thresh": 25,
+        "rsi_low": 35,
+        "rsi_high": 70
+      },
+      "score": 0.0054,
+      "30D": {
+        "win_rate": 0.25,
+        "profit_factor": 1.563,
+        "max_drawdown_pct": 5.881,
+        "total_return_pct": 7.187,
+        "num_trades": 8,
+        "score": 0.0665
+      },
+      "90D": {
+        "win_rate": 0.1842,
+        "profit_factor": 1.061,
+        "max_drawdown_pct": 26.143,
+        "total_return_pct": 4.173,
+        "num_trades": 38,
+        "score": 0.0075
+      },
+      "1Y": {
+        "win_rate": 0.1591,
+        "profit_factor": 0.894,
+        "max_drawdown_pct": 26.143,
+        "total_return_pct": -7.719,
+        "num_trades": 44,
+        "score": 0.0054
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 50,
+        "tp_mult": 5.0,
+        "adx_thresh": 20,
+        "rsi_low": 35,
+        "rsi_high": 70
+      },
+      "score": 0.0051,
+      "30D": {
+        "win_rate": 0.1667,
+        "profit_factor": 0.947,
+        "max_drawdown_pct": 14.924,
+        "total_return_pct": -1.134,
+        "num_trades": 12,
+        "score": 0.0106
+      },
+      "90D": {
+        "win_rate": 0.1395,
+        "profit_factor": 0.771,
+        "max_drawdown_pct": 21.285,
+        "total_return_pct": -16.108,
+        "num_trades": 43,
+        "score": 0.0051
+      },
+      "1Y": {
+        "win_rate": 0.1429,
+        "profit_factor": 0.792,
+        "max_drawdown_pct": 21.285,
+        "total_return_pct": -16.585,
+        "num_trades": 49,
+        "score": 0.0053
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 50,
+        "tp_mult": 4.0,
+        "adx_thresh": 20,
+        "rsi_low": 35,
+        "rsi_high": 65
+      },
+      "score": 0.005,
+      "30D": {
+        "win_rate": 0.1818,
+        "profit_factor": 0.853,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": -2.752,
+        "num_trades": 11,
+        "score": 0.0136
+      },
+      "90D": {
+        "win_rate": 0.1707,
+        "profit_factor": 0.797,
+        "max_drawdown_pct": 25.501,
+        "total_return_pct": -13.771,
+        "num_trades": 41,
+        "score": 0.0053
+      },
+      "1Y": {
+        "win_rate": 0.1667,
+        "profit_factor": 0.772,
+        "max_drawdown_pct": 25.501,
+        "total_return_pct": -17.504,
+        "num_trades": 48,
+        "score": 0.005
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 40,
+        "tp_mult": 3.0,
+        "adx_thresh": 25,
+        "rsi_low": 40,
+        "rsi_high": 70
+      },
+      "score": 0.0047,
+      "30D": {
+        "win_rate": 0.1429,
+        "profit_factor": 0.496,
+        "max_drawdown_pct": 15.122,
+        "total_return_pct": -11.829,
+        "num_trades": 14,
+        "score": 0.0047
+      },
+      "90D": {
+        "win_rate": 0.2609,
+        "profit_factor": 1.017,
+        "max_drawdown_pct": 14.197,
+        "total_return_pct": 1.241,
+        "num_trades": 46,
+        "score": 0.0187
+      },
+      "1Y": {
+        "win_rate": 0.26,
+        "profit_factor": 1.013,
+        "max_drawdown_pct": 14.924,
+        "total_return_pct": 1.005,
+        "num_trades": 50,
+        "score": 0.0176
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 40,
+        "tp_mult": 3.0,
+        "adx_thresh": 20,
+        "rsi_low": 45,
+        "rsi_high": 65
+      },
+      "score": 0.0043,
+      "30D": {
+        "win_rate": 0.1429,
+        "profit_factor": 0.501,
+        "max_drawdown_pct": 16.625,
+        "total_return_pct": -11.829,
+        "num_trades": 14,
+        "score": 0.0043
+      },
+      "90D": {
+        "win_rate": 0.234,
+        "profit_factor": 0.888,
+        "max_drawdown_pct": 17.595,
+        "total_return_pct": -8.272,
+        "num_trades": 47,
+        "score": 0.0118
+      },
+      "1Y": {
+        "win_rate": 0.2321,
+        "profit_factor": 0.878,
+        "max_drawdown_pct": 17.595,
+        "total_return_pct": -10.526,
+        "num_trades": 56,
+        "score": 0.0116
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 50,
+        "tp_mult": 5.0,
+        "adx_thresh": 30,
+        "rsi_low": 45,
+        "rsi_high": 70
+      },
+      "score": 0.0041,
+      "30D": {
+        "win_rate": 0.1,
+        "profit_factor": 0.537,
+        "max_drawdown_pct": 13.187,
+        "total_return_pct": -8.288,
+        "num_trades": 10,
+        "score": 0.0041
+      },
+      "90D": {
+        "win_rate": 0.2059,
+        "profit_factor": 1.198,
+        "max_drawdown_pct": 17.571,
+        "total_return_pct": 12.941,
+        "num_trades": 34,
+        "score": 0.014
+      },
+      "1Y": {
+        "win_rate": 0.1795,
+        "profit_factor": 1.03,
+        "max_drawdown_pct": 17.571,
+        "total_return_pct": 2.09,
+        "num_trades": 39,
+        "score": 0.0105
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 50,
+        "tp_mult": 3.0,
+        "adx_thresh": 20,
+        "rsi_low": 45,
+        "rsi_high": 70
+      },
+      "score": 0.0037,
+      "30D": {
+        "win_rate": 0.1333,
+        "profit_factor": 0.464,
+        "max_drawdown_pct": 16.82,
+        "total_return_pct": -13.593,
+        "num_trades": 15,
+        "score": 0.0037
+      },
+      "90D": {
+        "win_rate": 0.2623,
+        "profit_factor": 1.024,
+        "max_drawdown_pct": 16.82,
+        "total_return_pct": 2.345,
+        "num_trades": 61,
+        "score": 0.016
+      },
+      "1Y": {
+        "win_rate": 0.2571,
+        "profit_factor": 0.998,
+        "max_drawdown_pct": 16.82,
+        "total_return_pct": -0.17,
+        "num_trades": 70,
+        "score": 0.0153
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 60,
+        "tp_mult": 5.0,
+        "adx_thresh": 20,
+        "rsi_low": 45,
+        "rsi_high": 65
+      },
+      "score": 0.0037,
+      "30D": {
+        "win_rate": 0.1818,
+        "profit_factor": 1.046,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 0.883,
+        "num_trades": 11,
+        "score": 0.0167
+      },
+      "90D": {
+        "win_rate": 0.1429,
+        "profit_factor": 0.797,
+        "max_drawdown_pct": 25.064,
+        "total_return_pct": -12.149,
+        "num_trades": 35,
+        "score": 0.0045
+      },
+      "1Y": {
+        "win_rate": 0.1304,
+        "profit_factor": 0.711,
+        "max_drawdown_pct": 25.064,
+        "total_return_pct": -21.041,
+        "num_trades": 46,
+        "score": 0.0037
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 60,
+        "tp_mult": 5.0,
+        "adx_thresh": 20,
+        "rsi_low": 40,
+        "rsi_high": 65
+      },
+      "score": 0.0037,
+      "30D": {
+        "win_rate": 0.1818,
+        "profit_factor": 1.046,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 0.883,
+        "num_trades": 11,
+        "score": 0.0167
+      },
+      "90D": {
+        "win_rate": 0.1429,
+        "profit_factor": 0.797,
+        "max_drawdown_pct": 25.064,
+        "total_return_pct": -12.149,
+        "num_trades": 35,
+        "score": 0.0045
+      },
+      "1Y": {
+        "win_rate": 0.1304,
+        "profit_factor": 0.711,
+        "max_drawdown_pct": 25.064,
+        "total_return_pct": -21.041,
+        "num_trades": 46,
+        "score": 0.0037
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 60,
+        "tp_mult": 5.0,
+        "adx_thresh": 20,
+        "rsi_low": 35,
+        "rsi_high": 65
+      },
+      "score": 0.0037,
+      "30D": {
+        "win_rate": 0.1818,
+        "profit_factor": 1.046,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 0.883,
+        "num_trades": 11,
+        "score": 0.0167
+      },
+      "90D": {
+        "win_rate": 0.1429,
+        "profit_factor": 0.797,
+        "max_drawdown_pct": 25.064,
+        "total_return_pct": -12.149,
+        "num_trades": 35,
+        "score": 0.0045
+      },
+      "1Y": {
+        "win_rate": 0.1304,
+        "profit_factor": 0.711,
+        "max_drawdown_pct": 25.064,
+        "total_return_pct": -21.041,
+        "num_trades": 46,
+        "score": 0.0037
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 60,
+        "tp_mult": 4.0,
+        "adx_thresh": 20,
+        "rsi_low": 40,
+        "rsi_high": 70
+      },
+      "score": 0.0033,
+      "30D": {
+        "win_rate": 0.1667,
+        "profit_factor": 0.775,
+        "max_drawdown_pct": 14.924,
+        "total_return_pct": -4.697,
+        "num_trades": 12,
+        "score": 0.0087
+      },
+      "90D": {
+        "win_rate": 0.1522,
+        "profit_factor": 0.702,
+        "max_drawdown_pct": 29.882,
+        "total_return_pct": -22.056,
+        "num_trades": 46,
+        "score": 0.0036
+      },
+      "1Y": {
+        "win_rate": 0.1481,
+        "profit_factor": 0.675,
+        "max_drawdown_pct": 29.882,
+        "total_return_pct": -26.922,
+        "num_trades": 54,
+        "score": 0.0033
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
       "params": {
         "hma_fast": 15,
         "hma_slow": 50,
@@ -165,12 +3573,1067 @@
         "rsi_low": 45,
         "rsi_high": 65
       },
-      "win_rate": 0.1852,
-      "profit_factor": 1.069,
-      "max_drawdown_pct": 18.293,
-      "total_return_pct": 3.261,
-      "num_trades": 27,
-      "score": 0.0108
+      "score": 0.0032,
+      "30D": {
+        "win_rate": 0.1818,
+        "profit_factor": 1.046,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 0.883,
+        "num_trades": 11,
+        "score": 0.0167
+      },
+      "90D": {
+        "win_rate": 0.1316,
+        "profit_factor": 0.728,
+        "max_drawdown_pct": 26.563,
+        "total_return_pct": -17.316,
+        "num_trades": 38,
+        "score": 0.0036
+      },
+      "1Y": {
+        "win_rate": 0.125,
+        "profit_factor": 0.68,
+        "max_drawdown_pct": 26.563,
+        "total_return_pct": -24.168,
+        "num_trades": 48,
+        "score": 0.0032
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 60,
+        "tp_mult": 3.0,
+        "adx_thresh": 20,
+        "rsi_low": 40,
+        "rsi_high": 70
+      },
+      "score": 0.0026,
+      "30D": {
+        "win_rate": 0.1176,
+        "profit_factor": 0.401,
+        "max_drawdown_pct": 18.484,
+        "total_return_pct": -17.014,
+        "num_trades": 17,
+        "score": 0.0026
+      },
+      "90D": {
+        "win_rate": 0.2667,
+        "profit_factor": 1.046,
+        "max_drawdown_pct": 18.484,
+        "total_return_pct": 4.434,
+        "num_trades": 60,
+        "score": 0.0151
+      },
+      "1Y": {
+        "win_rate": 0.2571,
+        "profit_factor": 0.998,
+        "max_drawdown_pct": 18.484,
+        "total_return_pct": -0.17,
+        "num_trades": 70,
+        "score": 0.0139
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 50,
+        "tp_mult": 3.0,
+        "adx_thresh": 30,
+        "rsi_low": 40,
+        "rsi_high": 70
+      },
+      "score": 0.0025,
+      "30D": {
+        "win_rate": 0.1,
+        "profit_factor": 0.331,
+        "max_drawdown_pct": 13.187,
+        "total_return_pct": -11.623,
+        "num_trades": 10,
+        "score": 0.0025
+      },
+      "90D": {
+        "win_rate": 0.2703,
+        "profit_factor": 1.064,
+        "max_drawdown_pct": 16.625,
+        "total_return_pct": 3.792,
+        "num_trades": 37,
+        "score": 0.0173
+      },
+      "1Y": {
+        "win_rate": 0.2857,
+        "profit_factor": 1.141,
+        "max_drawdown_pct": 16.625,
+        "total_return_pct": 9.762,
+        "num_trades": 42,
+        "score": 0.0196
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 50,
+        "tp_mult": 3.0,
+        "adx_thresh": 20,
+        "rsi_low": 45,
+        "rsi_high": 70
+      },
+      "score": 0.0017,
+      "30D": {
+        "win_rate": 0.1053,
+        "profit_factor": 0.367,
+        "max_drawdown_pct": 23.277,
+        "total_return_pct": -20.301,
+        "num_trades": 19,
+        "score": 0.0017
+      },
+      "90D": {
+        "win_rate": 0.2,
+        "profit_factor": 0.745,
+        "max_drawdown_pct": 31.295,
+        "total_return_pct": -23.7,
+        "num_trades": 60,
+        "score": 0.0048
+      },
+      "1Y": {
+        "win_rate": 0.2029,
+        "profit_factor": 0.756,
+        "max_drawdown_pct": 31.295,
+        "total_return_pct": -25.575,
+        "num_trades": 69,
+        "score": 0.0049
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 60,
+        "tp_mult": 3.0,
+        "adx_thresh": 20,
+        "rsi_low": 40,
+        "rsi_high": 70
+      },
+      "score": 0.0017,
+      "30D": {
+        "win_rate": 0.1053,
+        "profit_factor": 0.367,
+        "max_drawdown_pct": 23.277,
+        "total_return_pct": -20.301,
+        "num_trades": 19,
+        "score": 0.0017
+      },
+      "90D": {
+        "win_rate": 0.2105,
+        "profit_factor": 0.79,
+        "max_drawdown_pct": 29.893,
+        "total_return_pct": -18.933,
+        "num_trades": 57,
+        "score": 0.0056
+      },
+      "1Y": {
+        "win_rate": 0.197,
+        "profit_factor": 0.722,
+        "max_drawdown_pct": 29.893,
+        "total_return_pct": -26.893,
+        "num_trades": 66,
+        "score": 0.0048
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 60,
+        "tp_mult": 3.0,
+        "adx_thresh": 30,
+        "rsi_low": 35,
+        "rsi_high": 70
+      },
+      "score": 0.0015,
+      "30D": {
+        "win_rate": 0.0833,
+        "profit_factor": 0.272,
+        "max_drawdown_pct": 15.122,
+        "total_return_pct": -15.122,
+        "num_trades": 12,
+        "score": 0.0015
+      },
+      "90D": {
+        "win_rate": 0.2821,
+        "profit_factor": 1.12,
+        "max_drawdown_pct": 16.625,
+        "total_return_pct": 7.819,
+        "num_trades": 39,
+        "score": 0.019
+      },
+      "1Y": {
+        "win_rate": 0.3023,
+        "profit_factor": 1.219,
+        "max_drawdown_pct": 16.625,
+        "total_return_pct": 16.348,
+        "num_trades": 43,
+        "score": 0.0222
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 40,
+        "tp_mult": 3.0,
+        "adx_thresh": 30,
+        "rsi_low": 45,
+        "rsi_high": 65
+      },
+      "score": 0.0,
+      "30D": {
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": -9.608,
+        "num_trades": 5,
+        "score": 0.0
+      },
+      "90D": {
+        "win_rate": 0.3077,
+        "profit_factor": 1.275,
+        "max_drawdown_pct": 13.187,
+        "total_return_pct": 10.794,
+        "num_trades": 26,
+        "score": 0.0298
+      },
+      "1Y": {
+        "win_rate": 0.3,
+        "profit_factor": 1.233,
+        "max_drawdown_pct": 13.187,
+        "total_return_pct": 10.535,
+        "num_trades": 30,
+        "score": 0.0281
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 50,
+        "tp_mult": 4.0,
+        "adx_thresh": 25,
+        "rsi_low": 35,
+        "rsi_high": 65
+      },
+      "score": 0.0,
+      "30D": {
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": -11.416,
+        "num_trades": 6,
+        "score": 0.0
+      },
+      "90D": {
+        "win_rate": 0.1852,
+        "profit_factor": 0.869,
+        "max_drawdown_pct": 18.293,
+        "total_return_pct": -5.791,
+        "num_trades": 27,
+        "score": 0.0088
+      },
+      "1Y": {
+        "win_rate": 0.1875,
+        "profit_factor": 0.881,
+        "max_drawdown_pct": 18.293,
+        "total_return_pct": -6.153,
+        "num_trades": 32,
+        "score": 0.009
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 60,
+        "tp_mult": 5.0,
+        "adx_thresh": 30,
+        "rsi_low": 40,
+        "rsi_high": 65
+      },
+      "score": 0.0,
+      "30D": {
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": -11.416,
+        "num_trades": 6,
+        "score": 0.0
+      },
+      "90D": {
+        "win_rate": 0.2174,
+        "profit_factor": 1.292,
+        "max_drawdown_pct": 13.681,
+        "total_return_pct": 11.952,
+        "num_trades": 23,
+        "score": 0.0205
+      },
+      "1Y": {
+        "win_rate": 0.2308,
+        "profit_factor": 1.385,
+        "max_drawdown_pct": 13.681,
+        "total_return_pct": 18.271,
+        "num_trades": 26,
+        "score": 0.0234
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 50,
+        "tp_mult": 5.0,
+        "adx_thresh": 30,
+        "rsi_low": 45,
+        "rsi_high": 60
+      },
+      "score": 0.0,
+      "30D": {
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": -11.416,
+        "num_trades": 6,
+        "score": 0.0
+      },
+      "90D": {
+        "win_rate": 0.1538,
+        "profit_factor": 0.863,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": -3.112,
+        "num_trades": 13,
+        "score": 0.0116
+      },
+      "1Y": {
+        "win_rate": 0.2,
+        "profit_factor": 1.168,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 4.446,
+        "num_trades": 15,
+        "score": 0.0205
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 50,
+        "tp_mult": 3.0,
+        "adx_thresh": 30,
+        "rsi_low": 35,
+        "rsi_high": 70
+      },
+      "score": 0.0,
+      "30D": {
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 19.927,
+        "total_return_pct": -19.927,
+        "num_trades": 11,
+        "score": 0.0
+      },
+      "90D": {
+        "win_rate": 0.2162,
+        "profit_factor": 0.815,
+        "max_drawdown_pct": 26.316,
+        "total_return_pct": -11.284,
+        "num_trades": 37,
+        "score": 0.0067
+      },
+      "1Y": {
+        "win_rate": 0.225,
+        "profit_factor": 0.853,
+        "max_drawdown_pct": 26.316,
+        "total_return_pct": -9.685,
+        "num_trades": 40,
+        "score": 0.0073
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 50,
+        "tp_mult": 3.0,
+        "adx_thresh": 30,
+        "rsi_low": 35,
+        "rsi_high": 60
+      },
+      "score": 0.0,
+      "30D": {
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": -11.416,
+        "num_trades": 6,
+        "score": 0.0
+      },
+      "90D": {
+        "win_rate": 0.1538,
+        "profit_factor": 0.534,
+        "max_drawdown_pct": 11.623,
+        "total_return_pct": -10.03,
+        "num_trades": 13,
+        "score": 0.0071
+      },
+      "1Y": {
+        "win_rate": 0.2,
+        "profit_factor": 0.732,
+        "max_drawdown_pct": 11.623,
+        "total_return_pct": -6.539,
+        "num_trades": 15,
+        "score": 0.0126
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 50,
+        "tp_mult": 4.0,
+        "adx_thresh": 30,
+        "rsi_low": 35,
+        "rsi_high": 65
+      },
+      "score": 0.0,
+      "30D": {
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": -11.416,
+        "num_trades": 6,
+        "score": 0.0
+      },
+      "90D": {
+        "win_rate": 0.2,
+        "profit_factor": 0.956,
+        "max_drawdown_pct": 20.235,
+        "total_return_pct": -1.906,
+        "num_trades": 25,
+        "score": 0.0094
+      },
+      "1Y": {
+        "win_rate": 0.2069,
+        "profit_factor": 0.994,
+        "max_drawdown_pct": 20.235,
+        "total_return_pct": -0.289,
+        "num_trades": 29,
+        "score": 0.0102
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 50,
+        "tp_mult": 4.0,
+        "adx_thresh": 30,
+        "rsi_low": 35,
+        "rsi_high": 65
+      },
+      "score": 0.0,
+      "30D": {
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": -11.416,
+        "num_trades": 6,
+        "score": 0.0
+      },
+      "90D": {
+        "win_rate": 0.1538,
+        "profit_factor": 0.697,
+        "max_drawdown_pct": 18.607,
+        "total_return_pct": -12.769,
+        "num_trades": 26,
+        "score": 0.0058
+      },
+      "1Y": {
+        "win_rate": 0.1724,
+        "profit_factor": 0.801,
+        "max_drawdown_pct": 18.607,
+        "total_return_pct": -9.522,
+        "num_trades": 29,
+        "score": 0.0074
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 40,
+        "tp_mult": 4.0,
+        "adx_thresh": 30,
+        "rsi_low": 35,
+        "rsi_high": 65
+      },
+      "score": 0.0,
+      "30D": {
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": -9.608,
+        "num_trades": 5,
+        "score": 0.0
+      },
+      "90D": {
+        "win_rate": 0.1304,
+        "profit_factor": 0.601,
+        "max_drawdown_pct": 26.143,
+        "total_return_pct": -15.901,
+        "num_trades": 23,
+        "score": 0.003
+      },
+      "1Y": {
+        "win_rate": 0.1481,
+        "profit_factor": 0.688,
+        "max_drawdown_pct": 26.143,
+        "total_return_pct": -14.514,
+        "num_trades": 27,
+        "score": 0.0039
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 40,
+        "tp_mult": 4.0,
+        "adx_thresh": 30,
+        "rsi_low": 45,
+        "rsi_high": 70
+      },
+      "score": 0.0,
+      "30D": {
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 16.625,
+        "total_return_pct": -16.625,
+        "num_trades": 9,
+        "score": 0.0
+      },
+      "90D": {
+        "win_rate": 0.1935,
+        "profit_factor": 0.92,
+        "max_drawdown_pct": 18.607,
+        "total_return_pct": -4.238,
+        "num_trades": 31,
+        "score": 0.0096
+      },
+      "1Y": {
+        "win_rate": 0.2121,
+        "profit_factor": 1.023,
+        "max_drawdown_pct": 18.607,
+        "total_return_pct": 1.355,
+        "num_trades": 33,
+        "score": 0.0117
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 50,
+        "tp_mult": 3.0,
+        "adx_thresh": 30,
+        "rsi_low": 40,
+        "rsi_high": 65
+      },
+      "score": 0.0,
+      "30D": {
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": -11.416,
+        "num_trades": 6,
+        "score": 0.0
+      },
+      "90D": {
+        "win_rate": 0.2593,
+        "profit_factor": 1.009,
+        "max_drawdown_pct": 13.593,
+        "total_return_pct": 0.384,
+        "num_trades": 27,
+        "score": 0.0192
+      },
+      "1Y": {
+        "win_rate": 0.2581,
+        "profit_factor": 1.003,
+        "max_drawdown_pct": 13.593,
+        "total_return_pct": 0.149,
+        "num_trades": 31,
+        "score": 0.019
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 60,
+        "tp_mult": 4.0,
+        "adx_thresh": 25,
+        "rsi_low": 40,
+        "rsi_high": 65
+      },
+      "score": 0.0,
+      "30D": {
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": -11.416,
+        "num_trades": 6,
+        "score": 0.0
+      },
+      "90D": {
+        "win_rate": 0.1786,
+        "profit_factor": 0.832,
+        "max_drawdown_pct": 19.927,
+        "total_return_pct": -7.675,
+        "num_trades": 28,
+        "score": 0.0075
+      },
+      "1Y": {
+        "win_rate": 0.1818,
+        "profit_factor": 0.85,
+        "max_drawdown_pct": 19.927,
+        "total_return_pct": -8.03,
+        "num_trades": 33,
+        "score": 0.0078
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 50,
+        "tp_mult": 4.0,
+        "adx_thresh": 30,
+        "rsi_low": 40,
+        "rsi_high": 65
+      },
+      "score": 0.0,
+      "30D": {
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": -11.416,
+        "num_trades": 6,
+        "score": 0.0
+      },
+      "90D": {
+        "win_rate": 0.1538,
+        "profit_factor": 0.697,
+        "max_drawdown_pct": 18.607,
+        "total_return_pct": -12.769,
+        "num_trades": 26,
+        "score": 0.0058
+      },
+      "1Y": {
+        "win_rate": 0.1724,
+        "profit_factor": 0.801,
+        "max_drawdown_pct": 18.607,
+        "total_return_pct": -9.522,
+        "num_trades": 29,
+        "score": 0.0074
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 60,
+        "tp_mult": 4.0,
+        "adx_thresh": 30,
+        "rsi_low": 45,
+        "rsi_high": 65
+      },
+      "score": 0.0,
+      "30D": {
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": -11.416,
+        "num_trades": 6,
+        "score": 0.0
+      },
+      "90D": {
+        "win_rate": 0.1923,
+        "profit_factor": 0.913,
+        "max_drawdown_pct": 20.235,
+        "total_return_pct": -3.868,
+        "num_trades": 26,
+        "score": 0.0087
+      },
+      "1Y": {
+        "win_rate": 0.2069,
+        "profit_factor": 0.994,
+        "max_drawdown_pct": 20.235,
+        "total_return_pct": -0.289,
+        "num_trades": 29,
+        "score": 0.0102
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 40,
+        "tp_mult": 5.0,
+        "adx_thresh": 30,
+        "rsi_low": 35,
+        "rsi_high": 65
+      },
+      "score": 0.0,
+      "30D": {
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": -9.608,
+        "num_trades": 5,
+        "score": 0.0
+      },
+      "90D": {
+        "win_rate": 0.1364,
+        "profit_factor": 0.766,
+        "max_drawdown_pct": 24.636,
+        "total_return_pct": -9.328,
+        "num_trades": 22,
+        "score": 0.0042
+      },
+      "1Y": {
+        "win_rate": 0.1538,
+        "profit_factor": 0.87,
+        "max_drawdown_pct": 24.636,
+        "total_return_pct": -6.126,
+        "num_trades": 26,
+        "score": 0.0054
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 60,
+        "tp_mult": 5.0,
+        "adx_thresh": 30,
+        "rsi_low": 35,
+        "rsi_high": 60
+      },
+      "score": 0.0,
+      "30D": {
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": -11.416,
+        "num_trades": 6,
+        "score": 0.0
+      },
+      "90D": {
+        "win_rate": 0.1538,
+        "profit_factor": 0.863,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": -3.112,
+        "num_trades": 13,
+        "score": 0.0116
+      },
+      "1Y": {
+        "win_rate": 0.2,
+        "profit_factor": 1.168,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 4.446,
+        "num_trades": 15,
+        "score": 0.0205
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 25,
+        "hma_slow": 60,
+        "tp_mult": 5.0,
+        "adx_thresh": 25,
+        "rsi_low": 40,
+        "rsi_high": 65
+      },
+      "score": 0.0,
+      "30D": {
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": -11.416,
+        "num_trades": 6,
+        "score": 0.0
+      },
+      "90D": {
+        "win_rate": 0.1739,
+        "profit_factor": 0.993,
+        "max_drawdown_pct": 15.408,
+        "total_return_pct": -0.261,
+        "num_trades": 23,
+        "score": 0.0112
+      },
+      "1Y": {
+        "win_rate": 0.1852,
+        "profit_factor": 1.07,
+        "max_drawdown_pct": 15.408,
+        "total_return_pct": 3.261,
+        "num_trades": 27,
+        "score": 0.0129
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 40,
+        "tp_mult": 5.0,
+        "adx_thresh": 30,
+        "rsi_low": 45,
+        "rsi_high": 70
+      },
+      "score": 0.0,
+      "30D": {
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 16.625,
+        "total_return_pct": -16.625,
+        "num_trades": 9,
+        "score": 0.0
+      },
+      "90D": {
+        "win_rate": 0.2143,
+        "profit_factor": 1.254,
+        "max_drawdown_pct": 18.293,
+        "total_return_pct": 13.587,
+        "num_trades": 28,
+        "score": 0.0147
+      },
+      "1Y": {
+        "win_rate": 0.2333,
+        "profit_factor": 1.375,
+        "max_drawdown_pct": 18.293,
+        "total_return_pct": 22.447,
+        "num_trades": 30,
+        "score": 0.0175
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 40,
+        "tp_mult": 5.0,
+        "adx_thresh": 30,
+        "rsi_low": 45,
+        "rsi_high": 65
+      },
+      "score": 0.0,
+      "30D": {
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": -9.608,
+        "num_trades": 5,
+        "score": 0.0
+      },
+      "90D": {
+        "win_rate": 0.1429,
+        "profit_factor": 0.784,
+        "max_drawdown_pct": 14.924,
+        "total_return_pct": -7.477,
+        "num_trades": 21,
+        "score": 0.0075
+      },
+      "1Y": {
+        "win_rate": 0.1739,
+        "profit_factor": 0.993,
+        "max_drawdown_pct": 16.625,
+        "total_return_pct": -0.261,
+        "num_trades": 23,
+        "score": 0.0104
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 40,
+        "tp_mult": 3.0,
+        "adx_thresh": 30,
+        "rsi_low": 45,
+        "rsi_high": 70
+      },
+      "score": 0.0,
+      "30D": {
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 16.625,
+        "total_return_pct": -16.625,
+        "num_trades": 9,
+        "score": 0.0
+      },
+      "90D": {
+        "win_rate": 0.25,
+        "profit_factor": 0.964,
+        "max_drawdown_pct": 20.114,
+        "total_return_pct": -1.854,
+        "num_trades": 32,
+        "score": 0.012
+      },
+      "1Y": {
+        "win_rate": 0.2647,
+        "profit_factor": 1.035,
+        "max_drawdown_pct": 20.114,
+        "total_return_pct": 1.954,
+        "num_trades": 34,
+        "score": 0.0136
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 40,
+        "tp_mult": 4.0,
+        "adx_thresh": 30,
+        "rsi_low": 40,
+        "rsi_high": 60
+      },
+      "score": 0.0,
+      "30D": {
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 9.608,
+        "total_return_pct": -9.608,
+        "num_trades": 5,
+        "score": 0.0
+      },
+      "90D": {
+        "win_rate": 0.1538,
+        "profit_factor": 0.699,
+        "max_drawdown_pct": 9.955,
+        "total_return_pct": -6.603,
+        "num_trades": 13,
+        "score": 0.0108
+      },
+      "1Y": {
+        "win_rate": 0.1875,
+        "profit_factor": 0.884,
+        "max_drawdown_pct": 9.955,
+        "total_return_pct": -3.125,
+        "num_trades": 16,
+        "score": 0.0166
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 15,
+        "hma_slow": 50,
+        "tp_mult": 5.0,
+        "adx_thresh": 30,
+        "rsi_low": 40,
+        "rsi_high": 60
+      },
+      "score": 0.0,
+      "30D": {
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": -11.416,
+        "num_trades": 6,
+        "score": 0.0
+      },
+      "90D": {
+        "win_rate": 0.1538,
+        "profit_factor": 0.863,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": -3.112,
+        "num_trades": 13,
+        "score": 0.0116
+      },
+      "1Y": {
+        "win_rate": 0.2,
+        "profit_factor": 1.168,
+        "max_drawdown_pct": 11.416,
+        "total_return_pct": 4.446,
+        "num_trades": 15,
+        "score": 0.0205
+      }
+    },
+    {
+      "timeframe": "30M",
+      "coin": "ETH",
+      "params": {
+        "hma_fast": 20,
+        "hma_slow": 60,
+        "tp_mult": 5.0,
+        "adx_thresh": 30,
+        "rsi_low": 35,
+        "rsi_high": 70
+      },
+      "score": 0.0,
+      "30D": {
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "max_drawdown_pct": 19.927,
+        "total_return_pct": -19.927,
+        "num_trades": 11,
+        "score": 0.0
+      },
+      "90D": {
+        "win_rate": 0.1935,
+        "profit_factor": 1.114,
+        "max_drawdown_pct": 23.535,
+        "total_return_pct": 6.907,
+        "num_trades": 31,
+        "score": 0.0092
+      },
+      "1Y": {
+        "win_rate": 0.2059,
+        "profit_factor": 1.19,
+        "max_drawdown_pct": 23.535,
+        "total_return_pct": 12.941,
+        "num_trades": 34,
+        "score": 0.0104
+      }
     }
   ]
 }

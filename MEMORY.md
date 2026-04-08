@@ -104,6 +104,13 @@ JP a explicitement autorisé une intervention autonome complète sur tous les é
 - **Hetzner VPS** : compte `K1267357225` / `hue.jp@hotmail.fr` — credentials dans `credentials.json` et `agents/trademolty/vps.json`
 - **Binance** : non utilisé par JP — ignorer
 
+## Style d'interaction JP (2026-03-28)
+- JP veut **agir le moins possible sur l'ordinateur** en raison de son âge
+- Il attend des **résultats et des actions directes** — pas des instructions à suivre
+- Principe : je fais, je présente le résultat. Je ne demande pas à JP de cliquer, copier, configurer
+- Exception inévitable : copier-coller un script Pine sur TradingView (pas d'API disponible)
+- Toujours privilégier l'action autonome sur l'explication de ce qu'il faudrait faire
+
 ## Contexte général
 
 - JP est retraité, veut faire fructifier son épargne sainement

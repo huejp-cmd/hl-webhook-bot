@@ -1,0 +1,160 @@
+//@version=5
+//
+//  NQ Range Bar Strategy v2 — Apex 50K
+//  Auteur     : JP (codé par OpenClaw)
+//  Instrument : NQ Futures (CME:NQ1! ou NQ JUN26)
+//  Chart type : RANGE BARS — 80R (= 20 points NQ)
+//
+//  RÈGLES :
+//  ────────
+//  SHORT → Candle rouge + close < HMA20 + HMA20 en baisse
+//           Entrée : clôture du candle
+//           SL     : haut du candle rouge
+//           TP     : entrée - 30 points (= 600$ / contrat)
+//
+//  LONG  → Candle verte + close > HMA20 + HMA20 en hausse
+//           Entrée : clôture du candle
+//           SL     : bas du candle vert
+//           TP     : entrée + 30 points (= 600$ / contrat)
+//
+//  Heures actives : 09h30 – 15h50 ET
+//  Compte         : Apex 50K — 2 contrats
+//
+// ════════════════════════════════════════════════════════════════
+
+strategy("NQ Range Bar v2 — Apex 50K",
+ overlay          = true,
+ default_qty_type = strategy.fixed,
+ default_qty_value = 2,
+ commission_type  = strategy.commission.cash_per_contract,
+ commission_value = 5.0,
+ initial_capital  = 50000,
+ calc_on_every_tick = false,
+ pyramiding       = 0)
+
+// ─────────────────────────────────────────────────────────────
+//  PARAMÈTRES
+// ─────────────────────────────────────────────────────────────
+hmaLen         = input.int  (20,    "HMA Period",                  minval=5, maxval=50)
+tpPts          = input.float(30.0,  "Take Profit (points)",        minval=5.0, step=5.0)
+contracts      = 2
+pointValue     = 20.0  // $20 par point NQ
+
+// Règles Apex
+dailyLossLimit = input.float(1000.0, "Perte journalière max ($)",  group="Apex 50K", minval=100, step=100)
+maxDrawdown    = input.float(2000.0, "Drawdown max ($)",            group="Apex 50K", minval=100, step=100)
+showLabels     = input.bool (true,   "Afficher les labels")
+
+// ─────────────────────────────────────────────────────────────
+//  INDICATEURS
+// ─────────────────────────────────────────────────────────────
+hma20     = ta.hma(close, hmaLen)
+hmaRising = hma20 > hma20[1]   // HMA20 en hausse
+hmaFalling= hma20 < hma20[1]   // HMA20 en baisse
+
+isRed   = close < open
+isGreen = close > open
+
+// ─────────────────────────────────────────────────────────────
+//  FILTRE HORAIRE — 09h30 à 15h50 ET
+// ─────────────────────────────────────────────────────────────
+inSession = not na(time("D", "0930-1550", "America/New_York"))
+
+// ─────────────────────────────────────────────────────────────
+//  PROTECTIONS APEX
+// ─────────────────────────────────────────────────────────────
+var float dailyStartEquity = na
+if na(dailyStartEquity) or dayofweek != dayofweek[1]
+    dailyStartEquity := strategy.equity
+
+dailyPnL   = strategy.equity - dailyStartEquity
+peakEquity = ta.highest(strategy.equity, 10000)
+currentDD  = peakEquity - strategy.equity
+apexOk     = dailyPnL > -dailyLossLimit and currentDD < maxDrawdown
+
+// ─────────────────────────────────────────────────────────────
+//  SIGNAUX
+// ─────────────────────────────────────────────────────────────
+
+// SHORT : candle rouge + close < HMA20 + HMA20 en baisse
+shortSignal = isRed and close < hma20 and hmaFalling
+
+// LONG : candle verte + close > HMA20 + HMA20 en hausse
+longSignal  = isGreen and close > hma20 and hmaRising
+
+// ─────────────────────────────────────────────────────────────
+//  EXÉCUTION
+// ─────────────────────────────────────────────────────────────
+
+// Fermeture forcée si limites Apex atteintes
+if not apexOk and strategy.position_size != 0
+    strategy.close_all(comment="⛔ Apex")
+
+// ENTRÉE SHORT
+if shortSignal and inSession and apexOk and strategy.position_size == 0
+    sl_price = high          // SL = haut du candle rouge
+    tp_price = close - tpPts // TP = entrée - 30 pts
+    strategy.entry("Short", strategy.short, qty=contracts)
+    strategy.exit("Exit Short", from_entry="Short",
+     stop=sl_price, limit=tp_price,
+     comment_loss="SL", comment_profit="TP +" + str.tostring(tpPts) + "pts")
+    if showLabels
+        label.new(bar_index, high + 2,
+         "▼ SHORT\nSL: " + str.tostring(math.round(sl_price, 0)) +
+         "\nTP: " + str.tostring(math.round(tp_price, 0)),
+         color=color.new(color.red, 10), textcolor=color.white,
+         style=label.style_label_down, size=size.small)
+
+// ENTRÉE LONG
+if longSignal and inSession and apexOk and strategy.position_size == 0
+    sl_price = low           // SL = bas du candle vert
+    tp_price = close + tpPts // TP = entrée + 30 pts
+    strategy.entry("Long", strategy.long, qty=contracts)
+    strategy.exit("Exit Long", from_entry="Long",
+     stop=sl_price, limit=tp_price,
+     comment_loss="SL", comment_profit="TP +" + str.tostring(tpPts) + "pts")
+    if showLabels
+        label.new(bar_index, low - 2,
+         "▲ LONG\nSL: " + str.tostring(math.round(sl_price, 0)) +
+         "\nTP: " + str.tostring(math.round(tp_price, 0)),
+         color=color.new(color.green, 10), textcolor=color.white,
+         style=label.style_label_up, size=size.small)
+
+// Sortie fin de session
+if not inSession and strategy.position_size != 0
+    strategy.close_all(comment="Fin session")
+
+// ─────────────────────────────────────────────────────────────
+//  AFFICHAGE
+// ─────────────────────────────────────────────────────────────
+plot(hma20, "HMA20", color=color.yellow, linewidth=2)
+
+// Fond rouge si Apex limit atteinte
+bgcolor(not apexOk ? color.new(color.red, 85) : na)
+
+// Tableau récap
+var table t = table.new(position.top_right, 2, 6,
+ border_color=color.gray, border_width=1, bgcolor=color.rgb(20,20,20,10))
+
+if barstate.islast
+    slDollars = (close - low) * pointValue * contracts
+    table.cell(t, 0, 0, "HMA20",      text_color=color.gray,  text_size=size.small)
+    table.cell(t, 1, 0, hmaRising ? "↑ hausse" : hmaFalling ? "↓ baisse" : "→ plat",
+     text_color=hmaRising ? color.green : hmaFalling ? color.red : color.gray,
+     text_size=size.small)
+    table.cell(t, 0, 1, "Signal",     text_color=color.gray,  text_size=size.small)
+    table.cell(t, 1, 1, longSignal ? "▲ LONG" : shortSignal ? "▼ SHORT" : "—",
+     text_color=longSignal ? color.green : shortSignal ? color.red : color.gray,
+     text_size=size.small)
+    table.cell(t, 0, 2, "TP",         text_color=color.gray,  text_size=size.small)
+    table.cell(t, 1, 2, str.tostring(tpPts) + "pts = $" + str.tostring(tpPts * pointValue * contracts),
+     text_color=color.teal, text_size=size.small)
+    table.cell(t, 0, 3, "Contrats",   text_color=color.gray,  text_size=size.small)
+    table.cell(t, 1, 3, str.tostring(contracts),
+     text_color=color.white, text_size=size.small)
+    table.cell(t, 0, 4, "PnL jour",   text_color=color.gray,  text_size=size.small)
+    table.cell(t, 1, 4, "$" + str.tostring(math.round(dailyPnL, 0)),
+     text_color=dailyPnL >= 0 ? color.green : color.red, text_size=size.small)
+    table.cell(t, 0, 5, "Apex",       text_color=color.gray,  text_size=size.small)
+    table.cell(t, 1, 5, apexOk ? "✅ OK" : "⛔ STOP",
+     text_color=apexOk ? color.green : color.red, text_size=size.small)

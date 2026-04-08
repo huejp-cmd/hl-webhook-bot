@@ -1,7 +1,7 @@
 //@version=5
 //
 //  ╔═══════════════════════════════════════════════════════╗
-//  ║  JP v6.2 — ETH 30M — BACKTEST                        ║
+//  ║  JP v6.2 — ETH 1H — BACKTEST                        ║
 //  ║  Sizing basé sur le risque (% capital / dist SL)      ║
 //  ║  Plus stable que Labouchère sur ETH                   ║
 //  ║                                                       ║
@@ -9,10 +9,10 @@
 //  ║  Plafond Phase 1 : 70 000 USDC                        ║
 //  ║  Phase 2 auto : 35 000 base, riskPerc réduit          ║
 //  ║                                                       ║
-//  ║  [!] CHART : ETHUSDT.P  —  Timeframe : 30             ║
+//  ║  [!] CHART : ETHUSDT.P  —  Timeframe : 60             ║
 //  ╚═══════════════════════════════════════════════════════╝
 
-strategy("JP v6.2 — ETH 30M — Backtest",
+strategy("JP v6.2 — ETH 1H — Backtest",
  overlay=true,
  default_qty_type=strategy.fixed,
  commission_type=strategy.commission.percent,
@@ -155,9 +155,9 @@ array.sort(sorted, order.ascending)
 idx25  = math.round((array.size(sorted) - 1) * 0.25)
 vol25  = array.get(sorted, math.min(idx25, array.size(sorted) - 1))
 
-btcH   = request.security("BINANCE:BTCUSDT", "60", high)
-btcL   = request.security("BINANCE:BTCUSDT", "60", low)
-btcC   = request.security("BINANCE:BTCUSDT", "60", close[1])
+btcH   = request.security("BINANCE:BTCUSDT", "240", high)
+btcL   = request.security("BINANCE:BTCUSDT", "240", low)
+btcC   = request.security("BINANCE:BTCUSDT", "240", close[1])
 btcRng = (btcH - btcL) / nz(btcC, 1)
 inRng  = adx < 20 and curVol < vol25 and btcRng < 0.01
 
@@ -323,7 +323,7 @@ phaseStr = inPhase2 ? "Phase 2 (35k base)" : "Phase 1 (1k->70k)"
 if showStats
     var table stats = table.new(position.top_right, 2, 7,
          border_color=color.new(color.gray, 50), border_width=1)
-    table.cell(stats, 0, 0, "JP v6.2 ETH 30M",  text_color=color.black, bgcolor=color.new(color.blue, 80), text_size=size.small)
+    table.cell(stats, 0, 0, "JP v6.2 ETH 1H",  text_color=color.black, bgcolor=color.new(color.blue, 80), text_size=size.small)
     table.cell(stats, 1, 0, phaseStr,            text_color=inPhase2 ? color.new(#FFD700, 0) : color.new(color.green, 0), bgcolor=color.new(color.blue, 80), text_size=size.small)
     table.cell(stats, 0, 1, "Capital actif",     text_color=color.gray,  bgcolor=color.white, text_size=size.tiny)
     table.cell(stats, 1, 1, str.tostring(math.round(stepCapital, 0)) + " USDC", text_color=color.new(color.green, 0), bgcolor=color.white, text_size=size.tiny)

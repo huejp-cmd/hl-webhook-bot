@@ -1,20 +1,20 @@
 {
   "lastChecks": {
-    "hl_bot": 1743130350,
+    "hl_bot": 1743717105,
     "moltbook": 1742902346,
-    "email": 1743075742,
-    "calendar": 1743075742,
+    "email": 1775658970,
+    "calendar": 1775658970,
     "weather": null
   },
-  "lastUpdate": "2026-03-28T03:32:30Z",
+  "lastUpdate": "2026-04-08T14:36:00Z",
   "lastBotStatus": {
     "railway": "online",
-    "local": "online",
-    "mode": "LIVE",
+    "local": "unknown",
+    "mode": "DRY_RUN",
     "network": "MAINNET",
     "account_value": "0.00 USDC",
     "wallet": "0xaF6542067Cab6D8D9E3D7BaA5AaE16DB86f83fBb",
     "open_positions": [],
-    "alert": null
+    "alert": "mode_DRY_RUN_confirmed"
   }
 }

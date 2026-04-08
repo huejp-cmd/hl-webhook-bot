@@ -31,15 +31,15 @@ En l'absence d'instructions nouvelles → appliquer les **règles autonomes** ci
 ```python
 from hyperliquid.info import Info
 info = Info("https://api.hyperliquid.xyz", skip_ws=True)
-spot = info.spot_user_state("0x01fE7894a5A41BA669Cf541f556832c8E1F164B7")
+spot = info.spot_user_state("0xaF6542067Cab6D8D9E3D7BaA5AaE16DB86f83fBb")
 usdc_spot = next((float(b["total"]) for b in spot.get("balances",[]) if b["coin"]=="USDC"), 0)
-perp = info.user_state("0x01fE7894a5A41BA669Cf541f556832c8E1F164B7")
+perp = info.user_state("0xaF6542067Cab6D8D9E3D7BaA5AaE16DB86f83fBb")
 perp_equity = float(perp.get("marginSummary",{}).get("accountValue", 0))
 ```
 
 **Cibles de capital :**
-- SOL : 600 USDC alloués
-- ETH : 400 USDC alloués
+- SOL : 500 USDC alloués
+- ETH : 500 USDC alloués
 - **Total cible Perp : 1000 USDC**
 
 **Règles :**
@@ -78,13 +78,64 @@ Si JP ou l'assistant envoie "STOP TRADING" ou "COUPE TOUT" ou "EMERGENCY STOP" :
 
 ---
 
+## Analyse de performance (hebdomadaire — lundi 8h AST)
+
+À chaque lundi matin, TradeMolty :
+
+1. Récupère les trades de la semaine via `GET /trade_log`
+2. Calcule :
+   - Win rate réel (cible : 71.5% d'après backtest)
+   - Profit factor réel (cible : 2.02)
+   - PnL moyen par trade
+   - Distribution wins/losses par symbole
+   - Évolution séquence Labouchère (via /labouch_status)
+3. Compare avec les références backtest
+4. **Si drift détecté** (win rate < 60% sur 20+ trades) :
+   - Alerte JP : "⚠️ DRIFT DÉTECTÉ — Win rate réel : X% vs 71.5% attendu sur N trades"
+5. **Propose des ajustements** (si cohérents avec les données) :
+   - cap_mult (plafond séquence)
+   - UNIT_FACTOR (taille des bets)
+   - Seuil stop-session (actuellement -15%)
+   Format : "💡 PROPOSITION : [paramètre] de X → Y. Raison : [données]. Attends ta validation."
+6. Envoie le rapport à JP
+
+## Format rapport hebdomadaire
+
+📊 TRADEMOLTY — Rapport semaine [DATE]
+
+**Performance réelle**
+- Trades : N (ETH: X | SOL: X)
+- Win rate : X% (cible 71.5%) ✅/⚠️/🚨
+- Profit factor : X.XX (cible 2.02) ✅/⚠️/🚨
+- PnL net : +X USDC
+
+**Labouchère**
+- ETH : série N, séquence [x,x,x,x], capital X USDC, réserve X USDC
+- SOL : série N, séquence [x,x,x,x], capital X USDC, réserve X USDC
+
+**Drift vs backtest**
+- Win rate : X% vs 71.5% → [OK / ⚠️ drift léger / 🚨 drift fort]
+- Profit factor : X.XX vs 2.02 → [OK / ...]
+
+**Propositions (si applicable)**
+- [aucune / liste]
+
+---
+
 ## Accès techniques
+
+### Endpoints bot (mis à jour)
+- Status + positions : `GET /status`
+- État Labouchère : `GET /labouch_status`
+- Log des trades : `GET /trade_log`
+- Fermer position : `POST /close/<COIN>` (Header: `Authorization: Bearer jp_bot_secret_2026`)
+- URL base : `https://hl-webhook-bot-production.up.railway.app`
 
 ### Bot Railway (production — priorité 1)
 - Status+positions : `https://hl-webhook-bot-production.up.railway.app/status`
 - Fermer position : `POST https://hl-webhook-bot-production.up.railway.app/close/<COIN>`
   - Header : `Authorization: Bearer jp_bot_secret_2026`
-- Wallet : `0x01fE7894a5A41BA669Cf541f556832c8E1F164B7`
+- Wallet : `0xaF6542067Cab6D8D9E3D7BaA5AaE16DB86f83fBb`
 
 ### Bot Local Mac (backup — priorité 2, si Railway down)
 - Status : `http://localhost:80/status`
@@ -102,7 +153,7 @@ from hyperliquid.info import Info
 from hyperliquid.utils import constants
 import json
 info = Info(constants.MAINNET_API_URL, skip_ws=True)
-state = info.user_state("0x01fE7894a5A41BA669Cf541f556832c8E1F164B7")
+state = info.user_state("0xaF6542067Cab6D8D9E3D7BaA5AaE16DB86f83fBb")
 positions = state.get("assetPositions", [])
 equity = state.get("marginSummary", {}).get("accountValue", "?")
 ```
@@ -183,7 +234,8 @@ _(L'assistant principal met à jour cette section quand JP donne des consignes s
 
 - Surveiller et rapporter le slippage quotidiennement (actif depuis 2026-03-20)
 - Comparer signaux TradingView vs exécution Hyperliquid — log dans rapport 8h AST
+- Rapport hebdomadaire de performance chaque lundi 8h AST (actif depuis 2026-03-28)
 
 ---
 
-*Dernière mise à jour : 2026-03-23 par l'assistant principal*
+*Dernière mise à jour : 2026-03-28 par l'assistant principal*
