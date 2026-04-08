@@ -1,0 +1,381 @@
+//@version=5
+//
+//  ╔═══════════════════════════════════════════════════════╗
+//  ║  JP v7.1 — ETH 30M — BACKTEST                        ║
+//  ║  Aligné exactement sur autonomous_bot.py v7.1         ║
+//  ║                                                       ║
+//  ║  Paramètres bot :                                     ║
+//  ║    HMA 25 / 40  |  ADX trend>25  |  RSI 100          ║
+//  ║    Filtre HA 1H OFF  |  Labouchère x3  |  RR 5:1     ║
+//  ║                                                       ║
+//  ║  [!] CHART : ETHUSDT.P  —  Timeframe : 30             ║
+//  ╚═══════════════════════════════════════════════════════╝
+//
+//  Différences ETH vs SOL :
+//    - HMA  : 25/40  (SOL : 20/50)
+//    - ADX trend : >25  (SOL : >20)
+//    - ADX range : <20  (SOL : <15)
+//    - ADX fort  : >30  (SOL : >25)
+//    - Levier Lab: x3   (SOL : x2)
+//    - Filtre HA : OFF  (SOL : ON)
+//
+
+strategy("JP v7.1 ETH 30M",
+ overlay              = true,
+ default_qty_type     = strategy.fixed,
+ commission_type      = strategy.commission.percent,
+ commission_value     = 0.07,
+ pyramiding           = 3,
+ initial_capital      = 500,
+ calc_on_every_tick   = false)
+
+// ════════════════════════════════════════════════════════════
+//  INPUTS
+// ════════════════════════════════════════════════════════════
+
+g_gen = "Général"
+useHAFilter   = input.bool(false, "Filtre Heikin Ashi 1H",        group=g_gen,
+               tooltip="Désactivé sur le bot ETH — laissez OFF pour reproduire le comportement exact.")
+showTable     = input.bool(true,  "Afficher tableau conditions",   group=g_gen)
+showSignals   = input.bool(true,  "Afficher flèches signaux",      group=g_gen)
+
+g_ind = "Indicateurs (bot exact)"
+atrLen        = input.int(10,    "ATR Length",    group=g_ind)
+adxLen        = input.int(14,    "ADX Length",    group=g_ind)
+rsiLen        = input.int(100,   "RSI Length",    group=g_ind,
+               tooltip="RSI 100 — identique au bot")
+hmaFast       = input.int(25,    "HMA rapide (bot ETH=25)", group=g_ind)
+hmaSlow       = input.int(40,    "HMA lente  (bot ETH=40)", group=g_ind)
+adxTrend      = input.int(25,    "ADX seuil tendance (bot ETH=25)", group=g_ind)
+adxRange      = input.int(20,    "ADX seuil range   (bot ETH=20)", group=g_ind)
+strongThresh  = input.int(30,    "ADX seuil fort    (bot ETH=30)", group=g_ind)
+diRatio       = input.float(1.5, "Ratio DI fort (bot=1.5)", group=g_ind, step=0.1)
+vpK           = input.float(0.75,"VWAP band offset (×ATR)",  group=g_ind, step=0.05)
+bbLen         = input.int(20,    "BB Length",     group=g_ind)
+bbMult        = input.float(2.0, "BB Mult",       group=g_ind, step=0.1)
+volSmaLen     = input.int(20,    "Volume SMA",    group=g_ind)
+volMult       = input.float(1.4, "Volume seuil (×SMA)", group=g_ind, step=0.1)
+tpMult        = input.float(5.0, "RR ratio TP/SL (bot=5)", group=g_ind, step=0.5)
+
+g_lab = "Labouchère"
+leverageLab   = input.float(3.0,  "Levier Labouchère (bot ETH=3)", group=g_lab, step=0.5)
+unitFactor    = input.float(0.5,  "Facteur unité",                 group=g_lab, step=0.1)
+capMult       = input.float(4.0,  "Plafond (×pertes cumulées)",    group=g_lab, step=0.5)
+startCapital  = input.float(500.0,"Capital USDC",                  group=g_lab, step=100)
+stopJourPct   = input.float(15.0, "Stop perte journalière (%)",    group=g_lab, step=1.0)
+
+g_exec = "Exécution"
+useCompound   = input.bool(true,   "Mode compound (réinvestir gains)", group=g_exec)
+maxCapital    = input.float(5000.0,"Plafond capital (USDC)",           group=g_exec, step=500)
+tpSlippage    = input.float(0.10,  "Slippage TP (%)",                  group=g_exec, step=0.01)
+
+// ════════════════════════════════════════════════════════════
+//  ÉTAT LABOUCHÈRE
+// ════════════════════════════════════════════════════════════
+
+var array<int> seq     = array.from(1, 1, 1, 1)
+var float cumLossUnits = 0.0
+var int   prevClosed   = 0
+var float dailyStartEq = strategy.equity
+var int   lastDay      = dayofmonth
+var int   lastMonth    = month
+var int   entryBetInt  = 2
+
+if month != lastMonth
+    lastMonth := month
+    if dayofmonth == 1
+        array.clear(seq)
+        for i = 0 to 3
+            array.push(seq, 1)
+        cumLossUnits := 0.0
+
+if dayofmonth != lastDay
+    dailyStartEq := strategy.equity
+    lastDay      := dayofmonth
+
+dailyStop = strategy.equity < dailyStartEq * (1.0 - stopJourPct / 100.0)
+
+seqSz    = array.size(seq)
+rawBet   = seqSz >= 2 ? array.get(seq, 0) + array.get(seq, seqSz - 1) :
+           seqSz == 1  ? array.get(seq, 0) * 2 : 2
+capUnits = math.max(capMult * cumLossUnits, 2.0)
+betUnits = math.min(float(rawBet), capUnits)
+multLab  = math.max(betUnits * unitFactor * leverageLab, 0.5)
+
+rawCapLab  = useCompound ? math.max(strategy.initial_capital + strategy.netprofit, startCapital * 0.5)
+                         : startCapital
+capLab     = math.min(rawCapLab, maxCapital)
+qtyLabouch = math.max((capLab * multLab / 100.0) / close, capLab * 0.0005 / close)
+
+// ════════════════════════════════════════════════════════════
+//  FONCTIONS
+// ════════════════════════════════════════════════════════════
+
+hullMA(src, len) =>
+    n2 = math.floor(len / 2)
+    ta.wma(2 * ta.wma(src, n2) - ta.wma(src, len), math.floor(math.sqrt(len)))
+
+// ════════════════════════════════════════════════════════════
+//  CALCULS
+// ════════════════════════════════════════════════════════════
+
+atr   = ta.atr(atrLen)
+rsi   = ta.rsi(close, rsiLen)
+volSm = ta.sma(volume, volSmaLen)
+volUp = volume > volSm * volMult
+
+hmaF = hullMA(close, hmaFast)
+hmaS = hullMA(close, hmaSlow)
+
+// Range bars
+var float rOpen  = na
+var float rHigh  = na
+var float rLow   = na
+var float rClose = na
+newBar = na(rOpen) or math.abs(close - rOpen) >= atr
+if newBar
+    rOpen  := nz(close[1], open)
+    rHigh  := nz(close[1], open)
+    rLow   := nz(close[1], open)
+    rClose := close
+else
+    rClose := close
+    rHigh  := math.max(rHigh, close)
+    rLow   := math.min(rLow, close)
+
+// VWAP / VAH / VAL
+vwap_  = ta.cum(((high+low+close)/3) * volume) / ta.cum(volume)
+vah    = ta.highest(vwap_ + vpK * atr, 24)
+val    = ta.lowest( vwap_ - vpK * atr, 24)
+
+// DMI / ADX
+[diPlus, diMinus, adx] = ta.dmi(adxLen, adxLen)
+
+// BB
+bbBasis = ta.sma(close, bbLen)
+bbDev   = bbMult * ta.stdev(close, bbLen)
+bbUpper = bbBasis + bbDev
+bbLower = bbBasis - bbDev
+
+// InRange / Volatilité
+atrSma  = ta.sma(atr, 20)
+volHigh = atr > atrSma * 1.5
+btcRng  = (request.security("BINANCE:BTCUSDT", "60", high) -
+           request.security("BINANCE:BTCUSDT", "60", low)) /
+           nz(request.security("BINANCE:BTCUSDT", "60", close[1]), 1)
+var float[] volWin = array.new_float()
+curVol = ta.stdev(math.log(high / low), 100)
+array.push(volWin, curVol)
+if array.size(volWin) > 100
+    array.shift(volWin)
+sorted = array.copy(volWin)
+array.sort(sorted, order.ascending)
+vol25  = array.get(sorted, math.min(math.round((array.size(sorted)-1)*0.25), array.size(sorted)-1))
+inRng  = adx < adxRange and curVol < vol25 and btcRng < 0.01
+
+// Régimes
+explosive  = volHigh and (rsi > 75 or rsi < 25)
+isTrending = adx > adxTrend and not explosive
+isRanging  = adx < adxRange and rHigh <= bbUpper and rLow >= bbLower and not isTrending and not explosive
+isExplsv   = explosive and not isTrending and not isRanging
+
+// Conditions entrée
+bullTrend  = diPlus > diMinus and rClose > hmaS
+pbLong     = rLow <= hmaF and rClose > hmaF and rsi > 35 and rsi < 65
+entryLT    = isTrending and bullTrend and pbLong
+bearTrend  = diMinus > diPlus and rClose < hmaS
+pbShort    = rHigh >= hmaF and rClose < hmaF and rsi > 35 and rsi < 65
+entryST    = isTrending and bearTrend and pbShort
+brkUp      = rClose > vah and volHigh and (rClose - nz(rClose[1], rClose)) > atr * 0.8
+entryLE    = isExplsv and brkUp
+brkDn      = rClose < val and volHigh and (rClose - nz(rClose[1], rClose)) < -atr * 0.8
+entrySE    = isExplsv and brkDn
+
+strongBull = adx > strongThresh and diPlus  > diMinus * diRatio
+strongBear = adx > strongThresh and diMinus > diPlus  * diRatio
+
+// Filtre HA 1H (désactivé pour ETH dans le bot)
+haC1H  = request.security(ticker.heikinashi(syminfo.tickerid), "60", close)
+haO1H  = request.security(ticker.heikinashi(syminfo.tickerid), "60", open)
+haBull = haC1H > haO1H
+haBear = haC1H < haO1H
+validL = not strongBear and (not useHAFilter or haBull)
+validS = not strongBull and (not useHAFilter or haBear)
+
+// SL / TP
+slL  = math.max(ta.lowest(rLow, 15) * 0.995, rClose * 0.980)
+tpL  = (rClose + (rClose - slL) * tpMult) * (1 + tpSlippage / 100)
+slS  = math.min(ta.highest(rHigh, 15) * 1.005, rClose * 1.020)
+tpS  = (rClose - (slS - rClose) * tpMult) * (1 - tpSlippage / 100)
+regStr = isTrending ? "TREND" : isRanging ? "RANGE" : "EXPLO"
+
+// ════════════════════════════════════════════════════════════
+//  DCA
+// ════════════════════════════════════════════════════════════
+
+dcaEnabled = input.bool(true,  "Activer DCA", group="DCA")
+maxDCA     = input.int(2,      "Niveaux DCA", group="DCA", minval=1, maxval=3)
+dcaDist    = input.float(2.0,  "Distance DCA (%)", group="DCA", step=0.5) / 100
+
+var int   dcaCntL  = 0
+var int   dcaCntS  = 0
+var float lastPxL  = na
+var float lastPxS  = na
+var float entrySlL = na
+var float entrySlS = na
+
+if strategy.position_size == 0
+    dcaCntL := 0
+    dcaCntS := 0
+    lastPxL := na
+    lastPxS := na
+
+inLong  = strategy.position_size > 0
+inShort = strategy.position_size < 0
+dcaLOk  = dcaEnabled and inLong  and dcaCntL < maxDCA and not na(lastPxL) and close < lastPxL * (1 - dcaDist)
+dcaSOk  = dcaEnabled and inShort and dcaCntS < maxDCA and not na(lastPxS) and close > lastPxS * (1 + dcaDist)
+
+// ════════════════════════════════════════════════════════════
+//  ENTRÉES / SORTIES
+// ════════════════════════════════════════════════════════════
+
+entryLong  = (entryLT or entryLE) and validL and not inRng and not dailyStop
+entryShort = (entryST or entrySE) and validS and not inRng and not dailyStop
+
+if entryLong
+    strategy.cancel_all()
+    entrySlL    := slL
+    lastPxL     := rClose
+    dcaCntL     := 0
+    entryBetInt := int(math.round(betUnits))
+    strategy.entry("Long",  strategy.long,  qty=qtyLabouch)
+    strategy.exit("XLong",  from_entry="Long",  stop=slL, limit=tpL)
+
+if entryShort
+    strategy.cancel_all()
+    entrySlS    := slS
+    lastPxS     := rClose
+    dcaCntS     := 0
+    entryBetInt := int(math.round(betUnits))
+    strategy.entry("Short", strategy.short, qty=qtyLabouch)
+    strategy.exit("XShort", from_entry="Short", stop=slS, limit=tpS)
+
+if dcaLOk
+    dcaCntL := dcaCntL + 1
+    lastPxL := rClose
+    strategy.entry("DCA_L" + str.tostring(dcaCntL), strategy.long, qty=qtyLabouch)
+    strategy.exit("XLong", stop=entrySlL, limit=strategy.position_avg_price + (strategy.position_avg_price - entrySlL) * (isTrending ? 4.0 : 3.0))
+
+if dcaSOk
+    dcaCntS := dcaCntS + 1
+    lastPxS := rClose
+    strategy.entry("DCA_S" + str.tostring(dcaCntS), strategy.short, qty=qtyLabouch)
+    strategy.exit("XShort", stop=entrySlS, limit=strategy.position_avg_price - (entrySlS - strategy.position_avg_price) * (isTrending ? 4.0 : 3.0))
+
+// ════════════════════════════════════════════════════════════
+//  MISE À JOUR LABOUCHÈRE
+// ════════════════════════════════════════════════════════════
+
+if strategy.closedtrades > prevClosed
+    lastPnl    = strategy.netprofit - nz(strategy.netprofit[1], 0)
+    prevClosed := strategy.closedtrades
+    if lastPnl > 0
+        array.push(seq, entryBetInt)
+    else
+        if array.size(seq) >= 2
+            array.remove(seq, 0)
+            array.pop(seq)
+            cumLossUnits := cumLossUnits + float(entryBetInt)
+        else
+            array.clear(seq)
+            for i = 0 to 3
+                array.push(seq, 1)
+            cumLossUnits := 0.0
+        if array.size(seq) == 0
+            for i = 0 to 3
+                array.push(seq, 1)
+            cumLossUnits := 0.0
+
+// ════════════════════════════════════════════════════════════
+//  VISUALISATION
+// ════════════════════════════════════════════════════════════
+
+plot(hmaF, "HMA25",  color=color.yellow, linewidth=2)
+plot(hmaS, "HMA40",  color=color.red,    linewidth=2)
+plot(bbUpper, "BB+", color=color.new(color.black, 40), linewidth=1)
+plot(bbBasis, "BB=", color=color.new(color.gray,  40), linewidth=1, style=plot.style_circles)
+plot(bbLower, "BB-", color=color.new(color.black, 40), linewidth=1)
+plot(vwap_, "VWAP",  color=color.new(color.blue,   60), linewidth=1)
+plot(vah,   "VAH",   color=color.new(color.teal,   50), linewidth=1, style=plot.style_stepline)
+plot(val,   "VAL",   color=color.new(color.purple, 50), linewidth=1, style=plot.style_stepline)
+
+plotshape(showSignals and entryLong,  "LONG",  location.belowbar, color.green, shape.triangleup,   size=size.small)
+plotshape(showSignals and entryShort, "SHORT", location.abovebar, color.red,   shape.triangledown, size=size.small)
+
+bgcolor(isRanging  ? color.new(color.red,    92) : na)
+bgcolor(isTrending ? color.new(color.green,  90) : na)
+bgcolor(isExplsv   ? color.new(color.purple, 85) : na)
+bgcolor(dailyStop  ? color.new(color.red,    80) : na)
+
+// ════════════════════════════════════════════════════════════
+//  TABLEAU CONDITIONS
+// ════════════════════════════════════════════════════════════
+
+dot(ok) => ok ? "●" : "○"
+dc(ok)  => ok ? color.new(color.green, 0) : color.red
+
+sigL = adx > adxTrend and diPlus > diMinus and rClose > hmaS and rLow <= hmaF and rClose > hmaF and rsi > 35 and rsi < 65 and validL and not inRng and not dailyStop
+sigS = adx > adxTrend and diMinus > diPlus and rClose < hmaS and rHigh >= hmaF and rClose < hmaF and rsi > 35 and rsi < 65 and validS and not inRng and not dailyStop
+
+if showTable
+    var table t = table.new(position.bottom_left, 3, 11,
+                  border_color=color.new(color.gray, 60), border_width=1)
+
+    table.cell(t, 0, 0, "Condition",  bgcolor=color.new(color.navy, 60), text_color=color.white,               text_size=size.tiny)
+    table.cell(t, 1, 0, "▲ LONG",    bgcolor=color.new(color.navy, 60), text_color=color.new(color.green, 0), text_size=size.tiny)
+    table.cell(t, 2, 0, "▼ SHORT",   bgcolor=color.new(color.navy, 60), text_color=color.red,                 text_size=size.tiny)
+
+    table.cell(t, 0, 1, "ADX>" + str.tostring(adxTrend),  text_color=color.gray, text_size=size.tiny,   bgcolor=color.white)
+    table.cell(t, 1, 1, dot(adx>adxTrend),  text_color=dc(adx>adxTrend),    text_size=size.normal, bgcolor=color.white)
+    table.cell(t, 2, 1, dot(adx>adxTrend),  text_color=dc(adx>adxTrend),    text_size=size.normal, bgcolor=color.white)
+
+    table.cell(t, 0, 2, "DI direction",   text_color=color.gray, text_size=size.tiny,   bgcolor=color.white)
+    table.cell(t, 1, 2, dot(diPlus>diMinus),  text_color=dc(diPlus>diMinus),  text_size=size.normal, bgcolor=color.white)
+    table.cell(t, 2, 2, dot(diMinus>diPlus),  text_color=dc(diMinus>diPlus),  text_size=size.normal, bgcolor=color.white)
+
+    table.cell(t, 0, 3, "Prix>HMA" + str.tostring(hmaSlow), text_color=color.gray, text_size=size.tiny, bgcolor=color.white)
+    table.cell(t, 1, 3, dot(rClose>hmaS),    text_color=dc(rClose>hmaS),    text_size=size.normal, bgcolor=color.white)
+    table.cell(t, 2, 3, dot(rClose<hmaS),    text_color=dc(rClose<hmaS),    text_size=size.normal, bgcolor=color.white)
+
+    table.cell(t, 0, 4, "Pullback HMA" + str.tostring(hmaFast), text_color=color.gray, text_size=size.tiny, bgcolor=color.white)
+    table.cell(t, 1, 4, dot(rLow<=hmaF and rClose>hmaF),  text_color=dc(rLow<=hmaF and rClose>hmaF),  text_size=size.normal, bgcolor=color.white)
+    table.cell(t, 2, 4, dot(rHigh>=hmaF and rClose<hmaF), text_color=dc(rHigh>=hmaF and rClose<hmaF), text_size=size.normal, bgcolor=color.white)
+
+    table.cell(t, 0, 5, "RSI " + str.tostring(math.round(rsi, 1)), text_color=color.gray, text_size=size.tiny, bgcolor=color.white)
+    table.cell(t, 1, 5, dot(rsi>35 and rsi<65), text_color=dc(rsi>35 and rsi<65), text_size=size.normal, bgcolor=color.white)
+    table.cell(t, 2, 5, dot(rsi>35 and rsi<65), text_color=dc(rsi>35 and rsi<65), text_size=size.normal, bgcolor=color.white)
+
+    table.cell(t, 0, 6, "Anti-Fort",    text_color=color.gray, text_size=size.tiny,   bgcolor=color.white)
+    table.cell(t, 1, 6, dot(not strongBear), text_color=dc(not strongBear), text_size=size.normal, bgcolor=color.white)
+    table.cell(t, 2, 6, dot(not strongBull), text_color=dc(not strongBull), text_size=size.normal, bgcolor=color.white)
+
+    table.cell(t, 0, 7, "Hors Range",   text_color=color.gray, text_size=size.tiny,   bgcolor=color.white)
+    table.cell(t, 1, 7, dot(not inRng), text_color=dc(not inRng), text_size=size.normal, bgcolor=color.white)
+    table.cell(t, 2, 7, dot(not inRng), text_color=dc(not inRng), text_size=size.normal, bgcolor=color.white)
+
+    table.cell(t, 0, 8, "Volume",       text_color=color.gray, text_size=size.tiny,   bgcolor=color.white)
+    table.cell(t, 1, 8, dot(volUp),     text_color=dc(volUp),  text_size=size.normal, bgcolor=color.white)
+    table.cell(t, 2, 8, dot(volUp),     text_color=dc(volUp),  text_size=size.normal, bgcolor=color.white)
+
+    regCol = isTrending ? color.new(color.green, 0) : isRanging ? color.orange : color.purple
+    table.cell(t, 0, 9, "Régime | ADX " + str.tostring(math.round(adx, 1)), text_color=color.gray, text_size=size.tiny, bgcolor=color.white)
+    table.cell(t, 1, 9, regStr, text_color=regCol, text_size=size.tiny, bgcolor=color.white)
+    table.cell(t, 2, 9, regStr, text_color=regCol, text_size=size.tiny, bgcolor=color.white)
+
+    sigLBg = sigL ? color.new(color.green, 75) : color.white
+    sigSBg = sigS ? color.new(color.red,   85) : color.white
+    table.cell(t, 0, 10, "► SIGNAL",    bgcolor=color.new(color.navy, 60), text_color=color.white, text_size=size.small)
+    table.cell(t, 1, 10, sigL ? "LONG ▲" : "—",
+               text_color=sigL ? color.new(color.green, 0) : color.gray, bgcolor=sigLBg, text_size=size.small)
+    table.cell(t, 2, 10, sigS ? "SHORT ▼" : "—",
+               text_color=sigS ? color.red : color.gray, bgcolor=sigSBg, text_size=size.small)
