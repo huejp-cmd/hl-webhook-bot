@@ -19,17 +19,17 @@ strategy("LuxAlgo ORB — Backtest JP",
  slippage           = 2,
  calc_on_every_tick = false)
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 // CONSTANTES
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 DATA       = #DBDBDB
 HEADERS    = #808080
 BACKGROUND = #161616
 BORDERS    = #2E2E2E
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 // INPUTS — Session
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 g_sess        = "Session Opening Range"
 sessionInput  = input.session("0930-1000", "Plage ouverture (HHMM-HHMM)", group=g_sess)
 sessionDays   = input.string("1234567",    "Jours actifs",                 group=g_sess)
@@ -40,9 +40,9 @@ timezoneInput = input.string("UTC-5",      "Fuseau horaire",               group
                         "UTC+9","UTC+10","UTC+11","UTC+12"])
 srcInput      = input.string("High/Low",   "Source du range",  group=g_sess, options=["High/Low","Close"])
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 // INPUTS — Extensions
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 g_ext   = "Niveaux d'extension"
 showExt = input.bool(true,       "Afficher extensions",  group=g_ext)
 extType = input.string("Multiples","Type",               group=g_ext, options=["Multiples","Fibonacci"])
@@ -50,9 +50,9 @@ mult1   = input.float(1.0, "Multiplicateur 1", minval=0, group=g_ext)
 mult2   = input.float(2.0, "Multiplicateur 2", minval=0, group=g_ext)
 mult3   = input.float(3.0, "Multiplicateur 3", minval=0, group=g_ext)
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 // INPUTS — Stratégie
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 g_strat     = "Stratégie"
 tradeDir    = input.string("Les deux", "Direction", group=g_strat,
               options=["Long seulement","Short seulement","Les deux"])
@@ -67,17 +67,17 @@ tpMode      = input.string("Niveau 1 (x1)", "Take Profit", group=g_strat,
 closeEOD    = input.bool(true,   "Fermer en fin de session", group=g_strat)
 eodSession  = input.string("1600","Heure clôture (HHMM)",    group=g_strat)
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 // INPUTS — Filtres
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 g_filt        = "Filtres"
 useVolFilter  = input.bool(false,  "Volume élevé uniquement (HV)", group=g_filt)
 useMinRange   = input.bool(false,  "Range minimum requis",         group=g_filt)
 minRangePct   = input.float(0.2,   "Range min (% du prix)",        group=g_filt, minval=0.01, step=0.05)
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 // INPUTS — Style
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 g_style      = "Style"
 bullColor    = input.color(#089981, "Couleur haussière",    group=g_style, inline="C")
 bearColor    = input.color(#f23645, "Couleur baissière",    group=g_style, inline="C")
@@ -87,17 +87,17 @@ showLabels   = input.bool(true,"Afficher labels",            group=g_style)
 szSignal     = input.string("Small","Taille labels signal",  group=g_style,
                options=["Tiny","Small","Normal","Large"])
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 // INPUTS — Volume Profile
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 g_vp        = "Volume Profile"
 showVP      = input.bool(true,  "Afficher Volume Profile",  group=g_vp)
 vpRowsInput = input.int(14,    "Nombre de lignes", minval=5, maxval=50, group=g_vp)
 vpColor     = input.color(color.new(#5b9cf6, 60), "Couleur VP", group=g_vp)
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 // INPUTS — Dashboard
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 g_dash    = "Dashboard"
 showDash  = input.bool(true,       "Afficher dashboard",  group=g_dash)
 dashPos   = input.string("Top Right","Position", group=g_dash,
@@ -116,9 +116,9 @@ szSig          = szSignal == "Tiny"   ? size.tiny  :
                  szSignal == "Small"  ? size.small :
                  szSignal == "Normal" ? size.normal : size.large
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 // FONCTIONS UTILITAIRES (définies au niveau global)
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 tableCell(table t, int col, int row, string txt, color clr=color.white, halign=text.align_right, color bg=na, float h=0) =>
     table.cell(t, col, row, txt, text_color=clr, text_size=parsedSize, text_halign=halign, bgcolor=bg, height=h)
 
@@ -136,9 +136,9 @@ hitRateLabel(int hits, int total, string prefix) =>
     pct = total > 0 ? math.round(hits / total * 100) : 0
     prefix + " (" + str.tostring(pct) + "%)"
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 // VARIABLES D'ÉTAT
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 atrVal = ta.atr(200)
 var float dynamicTickSize = na
 
@@ -175,9 +175,9 @@ var int   activeDir = 0
 var bool canUp = true
 var bool canDn = true
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 // CALCUL DU RANGE D'OUVERTURE
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 if isNewDay or (inSession and not inSession[1])
     orHigh       := na
     orLow        := na
@@ -242,25 +242,25 @@ if sessionEnded
         countD3 += 1
         dayD3   := true
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 // LIMITES D'AFFICHAGE
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 orStart         = str.substring(sessionInput, 0, 4)
 plottingSession = orStart + "-" + eodSession
-bool displayAllowed = not na(time(timeframe.period, plottingSession + ":" + sessionDays, timezoneInput))
+displayAllowed = not na(time(timeframe.period, plottingSession + ":" + sessionDays, timezoneInput))
 
 plotHigh = displayAllowed ? orHigh : na
 plotLow  = displayAllowed ? orLow  : na
-plotU1   = displayAllowed and showExt ? u1 : na
-plotU2   = displayAllowed and showExt ? u2 : na
-plotU3   = displayAllowed and showExt ? u3 : na
-plotD1   = displayAllowed and showExt ? d1 : na
-plotD2   = displayAllowed and showExt ? d2 : na
-plotD3   = displayAllowed and showExt ? d3 : na
+plotU1   = (displayAllowed and showExt) ? u1 : na
+plotU2   = (displayAllowed and showExt) ? u2 : na
+plotU3   = (displayAllowed and showExt) ? u3 : na
+plotD1   = (displayAllowed and showExt) ? d1 : na
+plotD2   = (displayAllowed and showExt) ? d2 : na
+plotD3   = (displayAllowed and showExt) ? d3 : na
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 // SIGNAUX DE BREAKOUT
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 atrTrail = ta.atr(trailAtrLen)
 volSMA   = ta.sma(volume, 20)
 isHV     = volume > volSMA
@@ -272,23 +272,23 @@ if isNewDay or inSession
     activeDir := 0
     trailStop := na
 
-bool rawUp = ta.crossover(close, orHigh)  and not inSession and sessionEnded and displayAllowed
-bool rawDn = ta.crossunder(close, orLow)  and not inSession and sessionEnded and displayAllowed
+rawUp = ta.crossover(close, orHigh)  and not inSession and sessionEnded and displayAllowed
+rawDn = ta.crossunder(close, orLow)  and not inSession and sessionEnded and displayAllowed
 
-bool volOk   = not useVolFilter or isHV
-bool rangeOk = not useMinRange  or (orRange / close * 100 >= minRangePct)
+volOk   = not useVolFilter or isHV
+rangeOk = not useMinRange  or (orRange / close * 100 >= minRangePct)
 
-bool breakoutUp = rawUp and canUp and volOk and rangeOk
-bool breakoutDn = rawDn and canDn and volOk and rangeOk
+breakoutUp = rawUp and canUp and volOk and rangeOk
+breakoutDn = rawDn and canDn and volOk and rangeOk
 
 if breakoutUp
     canUp := false
 if breakoutDn
     canDn := false
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 // CALCUL SL / TP
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 float slLong  = na
 float slShort = na
 float tpLong  = na
@@ -318,9 +318,9 @@ else if tpMode == "Partiel 50% N1+50% N2"
     tpShort := d1
 // "Fin de session uniquement" => tp reste na
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 // ENTRÉES STRATÉGIE
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 longOk  = tradeDir != "Short seulement"
 shortOk = tradeDir != "Long seulement"
 
@@ -348,9 +348,9 @@ if breakoutDn and shortOk
     activeDir := -1
     trailStop := slShort
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 // TRAIL ATR — mise à jour
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 if slType == "Trail ATR"
     if activeDir == 1 and strategy.position_size > 0
         float newTrail = low - atrTrail * trailMult
@@ -366,19 +366,19 @@ if slType == "Trail ATR"
             strategy.close("Short", comment="Trail SL")
             activeDir := 0
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 // SORTIE PARTIELLE N1 + N2
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 if tpMode == "Partiel 50% N1+50% N2"
     if strategy.position_size > 0 and not na(u2) and high >= u1
         strategy.exit("XLong_P2", from_entry="Long", qty_percent=50, limit=u2)
     if strategy.position_size < 0 and not na(d2) and low <= d1
         strategy.exit("XShort_P2", from_entry="Short", qty_percent=50, limit=d2)
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 // CLÔTURE FORCÉE FIN DE SESSION
-// ─────────────────────────────────────────────────────────────
-bool eodTriggered = closeEOD and not displayAllowed and displayAllowed[1]
+// -------------------------------------------------------------
+eodTriggered = closeEOD and not displayAllowed and displayAllowed[1]
 if eodTriggered
     strategy.close_all(comment="EOD")
     activeDir := 0
@@ -388,9 +388,9 @@ if strategy.position_size == 0
     activeDir := 0
     trailStop := na
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 // VISUELS
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 bgcolor(inSession ? color.new(neutralColor, 90) : na, title="Session BG")
 
 pHigh = plot(plotHigh, "OR High", color.new(neutralColor, 20), 2, plot.style_linebr)
@@ -422,9 +422,9 @@ fill(pTrail, pRef,
      bottom_color = activeDir == 1 ? color.new(bullColor, 100) : color.new(bearColor, 50),
      title="Trail Fill")
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 // VOLUME PROFILE + LABELS (barstate.islast)
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 if barstate.islast
     // Volume Profile
     if showVP and volMap.size() > 0
@@ -478,9 +478,9 @@ if barstate.islast
             label.delete(label.new(bar_index+2, u3, lblU3, color=bullColor, style=label.style_label_left, textcolor=color.white, size=size.small)[1])
             label.delete(label.new(bar_index+2, d3, lblD3, color=bearColor, style=label.style_label_left, textcolor=color.white, size=size.small)[1])
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 // DASHBOARD
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 if showDash
     var table dash = table.new(parsedPos, 4, 18,
                     bgcolor=BACKGROUND, border_width=0,
@@ -575,9 +575,9 @@ if showDash
         tableCell(dash, 0, 16, "Win : "    + wrStr,   clr=wrClr,  halign=text.align_center)
         tableCell(dash, 0, 17, ddStr,                 clr=DATA,   halign=text.align_center)
 
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 // ALERTES
-// ─────────────────────────────────────────────────────────────
+// -------------------------------------------------------------
 alertcondition(breakoutUp, "ORB Bull Break", "Breakout haussier — au-dessus du range d'ouverture.")
 alertcondition(breakoutDn, "ORB Bear Break", "Breakout baissier — en-dessous du range d'ouverture.")
 alertcondition(ta.cross(close, u3), "ORB Target 3 Bull", "Prix atteint Target 3 haussier.")
