@@ -67,10 +67,19 @@ startCapital  = input.float(1000.0,"Capital départ USDC",           group=g_lab
 stopJourPct   = input.float(15.0, "Stop perte journalière (%)",    group=g_lab, step=1.0)
 
 g_exec = "Exécution"
-useCompound   = input.bool(true,   "Mode compound (réinvestir gains)", group=g_exec)
-maxCapital    = input.float(100000.0,"Plafond capital (USDC)",         group=g_exec, step=5000,
-               tooltip="Le capital actif composé est plafonné ici. Au-delà, les positions ne grossissent plus — les profits supplémentaires sont en réserve. Recommandé : 100 000 USDC.")
-tpSlippage    = input.float(0.10,  "Slippage TP (%)",                  group=g_exec, step=0.01)
+useCompound     = input.bool(true,    "Mode compound (réinvestir gains)",  group=g_exec)
+maxCapital      = input.float(100000.0,"Plafond capital Phase 1 (USDC)",   group=g_exec, step=5000,
+                 tooltip="Plafonné ici en Phase 1. La stratégie bascule automatiquement en Phase 2 dès que l'equity dépasse l'objectif.")
+tpSlippage      = input.float(0.10,   "Slippage TP (%)",                   group=g_exec, step=0.01)
+
+g_phase = "Gestion des phases (automatique)"
+phaseTarget     = input.float(70000.0, "Objectif Phase 1 → Phase 2 (USDC)", group=g_phase, step=5000,
+                 tooltip="Quand l'equity atteint ce seuil ET que la position se ferme, bascule AUTOMATIQUEMENT en Phase 2 — sans intervention manuelle.")
+phase2Base      = input.float(35000.0, "Capital base Phase 2 (USDC)",        group=g_phase, step=5000,
+                 tooltip="Capital actif en Phase 2. Les 35 000 USDC restants sont en réserve.")
+phase2UnitFactor= input.float(4.0,    "UnitFactor Phase 2 (%)",              group=g_phase, step=0.5,
+                 tooltip="Plus conservateur qu'en Phase 1 (5%). 4% = 24% de la base par trade max.")
+phase2MaxCap    = input.float(70000.0, "Plafond capital Phase 2 (USDC)",      group=g_phase, step=5000)
 
 // ════════════════════════════════════════════════════════════
 //  ÉTAT LABOUCHÈRE
@@ -98,19 +107,43 @@ if dayofmonth != lastDay
 
 dailyStop = strategy.equity < dailyStartEq * (1.0 - stopJourPct / 100.0)
 
+// ─────────────────────────────────────────────────────────
+// GESTION AUTOMATIQUE DES PHASES
+// Phase 1 : base=1000, unitFactor=5%, plafond=70k
+// Phase 2 : base=35000, unitFactor=4%, plafond=70k
+// Bascule auto quand equity >= phaseTarget ET position fermée
+// ─────────────────────────────────────────────────────────
+var bool inPhase2    = false
+equityNow            = strategy.initial_capital + strategy.netprofit
+
+// Transition Phase 1 → Phase 2 : dès que la position se ferme ET equity >= objectif
+if not inPhase2 and equityNow >= phaseTarget and strategy.position_size == 0
+    inPhase2 := true
+    label.new(bar_index, high * 1.02,
+              "PHASE 2 ACTIVEE\nRetirer " + str.tostring(int(phaseTarget / 2)) +
+              " USDC\nBase active : " + str.tostring(int(phase2Base)) + " USDC\nUnitFactor : " +
+              str.tostring(phase2UnitFactor) + "%",
+              color=color.new(#FFD700, 0), textcolor=color.black,
+              style=label.style_label_down, size=size.normal)
+
+// Paramètres actifs selon la phase
+activeUnitFactor = inPhase2 ? phase2UnitFactor : unitFactor
+activeBase       = inPhase2 ? phase2Base       : startCapital
+activeCap        = inPhase2 ? phase2MaxCap     : maxCapital
+
 seqSz    = array.size(seq)
 rawBet   = seqSz >= 2 ? array.get(seq, 0) + array.get(seq, seqSz - 1) :
            seqSz == 1  ? array.get(seq, 0) * 2 : 2
 capUnits = math.max(capMult * cumLossUnits, 2.0)
 betUnits = math.min(float(rawBet), capUnits)
-multLab  = math.max(betUnits * unitFactor * leverageLab, 0.5)
+multLab  = math.max(betUnits * activeUnitFactor * leverageLab, 0.5)
 
-rawCapLab  = useCompound ? math.max(strategy.initial_capital + strategy.netprofit, startCapital * 0.5)
-                         : startCapital
-capLab     = math.min(rawCapLab, maxCapital)
-// Quantité selon Labouchère (capLab déjà plafonné à maxCapital)
-// La taille des positions est naturellement bornée par le plafond capital
-// Ex: capLab=100k, multLab=30 → position = 30k USDC max (30% du capital plafond)
+rawCapLab  = useCompound ? math.max(strategy.initial_capital + strategy.netprofit, activeBase * 0.5)
+                         : activeBase
+capLab     = math.min(rawCapLab, activeCap)
+// Position naturellement bornée par activeCap
+// Phase 1 : max 30k USDC/trade (30% de 100k)
+// Phase 2 : max ~24% de 70k = ~16.8k USDC/trade
 qtyLabouch = math.max((capLab * multLab / 100.0) / close, capLab * 0.0005 / close)
 
 // ════════════════════════════════════════════════════════════
@@ -391,34 +424,19 @@ if showTable
 // ════════════════════════════════════════════════════════════
 
 // Seuil configurable — défaut 70 000 USDC (Phase 1 → Phase 2)
-capitalTarget  = input.float(70000.0, "Objectif capital (alerte)", group="Alertes", step=5000,
-                 tooltip="Alerte quand l'equity atteint ce seuil. Retirer 50% et relancer avec la base restante.")
-capitalTarget2 = input.float(35000.0, "Base Phase 2 (info)",       group="Alertes", step=5000,
-                 tooltip="Capital de base après retrait des profits. Affiché dans le label.")
+// Ligne horizontale objectif Phase 1
+hline(phaseTarget, "Objectif Phase 1", color=color.new(#FFD700, 40), linestyle=hline.style_dashed, linewidth=2)
 
-// Déclenchement : première bougie qui franchit l'objectif
-equityNow     = strategy.initial_capital + strategy.netprofit
-targetHit     = equityNow >= capitalTarget and (equityNow - strategy.netprofit + strategy.netprofit[1]) < capitalTarget
+// Alerte TradingView : bascule Phase 2 imminente (equity proche de l'objectif)
+phase2Imminent = equityNow >= phaseTarget * 0.95 and not inPhase2
+alertcondition(phase2Imminent,
+               title="Objectif 70k proche — Phase 2 imminente",
+               message="ETH : equity approche 70 000 USDC. La strategie va basculer AUTOMATIQUEMENT en Phase 2 (35k base, 4%) a la prochaine fermeture de position.")
 
-// Label sur le chart au moment du franchissement
-if targetHit
-    label.new(bar_index, high * 1.01,
-              "OBJECTIF " + str.tostring(int(capitalTarget)) + " USDC ATTEINT\n" +
-              "Retirer " + str.tostring(int(capitalTarget / 2)) + " USDC\n" +
-              "Relancer base : " + str.tostring(int(capitalTarget2)) + " USDC",
-              color=color.new(#FFD700, 0),
-              textcolor=color.black,
-              style=label.style_label_down,
-              size=size.normal)
+alertcondition(inPhase2 and not inPhase2[1],
+               title="PHASE 2 ACTIVEE — Retirer 35 000 USDC",
+               message="ETH : Phase 2 activee automatiquement. Retirer 35 000 USDC du compte et conserver en reserve. Base active : 35 000 USDC, UnitFactor : 4%.")
 
-// Ligne horizontale objectif (visible sur tout le chart)
-hline(capitalTarget, "Objectif capital", color=color.new(#FFD700, 40), linestyle=hline.style_dashed, linewidth=2)
-
-// Alertes TradingView (configurer dans l'onglet Alertes de TradingView)
-alertcondition(targetHit,
-               title="OBJECTIF ATTEINT — Retirer les profits",
-               message="ETH Backtest : capital {{strategy.equity}} USDC atteint l'objectif de 70 000 USDC. Retirer 35 000 USDC et relancer avec une base de 35 000 USDC.")
-
-alertcondition(equityNow <= strategy.initial_capital * 0.5,
-               title="ALERTE PERTE -50%",
-               message="ETH Backtest : capital en baisse de 50%. Vérifier la stratégie.")
+alertcondition(equityNow <= activeBase * 0.5,
+               title="ALERTE PERTE -50% base",
+               message="ETH : capital actif en baisse de 50%. Verifier la strategie.")
