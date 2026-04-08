@@ -67,7 +67,7 @@ liqPct       = input.float(2.0,    "Max % volume 20 bar/trade",      group=g_cap
 //  GESTION DES PHASES (automatique)
 // ════════════════════════════════════════════════════════════
 g_phase          = "Gestion des phases (automatique)"
-phaseTarget      = input.float(70000.0, "Objectif Phase 1 → Phase 2 (USDC)", group=g_phase, step=5000)
+phaseTarget      = input.float(70000.0, "Objectif Phase 1 -> Phase 2 (USDC)", group=g_phase, step=5000)
 phase2Base       = input.float(35000.0, "Capital base Phase 2 (USDC)",        group=g_phase, step=5000)
 phase2RiskPerc   = input.float(1.5,     "Risk par trade Phase 2 (%)",          group=g_phase, step=0.1) / 100
 phase2MaxCap     = input.float(70000.0, "Plafond capital Phase 2 (USDC)",      group=g_phase, step=5000)
@@ -80,12 +80,8 @@ equityNow         = strategy.initial_capital + strategy.netprofit
 
 if not inPhase2 and equityNow >= phaseTarget and strategy.position_size == 0
     inPhase2 := true
-    label.new(bar_index, high * 1.02,
-              "PHASE 2 ACTIVÉE\nRetirer " + str.tostring(int(phaseTarget / 2)) +
-              " USDC\nBase active : " + str.tostring(int(phase2Base)) + " USDC\nRisk/trade : " +
-              str.tostring(phase2RiskPerc * 100) + "%",
-              color=color.new(#FFD700, 0), textcolor=color.black,
-              style=label.style_label_down, size=size.normal)
+    p2txt = "PHASE 2 ACTIVEE - Retirer " + str.tostring(math.round(phaseTarget / 2, 0)) + " USDC - Base : " + str.tostring(math.round(phase2Base, 0)) + " USDC - Risk : " + str.tostring(math.round(phase2RiskPerc * 100, 1)) + "%"
+    label.new(bar_index, high * 1.02, p2txt, color=color.new(#FFD700, 0), textcolor=color.black, style=label.style_label_down, size=size.normal)
 
 activeRiskPerc = inPhase2 ? phase2RiskPerc : riskPerc
 activeMaxCap   = inPhase2 ? phase2MaxCap   : maxCapital
@@ -322,7 +318,7 @@ curDD = (peakEq - curEq) / peakEq
 if curDD > maxDDVal
     maxDDVal := curDD
 
-phaseStr = inPhase2 ? "Phase 2 (35k base)" : "Phase 1 (1k→70k)"
+phaseStr = inPhase2 ? "Phase 2 (35k base)" : "Phase 1 (1k->70k)"
 
 if showStats
     var table stats = table.new(position.top_right, 2, 7,
@@ -399,8 +395,8 @@ if showParams
     sigLBg  = cLongAll  ? color.new(color.green, 75) : color.white
     sigSBg  = cShortAll ? color.new(color.red,   85) : color.white
     table.cell(cond, 0, 10, "► SIGNAL",        bgcolor=color.new(color.navy, 60), text_color=color.white, text_size=size.small)
-    table.cell(cond, 1, 10, cLongAll  ? "LONG ▲"  : "—", text_color=cLongAll  ? color.new(color.green, 0) : color.gray, bgcolor=sigLBg,  text_size=size.small)
-    table.cell(cond, 2, 10, cShortAll ? "SHORT ▼" : "—", text_color=cShortAll ? color.red                : color.gray, bgcolor=sigSBg, text_size=size.small)
+    table.cell(cond, 1, 10, cLongAll  ? "LONG ^"  : "—", text_color=cLongAll  ? color.new(color.green, 0) : color.gray, bgcolor=sigLBg,  text_size=size.small)
+    table.cell(cond, 2, 10, cShortAll ? "SHORT v" : "—", text_color=cShortAll ? color.red                : color.gray, bgcolor=sigSBg, text_size=size.small)
 
 // ════════════════════════════════════════════════════════════
 //  ALERTES
