@@ -33,8 +33,12 @@ BORDERS    = #2E2E2E
 g_sess        = "Session Opening Range"
 sessionInput  = input.session("0930-1000", "Plage ouverture (HHMM-HHMM)", group=g_sess)
 sessionDays   = input.string("1234567",    "Jours actifs",                 group=g_sess)
-timezoneInput = input.string("UTC-5",      "Fuseau horaire",               group=g_sess,
-               options=["UTC-12","UTC-11","UTC-10","UTC-9","UTC-8","UTC-7","UTC-6",
+timezoneInput = input.string("America/New_York", "Fuseau horaire", group=g_sess,
+               tooltip="'America/New_York' gere automatiquement heure ete/hiver (EDT/EST). Utiliser UTC-4 en ete ou UTC-5 en hiver si besoin de forcer.",
+               options=["America/New_York","America/Chicago","America/Los_Angeles",
+                        "America/Toronto","Europe/London","Europe/Paris",
+                        "Asia/Tokyo","Asia/Hong_Kong","Asia/Singapore",
+                        "UTC-12","UTC-11","UTC-10","UTC-9","UTC-8","UTC-7","UTC-6",
                         "UTC-5","UTC-4","UTC-3","UTC-2","UTC-1","UTC+0","UTC+1",
                         "UTC+2","UTC+3","UTC+4","UTC+5","UTC+6","UTC+7","UTC+8",
                         "UTC+9","UTC+10","UTC+11","UTC+12"])
