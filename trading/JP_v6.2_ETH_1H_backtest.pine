@@ -88,9 +88,7 @@ activeMaxCap   = inPhase2 ? phase2MaxCap   : maxCapital
 activeBase     = inPhase2 ? phase2Base     : startCapital
 
 // Capital actif (compound plafonné)
-rawCapital  = useCompound
-     ? math.max(strategy.initial_capital + strategy.netprofit, activeBase * 0.5)
-     : activeBase
+rawCapital  = useCompound ? math.max(strategy.initial_capital + strategy.netprofit, activeBase * 0.5) : activeBase
 stepCapital = math.min(rawCapital, activeMaxCap)
 
 // Filtre liquidité
@@ -241,12 +239,8 @@ if strategy.position_size == 0
 
 inLong    = strategy.position_size > 0
 inShort   = strategy.position_size < 0
-dcaLongOk = dcaEnabled and inLong  and dcaCountL < maxDCA and
-            not na(lastDcaPxL) and close < lastDcaPxL * (1 - dcaDist) and
-            not ((entryLT or entryLE) and validL)
-dcaShortOk = dcaEnabled and inShort and dcaCountS < maxDCA and
-             not na(lastDcaPxS) and close > lastDcaPxS * (1 + dcaDist) and
-             not ((entryST or entrySE) and validS)
+dcaLongOk  = dcaEnabled and inLong  and dcaCountL < maxDCA and not na(lastDcaPxL) and close < lastDcaPxL * (1 - dcaDist) and not ((entryLT or entryLE) and validL)
+dcaShortOk = dcaEnabled and inShort and dcaCountS < maxDCA and not na(lastDcaPxS) and close > lastDcaPxS * (1 + dcaDist) and not ((entryST or entrySE) and validS)
 
 // ════════════════════════════════════════════════════════════
 //  ENTRÉES
@@ -401,14 +395,6 @@ if showParams
 // ════════════════════════════════════════════════════════════
 //  ALERTES
 // ════════════════════════════════════════════════════════════
-alertcondition(inPhase2 and not inPhase2[1],
-               title="PHASE 2 ACTIVÉE — Retirer 35 000 USDC",
-               message="ETH v6.2 : Phase 2 activée. Retirer 35 000 USDC en réserve. Base active : 35 000 USDC, Risk/trade : 1.5%.")
-
-alertcondition(equityNow >= phaseTarget * 0.95 and not inPhase2,
-               title="Objectif 70k proche — Phase 2 imminente",
-               message="ETH v6.2 : equity approche 70 000 USDC. Bascule Phase 2 à la prochaine fermeture de position.")
-
-alertcondition(curDD > maxDD,
-               title="ALERTE DD MAX DÉPASSÉ",
-               message="ETH v6.2 : drawdown dépasse la limite configurée.")
+alertcondition(inPhase2 and not inPhase2[1], title="PHASE 2 ACTIVEE", message="ETH v6.2 : Phase 2 activee. Retirer 35 000 USDC. Base : 35k, Risk : 1.5%.")
+alertcondition(equityNow >= phaseTarget * 0.95 and not inPhase2, title="Objectif 70k proche", message="ETH v6.2 : equity approche 70 000 USDC. Phase 2 imminente.")
+alertcondition(curDD > maxDD, title="ALERTE DD MAX", message="ETH v6.2 : drawdown depasse la limite.")
