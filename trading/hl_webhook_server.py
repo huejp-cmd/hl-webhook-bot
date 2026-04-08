@@ -67,6 +67,63 @@ TRADE_LOG_MAX  = 500   # entrées max conservées en mémoire/fichier
 # Log en mémoire (Railway : /tmp peut être éphémère)
 _trade_log_memory: list = []
 
+# =============================================================================
+#  TW SIGNAL LOG — capture tous les signaux TradingView entrants
+# =============================================================================
+TW_SIGNALS_FILE = os.path.join(_PERSIST_DIR, "tw_signals.json")
+TW_SIGNALS_MAX  = 1000
+_tw_signals_memory: list = []
+
+def _log_tw_signal(data: dict):
+    """Enregistre chaque signal TradingView entrant (open + close)."""
+    global _tw_signals_memory
+    try:
+        raw_ticker   = data.get("symbol", "?")
+        entry_px_raw = float(data.get("price", 0) or 0)
+        coin         = normalize_coin(raw_ticker, price=entry_px_raw) if raw_ticker != "?" else "?"
+        entry = {
+            "ts":     datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            "coin":   coin,
+            "action": data.get("action", "?"),
+            "side":   data.get("side", "?"),
+            "price":  entry_px_raw,
+            "sl":     float(data.get("sl",  0) or 0),
+            "tp":     float(data.get("tp",  0) or 0),
+            "pnl":    data.get("pnl_pct"),
+            "msg":    data.get("msg", ""),
+        }
+        _tw_signals_memory.append(entry)
+        if len(_tw_signals_memory) > TW_SIGNALS_MAX:
+            _tw_signals_memory = _tw_signals_memory[-TW_SIGNALS_MAX:]
+        # Persister sur disque
+        try:
+            existing = []
+            if os.path.exists(TW_SIGNALS_FILE):
+                with open(TW_SIGNALS_FILE, "r") as f:
+                    existing = json.load(f)
+            existing.append(entry)
+            if len(existing) > TW_SIGNALS_MAX:
+                existing = existing[-TW_SIGNALS_MAX:]
+            with open(TW_SIGNALS_FILE, "w") as f:
+                json.dump(existing, f, indent=2)
+        except Exception as disk_err:
+            log.warning(f"[tw_log] Disk write failed: {disk_err}")
+    except Exception as e:
+        log.warning(f"[tw_log] Error logging TW signal: {e}")
+
+def _get_tw_signals(n: int = 200) -> list:
+    combined = list(_tw_signals_memory)
+    if not combined:
+        for path in [TW_SIGNALS_FILE, "/tmp/tw_signals.json"]:
+            if os.path.exists(path):
+                try:
+                    with open(path, "r") as f:
+                        combined = json.load(f)
+                    break
+                except Exception:
+                    pass
+    return combined[-n:]
+
 # Positions virtuelles DRY_RUN (coin -> {entry, qty, side, capital, tp, sl, ts})
 _dry_positions: dict = {}
 
@@ -754,6 +811,9 @@ def webhook():
 
     action = data.get("action", "").lower()
 
+    # ── Log systématique de tous les signaux TradingView entrants ──
+    _log_tw_signal(data)
+
     # ----------------------------------------------------------------
     #  ACTION "open" -- nouvelle position
     # ----------------------------------------------------------------
@@ -1303,6 +1363,26 @@ def journal_endpoint():
         return jsonify({"count": len(all_trades), "trades": all_trades}), 200
     except Exception as e:
         log.error(f"[journal] endpoint error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/tw_signals", methods=["GET"])
+def tw_signals_endpoint():
+    """
+    GET /tw_signals
+    Retourne tous les signaux TradingView reçus par le webhook.
+    ?limit=N  pour limiter (défaut: 200)
+    ?date=YYYY-MM-DD  pour filtrer sur un jour
+    """
+    try:
+        limit    = min(int(request.args.get("limit", 200)), 1000)
+        date_str = request.args.get("date")
+        signals  = _get_tw_signals(limit)
+        if date_str:
+            signals = [s for s in signals if s.get("ts", "").startswith(date_str)]
+        return jsonify({"count": len(signals), "signals": signals}), 200
+    except Exception as e:
+        log.error(f"[tw_signals] endpoint error: {e}")
         return jsonify({"error": str(e)}), 500
 
 
