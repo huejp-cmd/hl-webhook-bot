@@ -26,7 +26,7 @@ strategy("JP v7.1 ETH 30M",
  commission_type      = strategy.commission.percent,
  commission_value     = 0.07,
  pyramiding           = 3,
- initial_capital      = 500,
+ initial_capital      = 1000,
  calc_on_every_tick   = false)
 
 // ════════════════════════════════════════════════════════════
@@ -62,8 +62,8 @@ leverageLab   = input.float(3.0,  "Levier Labouchère (bot ETH=3)", group=g_lab,
 unitFactor    = input.float(5.0,  "Facteur unité (% capital/unité)", group=g_lab, step=0.1,
                tooltip="5% = chaque unité représente 5% du capital actif. Avec betUnits=2 et levier x3, position = 30% du capital actif.")
 capMult       = input.float(4.0,  "Plafond (×pertes cumulées)",    group=g_lab, step=0.5)
-startCapital  = input.float(500.0, "Capital départ USDC",            group=g_lab, step=100,
-               tooltip="Capital de départ réel (500 USDC = capital+margin initial). Le Labouchere compose jusqu'au plafond Phase 1.")
+startCapital  = input.float(1000.0,"Capital départ USDC",             group=g_lab, step=100,
+               tooltip="Capital réel déployé = 500 USDC capital + 500 USDC margin. Le Labouchere compose jusqu'au plafond Phase 1.")
 stopJourPct   = input.float(15.0, "Stop perte journalière (%)",    group=g_lab, step=1.0)
 
 g_exec = "Exécution"
