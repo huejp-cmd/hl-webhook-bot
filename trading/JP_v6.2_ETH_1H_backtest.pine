@@ -155,9 +155,9 @@ array.sort(sorted, order.ascending)
 idx25  = math.round((array.size(sorted) - 1) * 0.25)
 vol25  = array.get(sorted, math.min(idx25, array.size(sorted) - 1))
 
-btcH   = request.security("BINANCE:BTCUSDT", "240", high)
-btcL   = request.security("BINANCE:BTCUSDT", "240", low)
-btcC   = request.security("BINANCE:BTCUSDT", "240", close[1])
+btcH   = request.security("BINANCE:BTCUSDT", "120", high)
+btcL   = request.security("BINANCE:BTCUSDT", "120", low)
+btcC   = request.security("BINANCE:BTCUSDT", "120", close[1])
 btcRng = (btcH - btcL) / nz(btcC, 1)
 inRng  = adx < 20 and curVol < vol25 and btcRng < 0.01
 
