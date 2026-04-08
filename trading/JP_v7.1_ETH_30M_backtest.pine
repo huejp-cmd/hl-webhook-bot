@@ -59,7 +59,7 @@ tpMult        = input.float(5.0, "RR ratio TP/SL (bot=5)", group=g_ind, step=0.5
 
 g_lab = "Labouchère"
 leverageLab   = input.float(3.0,  "Levier Labouchère (bot ETH=3)", group=g_lab, step=0.5)
-unitFactor    = input.float(0.5,  "Facteur unité",                 group=g_lab, step=0.1)
+unitFactor    = input.float(1.0,  "Facteur unité (% capital/unité)", group=g_lab, step=0.1)
 capMult       = input.float(4.0,  "Plafond (×pertes cumulées)",    group=g_lab, step=0.5)
 startCapital  = input.float(500.0,"Capital USDC",                  group=g_lab, step=100)
 stopJourPct   = input.float(15.0, "Stop perte journalière (%)",    group=g_lab, step=1.0)
