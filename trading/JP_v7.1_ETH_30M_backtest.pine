@@ -309,8 +309,8 @@ plot(vwap_, "VWAP",  color=color.new(color.blue,   60), linewidth=1)
 plot(vah,   "VAH",   color=color.new(color.teal,   50), linewidth=1, style=plot.style_stepline)
 plot(val,   "VAL",   color=color.new(color.purple, 50), linewidth=1, style=plot.style_stepline)
 
-plotshape(showSignals and entryLong,  "LONG",  location.belowbar, color.green, shape.triangleup,   size=size.small)
-plotshape(showSignals and entryShort, "SHORT", location.abovebar, color.red,   shape.triangledown, size=size.small)
+plotshape(showSignals and entryLong,  "LONG",  shape.triangleup,   location.belowbar, color.green, size=size.small)
+plotshape(showSignals and entryShort, "SHORT", shape.triangledown, location.abovebar, color.red,   size=size.small)
 
 bgcolor(isRanging  ? color.new(color.red,    92) : na)
 bgcolor(isTrending ? color.new(color.green,  90) : na)
