@@ -341,7 +341,7 @@ if showStats
 // ════════════════════════════════════════════════════════════
 //  TABLEAU CONDITIONS
 // ════════════════════════════════════════════════════════════
-dot(ok) => ok ? "●" : "○"
+dot(ok) => ok ? "o" : "-"
 dc(ok)  => ok ? color.new(color.green, 0) : color.red
 
 cAdx      = adx > 25
