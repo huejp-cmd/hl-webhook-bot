@@ -26,7 +26,7 @@ strategy("JP v7.1 ETH 30M",
  commission_type      = strategy.commission.percent,
  commission_value     = 0.07,
  pyramiding           = 3,
- initial_capital      = 500,
+ initial_capital      = 5000,
  calc_on_every_tick   = false)
 
 // ════════════════════════════════════════════════════════════
@@ -61,12 +61,14 @@ g_lab = "Labouchère"
 leverageLab   = input.float(3.0,  "Levier Labouchère (bot ETH=3)", group=g_lab, step=0.5)
 unitFactor    = input.float(1.0,  "Facteur unité (% capital/unité)", group=g_lab, step=0.1)
 capMult       = input.float(4.0,  "Plafond (×pertes cumulées)",    group=g_lab, step=0.5)
-startCapital  = input.float(500.0,"Capital USDC",                  group=g_lab, step=100)
+startCapital  = input.float(5000.0,"Capital USDC",                 group=g_lab, step=500,
+               tooltip="Capital de départ. Mettre 5000 pour correspondre au plafond recommandé.")
 stopJourPct   = input.float(15.0, "Stop perte journalière (%)",    group=g_lab, step=1.0)
 
 g_exec = "Exécution"
 useCompound   = input.bool(true,   "Mode compound (réinvestir gains)", group=g_exec)
-maxCapital    = input.float(5000.0,"Plafond capital (USDC)",           group=g_exec, step=500)
+maxCapital    = input.float(5000.0,"Plafond capital (USDC)",           group=g_exec, step=500,
+               tooltip="Plafond ABSOLU : la valeur totale d'une position ne dépassera JAMAIS ce montant, même si le Labouchere grossit.")
 tpSlippage    = input.float(0.10,  "Slippage TP (%)",                  group=g_exec, step=0.01)
 
 // ════════════════════════════════════════════════════════════
@@ -105,7 +107,11 @@ multLab  = math.max(betUnits * unitFactor * leverageLab, 0.5)
 rawCapLab  = useCompound ? math.max(strategy.initial_capital + strategy.netprofit, startCapital * 0.5)
                          : startCapital
 capLab     = math.min(rawCapLab, maxCapital)
-qtyLabouch = math.max((capLab * multLab / 100.0) / close, capLab * 0.0005 / close)
+// Quantité brute selon Labouchère
+qtyRaw     = math.max((capLab * multLab / 100.0) / close, capLab * 0.0005 / close)
+// PLAFOND ABSOLU : la valeur de position ne dépasse jamais maxCapital USDC
+// Protection contre l'emballement du Labouchère après des séries de gains
+qtyLabouch = math.min(qtyRaw, maxCapital / close)
 
 // ════════════════════════════════════════════════════════════
 //  FONCTIONS
