@@ -42,8 +42,8 @@ whSymbol = "SOLUSDT.P"
 
 // ?? Labouchere ???????????????????????????????????????????????????
 g_lab            = " Labouchere"
-unitFactor       = input.float(0.5,   "Facteur unite (% capital/unite)", group=g_lab, step=0.1, minval=0.1,
-                   tooltip="Chaque unite = X% du capital. 0.5 = 0.5%/unite.")
+unitFactor       = input.float(1.0,   "Facteur unite (% capital/unite)", group=g_lab, step=0.1, minval=0.1,
+                   tooltip="Chaque unite = X% du capital. 1.0 = 1%/unite (optimal backtest).")
 leverageLabMult  = input.float(2.0,   "Levier Labouchere", group=g_lab, step=0.5, minval=1.0,
                    tooltip="Levier applique au sizing Labouchere.")
 capMultLab       = input.float(4.0,   "Plafond (? pertes cumulees)", group=g_lab, step=0.5, minval=1.0,
