@@ -1,0 +1,418 @@
+//@version=5
+//
+//  ╔═══════════════════════════════════════════════════════╗
+//  ║  JP v6.2 — ETH 30M — BACKTEST                        ║
+//  ║  Sizing basé sur le risque (% capital / dist SL)      ║
+//  ║  Plus stable que Labouchère sur ETH                   ║
+//  ║                                                       ║
+//  ║  Capital départ : 1 000 USDC (500 capital+500 margin) ║
+//  ║  Plafond Phase 1 : 70 000 USDC                        ║
+//  ║  Phase 2 auto : 35 000 base, riskPerc réduit          ║
+//  ║                                                       ║
+//  ║  [!] CHART : ETHUSDT.P  —  Timeframe : 30             ║
+//  ╚═══════════════════════════════════════════════════════╝
+
+strategy("JP v6.2 — ETH 30M — Backtest",
+ overlay=true,
+ default_qty_type=strategy.fixed,
+ commission_type=strategy.commission.percent,
+ commission_value=0.07,
+ pyramiding=3,
+ initial_capital=1000,
+ calc_on_every_tick=false)
+
+// ════════════════════════════════════════════════════════════
+//  PARAMÈTRES DCA
+// ════════════════════════════════════════════════════════════
+g_dca      = "DCA"
+dcaEnabled = input.bool(true,  "Activer DCA",            group=g_dca)
+maxDCA     = input.int(2,      "Niveaux DCA max (1-3)",   group=g_dca, minval=1, maxval=3)
+dcaDist    = input.float(2.0,  "Distance DCA (%)",        group=g_dca, step=0.5) / 100
+dcaQtyMult = input.float(1.0,  "Multiplicateur qty DCA",  group=g_dca, step=0.1)
+
+// ════════════════════════════════════════════════════════════
+//  PARAMÈTRES TECHNIQUES
+// ════════════════════════════════════════════════════════════
+useFixedRange  = input.bool(false,  "Plage Fixe (sinon 1xATR)")
+fixedRangeSize = input.float(1.2,   "Plage Fixe ($)", step=0.1, minval=0.1)
+atrLength      = input.int(10,      "ATR Length")
+adxLength      = input.int(14,      "ADX Length")
+bbLength       = input.int(20,      "BB Length")
+bbMult         = input.float(2.0,   "BB Mult")
+rsiLength      = input.int(100,     "RSI Length")
+volFilter      = input.bool(true,   "Volume Filter")
+volMult        = input.float(1.4,   "Volume Threshold (x SMA)", step=0.1)
+vpK            = input.float(0.75,  "VAH/VAL offset (xATR)", step=0.05)
+showStats      = input.bool(true,   "Afficher tableau perfs")
+showParams     = input.bool(true,   "Afficher tableau paramètres")
+leverage       = input.float(3.0,   "Leverage", minval=1.0, step=0.5)
+tpSlippage     = input.float(0.10,  "Buffer slippage TP (%)", step=0.01)
+maxDD          = input.float(13.0,  "Max Drawdown Alert (%)") / 100
+
+// ════════════════════════════════════════════════════════════
+//  CAPITAL & COMPOUND
+// ════════════════════════════════════════════════════════════
+g_cap        = "Capital"
+startCapital = input.float(1000.0, "Capital départ USDC",          group=g_cap, step=100,
+               tooltip="Capital réel déployé = 500 capital + 500 margin.")
+riskPerc     = input.float(2.0,    "Risk par trade (% capital)",    group=g_cap, step=0.1) / 100
+slCapPct     = input.float(5.0,    "SL max (% du capital)",         group=g_cap, step=0.5) / 100
+useCompound  = input.bool(true,    "Mode Compound (réinvestir)",     group=g_cap)
+maxCapital   = input.float(70000.0,"Plafond capital Phase 1 (USDC)",group=g_cap, step=5000,
+               tooltip="Plafond Phase 1. Bascule auto en Phase 2 à ce seuil.")
+useLiqFilter = input.bool(true,    "Filtre liquidité (volume)",      group=g_cap)
+liqPct       = input.float(2.0,    "Max % volume 20 bar/trade",      group=g_cap, step=0.5)
+
+// ════════════════════════════════════════════════════════════
+//  GESTION DES PHASES (automatique)
+// ════════════════════════════════════════════════════════════
+g_phase          = "Gestion des phases (automatique)"
+phaseTarget      = input.float(70000.0, "Objectif Phase 1 → Phase 2 (USDC)", group=g_phase, step=5000)
+phase2Base       = input.float(35000.0, "Capital base Phase 2 (USDC)",        group=g_phase, step=5000)
+phase2RiskPerc   = input.float(1.5,     "Risk par trade Phase 2 (%)",          group=g_phase, step=0.1) / 100
+phase2MaxCap     = input.float(70000.0, "Plafond capital Phase 2 (USDC)",      group=g_phase, step=5000)
+
+// ════════════════════════════════════════════════════════════
+//  DÉTECTION PHASE 2
+// ════════════════════════════════════════════════════════════
+var bool inPhase2 = false
+equityNow         = strategy.initial_capital + strategy.netprofit
+
+if not inPhase2 and equityNow >= phaseTarget and strategy.position_size == 0
+    inPhase2 := true
+    label.new(bar_index, high * 1.02,
+              "PHASE 2 ACTIVÉE\nRetirer " + str.tostring(int(phaseTarget / 2)) +
+              " USDC\nBase active : " + str.tostring(int(phase2Base)) + " USDC\nRisk/trade : " +
+              str.tostring(phase2RiskPerc * 100) + "%",
+              color=color.new(#FFD700, 0), textcolor=color.black,
+              style=label.style_label_down, size=size.normal)
+
+activeRiskPerc = inPhase2 ? phase2RiskPerc : riskPerc
+activeMaxCap   = inPhase2 ? phase2MaxCap   : maxCapital
+activeBase     = inPhase2 ? phase2Base     : startCapital
+
+// Capital actif (compound plafonné)
+rawCapital  = useCompound
+     ? math.max(strategy.initial_capital + strategy.netprofit, activeBase * 0.5)
+     : activeBase
+stepCapital = math.min(rawCapital, activeMaxCap)
+
+// Filtre liquidité
+volSma20    = ta.sma(volume, 20)
+maxNotional = volSma20 * close * (liqPct / 100)
+
+// ════════════════════════════════════════════════════════════
+//  FONCTIONS
+// ════════════════════════════════════════════════════════════
+hullMa(src, length) =>
+    n2      = math.floor(length / 2)
+    sqrtLen = math.floor(math.sqrt(length))
+    wma1    = ta.wma(src, n2)
+    wma2    = ta.wma(src, length)
+    ta.wma(2 * wma1 - wma2, sqrtLen)
+
+// ════════════════════════════════════════════════════════════
+//  CALCULS PRINCIPAUX
+// ════════════════════════════════════════════════════════════
+atr   = ta.atr(atrLength)
+rSize = useFixedRange ? fixedRangeSize : atr
+
+var float rOpen  = na
+var float rHigh  = na
+var float rLow   = na
+var float rClose = na
+
+newBar = na(rOpen) or math.abs(close - rOpen) >= rSize
+if newBar
+    rOpen  := nz(close[1], open)
+    rHigh  := nz(close[1], open)
+    rLow   := nz(close[1], open)
+    rClose := close
+else
+    rClose := close
+    rHigh  := math.max(rHigh, close)
+    rLow   := math.min(rLow, close)
+
+rsi    = ta.rsi(close, rsiLength)
+volSma = ta.sma(volume, 20)
+volUp  = volume > volSma * volMult
+
+ma20 = hullMa(close, 20)
+ma50 = hullMa(close, 50)
+
+cumVol = ta.cum(volume)
+cumPV  = ta.cum(((high + low + close) / 3) * volume)
+vwap_  = cumPV / nz(cumVol, 1)
+vah    = ta.highest(vwap_ + vpK * atr, 24)
+val    = ta.lowest( vwap_ - vpK * atr, 24)
+poc    = vwap_
+
+[diplus, diminus, adx] = ta.dmi(adxLength, adxLength)
+
+var float[] volWin = array.new_float()
+curVol = ta.stdev(math.log(high / low), 100)
+array.push(volWin, curVol)
+if array.size(volWin) > 100
+    array.shift(volWin)
+sorted = array.copy(volWin)
+array.sort(sorted, order.ascending)
+idx25  = math.round((array.size(sorted) - 1) * 0.25)
+vol25  = array.get(sorted, math.min(idx25, array.size(sorted) - 1))
+
+btcH   = request.security("BINANCE:BTCUSDT", "60", high)
+btcL   = request.security("BINANCE:BTCUSDT", "60", low)
+btcC   = request.security("BINANCE:BTCUSDT", "60", close[1])
+btcRng = (btcH - btcL) / nz(btcC, 1)
+inRng  = adx < 20 and curVol < vol25 and btcRng < 0.01
+
+basis     = ta.sma(close, bbLength)
+dev       = bbMult * ta.stdev(close, bbLength)
+upperBB   = basis + dev
+lowerBB   = basis - dev
+volHigh   = atr > ta.sma(atr, 20) * 1.5
+explosive = volHigh and (rsi > 75 or rsi < 25) and (not volFilter or volUp)
+isTrending  = adx > 25 and not explosive
+isRanging   = adx < 20 and rHigh <= upperBB and rLow >= lowerBB and not (adx > 25 or explosive)
+isExplosive = explosive and not (adx > 25 or isRanging)
+
+bullTrend    = diplus > diminus and rClose > ma50
+pullbackLong = rLow <= ma20 and rClose > ma20 and rsi > 40 and rsi < 65
+entryLT      = isTrending  and bullTrend and pullbackLong
+breakoutUp   = rClose > vah and volHigh and (rClose - nz(rClose[1], rClose)) > atr * 0.8 and (not volFilter or volUp)
+entryLE      = isExplosive and breakoutUp
+
+bearTrend     = diminus > diplus and rClose < ma50
+pullbackShort = rHigh >= ma20 and rClose < ma20 and rsi > 35 and rsi < 60
+entryST       = isTrending  and bearTrend and pullbackShort
+breakoutDown  = rClose < val and volHigh and (rClose - nz(rClose[1], rClose)) < -atr * 0.8 and (not volFilter or volUp)
+entrySE       = isExplosive and breakoutDown
+
+strongBull = adx > 30 and diplus  > diminus * 1.5
+strongBear = adx > 30 and diminus > diplus  * 1.5
+validL     = not strongBear
+validS     = not strongBull
+
+regStr = isTrending ? "trend" : (isRanging ? "range" : "explosive")
+
+// ════════════════════════════════════════════════════════════
+//  CALCUL TAILLES (risk-based)
+// ════════════════════════════════════════════════════════════
+calcQty(ep, sp) =>
+    dist = math.abs(ep - sp)
+    dist := dist == 0 ? 1e-12 : dist
+    (stepCapital * activeRiskPerc) / dist
+
+capQty_(qty_raw, ep, sp) =>
+    dist = math.abs(ep - sp)
+    dist := dist == 0 ? 1e-12 : dist
+    capNormal = math.min(qty_raw, math.min((stepCapital * leverage) / ep, (stepCapital * slCapPct) / dist))
+    capLiq    = useLiqFilter ? maxNotional / ep : capNormal
+    math.min(capNormal, capLiq)
+
+// Long
+slBaseL = isRanging ? val * 0.995 : ta.lowest(rLow, 15) * 0.995
+slL     = math.max(slBaseL, rClose * 0.985)
+tpMultL = isTrending ? 4.0 : (isRanging ? 2.5 : 3.3)
+tpL     = (rClose + (rClose - slL) * tpMultL) * (1 + tpSlippage / 100)
+rawQtyL = math.max(calcQty(rClose, slL) * leverage, stepCapital * 0.001)
+qtyL    = capQty_(rawQtyL, rClose, slL)
+
+// Short
+slBaseS = isRanging ? vah * 1.005 : ta.highest(rHigh, 15) * 1.005
+slS     = math.min(slBaseS, rClose * 1.015)
+tpMultS = isTrending ? 4.0 : (isRanging ? 2.5 : 3.3)
+tpS     = (rClose - (slS - rClose) * tpMultS) * (1 - tpSlippage / 100)
+rawQtyS = math.max(calcQty(rClose, slS) * leverage, stepCapital * 0.001)
+qtyS    = capQty_(rawQtyS, rClose, slS)
+
+// ════════════════════════════════════════════════════════════
+//  DCA TRACKING
+// ════════════════════════════════════════════════════════════
+var int   dcaCountL  = 0
+var int   dcaCountS  = 0
+var float lastDcaPxL = na
+var float lastDcaPxS = na
+var float entrySlL   = na
+var float entryTpL   = na
+var float entrySlS   = na
+var float entryTpS   = na
+
+if strategy.position_size == 0
+    dcaCountL  := 0
+    dcaCountS  := 0
+    lastDcaPxL := na
+    lastDcaPxS := na
+
+inLong    = strategy.position_size > 0
+inShort   = strategy.position_size < 0
+dcaLongOk = dcaEnabled and inLong  and dcaCountL < maxDCA and
+            not na(lastDcaPxL) and close < lastDcaPxL * (1 - dcaDist) and
+            not ((entryLT or entryLE) and validL)
+dcaShortOk = dcaEnabled and inShort and dcaCountS < maxDCA and
+             not na(lastDcaPxS) and close > lastDcaPxS * (1 + dcaDist) and
+             not ((entryST or entrySE) and validS)
+
+// ════════════════════════════════════════════════════════════
+//  ENTRÉES
+// ════════════════════════════════════════════════════════════
+entryLong = (entryLT or entryLE) and validL and not inRng
+if entryLong
+    strategy.cancel_all()
+    entrySlL   := slL
+    entryTpL   := tpL
+    dcaCountL  := 0
+    lastDcaPxL := rClose
+    strategy.entry("Long", strategy.long, qty=qtyL)
+    strategy.exit("Exit Long", from_entry="Long", stop=slL, limit=tpL)
+
+entryShort = (entryST or entrySE) and validS and not inRng
+if entryShort
+    strategy.cancel_all()
+    entrySlS   := slS
+    entryTpS   := tpS
+    dcaCountS  := 0
+    lastDcaPxS := rClose
+    strategy.entry("Short", strategy.short, qty=qtyS)
+    strategy.exit("Exit Short", from_entry="Short", stop=slS, limit=tpS)
+
+if dcaLongOk
+    dcaQtyL    = qtyL * math.pow(dcaQtyMult, dcaCountL + 1)
+    dcaCountL := dcaCountL + 1
+    lastDcaPxL := rClose
+    strategy.entry("DCA_L" + str.tostring(dcaCountL), strategy.long, qty=dcaQtyL)
+    newAvg = strategy.position_avg_price
+    newSl  = entrySlL
+    newTp  = newAvg + (newAvg - newSl) * (isTrending ? 4.0 : 3.0)
+    strategy.exit("Exit Long", stop=newSl, limit=newTp)
+
+if dcaShortOk
+    dcaQtyS    = qtyS * math.pow(dcaQtyMult, dcaCountS + 1)
+    dcaCountS := dcaCountS + 1
+    lastDcaPxS := rClose
+    strategy.entry("DCA_S" + str.tostring(dcaCountS), strategy.short, qty=dcaQtyS)
+    newAvg = strategy.position_avg_price
+    newSl  = entrySlS
+    newTp  = newAvg - (newSl - newAvg) * (isTrending ? 4.0 : 3.0)
+    strategy.exit("Exit Short", stop=newSl, limit=newTp)
+
+// ════════════════════════════════════════════════════════════
+//  VISUALISATION
+// ════════════════════════════════════════════════════════════
+plot(poc,  "POC",   color=color.fuchsia, linewidth=2)
+plot(vah,  "VAH",   color=color.blue,    style=plot.style_circles)
+plot(val,  "VAL",   color=color.blue,    style=plot.style_circles)
+plot(ma20, "HMA20", color=color.yellow,  linewidth=2)
+plot(ma50, "HMA50", color=color.red,     linewidth=2)
+plotshape(entryLT or entryLE, title="Long",  location=location.belowbar, color=color.green, style=shape.triangleup,   size=size.small)
+plotshape(entryST or entrySE, title="Short", location=location.abovebar, color=color.red,   style=shape.triangledown, size=size.small)
+bgcolor(inRng ? color.new(color.orange, 90) : na)
+
+// Ligne objectif Phase 1
+hline(phaseTarget, "Objectif Phase 1", color=color.new(#FFD700, 40), linestyle=hline.style_dashed, linewidth=2)
+
+// ════════════════════════════════════════════════════════════
+//  DRAWDOWN + TABLEAU PERFS
+// ════════════════════════════════════════════════════════════
+var float peakEq   = startCapital
+var float maxDDVal = 0.0
+curEq = strategy.equity
+if curEq > peakEq
+    peakEq := curEq
+curDD = (peakEq - curEq) / peakEq
+if curDD > maxDDVal
+    maxDDVal := curDD
+
+phaseStr = inPhase2 ? "Phase 2 (35k base)" : "Phase 1 (1k→70k)"
+
+if showStats
+    var table stats = table.new(position.top_right, 2, 7,
+         border_color=color.new(color.gray, 50), border_width=1)
+    table.cell(stats, 0, 0, "JP v6.2 ETH 30M",  text_color=color.black, bgcolor=color.new(color.blue, 80), text_size=size.small)
+    table.cell(stats, 1, 0, phaseStr,            text_color=inPhase2 ? color.new(#FFD700, 0) : color.new(color.green, 0), bgcolor=color.new(color.blue, 80), text_size=size.small)
+    table.cell(stats, 0, 1, "Capital actif",     text_color=color.gray,  bgcolor=color.white, text_size=size.tiny)
+    table.cell(stats, 1, 1, str.tostring(math.round(stepCapital, 0)) + " USDC", text_color=color.new(color.green, 0), bgcolor=color.white, text_size=size.tiny)
+    table.cell(stats, 0, 2, "Equity totale",     text_color=color.gray,  bgcolor=color.white, text_size=size.tiny)
+    table.cell(stats, 1, 2, str.tostring(math.round(curEq, 0)) + " USDC",       text_color=color.new(color.green, 0), bgcolor=color.white, text_size=size.tiny)
+    table.cell(stats, 0, 3, "Risk/trade",        text_color=color.gray,  bgcolor=color.white, text_size=size.tiny)
+    table.cell(stats, 1, 3, str.tostring(activeRiskPerc * 100, "#.#") + "%",     text_color=color.orange, bgcolor=color.white, text_size=size.tiny)
+    table.cell(stats, 0, 4, "Perte max/trade",   text_color=color.gray,  bgcolor=color.white, text_size=size.tiny)
+    table.cell(stats, 1, 4, str.tostring(math.round(curEq * slCapPct, 0)) + " USDC", text_color=color.orange, bgcolor=color.white, text_size=size.tiny)
+    table.cell(stats, 0, 5, "DD courant",        text_color=color.gray,  bgcolor=color.white, text_size=size.tiny)
+    table.cell(stats, 1, 5, str.tostring(curDD * 100, "#.##") + "%", text_color=curDD > maxDD * 0.8 ? color.red : color.black, bgcolor=color.white, text_size=size.tiny)
+    table.cell(stats, 0, 6, "DD max",            text_color=color.gray,  bgcolor=color.white, text_size=size.tiny)
+    table.cell(stats, 1, 6, str.tostring(maxDDVal * 100, "#.##") + "%", text_color=color.orange, bgcolor=color.white, text_size=size.tiny)
+
+// ════════════════════════════════════════════════════════════
+//  TABLEAU CONDITIONS
+// ════════════════════════════════════════════════════════════
+dot(ok) => ok ? "●" : "○"
+dc(ok)  => ok ? color.new(color.green, 0) : color.red
+
+cAdx      = adx > 25
+cNotRange = not inRng
+cVol      = not volFilter or volUp
+cLongTrend   = diplus > diminus
+cLongMa50    = rClose > ma50
+cLongPullbk  = rLow <= ma20 and rClose > ma20
+cLongRsi     = rsi > 40 and rsi < 65
+cLongAll     = cAdx and cNotRange and cVol and cLongTrend and cLongMa50 and cLongPullbk and cLongRsi
+cShortTrend  = diminus > diplus
+cShortMa50   = rClose < ma50
+cShortPullbk = rHigh >= ma20 and rClose < ma20
+cShortRsi    = rsi > 35 and rsi < 60
+cShortAll    = cAdx and cNotRange and cVol and cShortTrend and cShortMa50 and cShortPullbk and cShortRsi
+
+if showParams
+    var table cond = table.new(position.bottom_left, 3, 11,
+         border_color=color.new(color.gray, 50), border_width=1)
+    table.cell(cond, 0, 0,  "CONDITION",       text_color=color.black,              bgcolor=color.new(color.blue, 80), text_size=size.tiny)
+    table.cell(cond, 1, 0,  "LONG",            text_color=color.new(color.green, 0), bgcolor=color.new(color.blue, 80), text_size=size.tiny)
+    table.cell(cond, 2, 0,  "SHORT",           text_color=color.red,                bgcolor=color.new(color.blue, 80), text_size=size.tiny)
+    table.cell(cond, 0, 1,  "ADX>25",          text_color=color.gray, bgcolor=color.white, text_size=size.tiny)
+    table.cell(cond, 1, 1,  dot(cAdx),         text_color=dc(cAdx),   bgcolor=color.white, text_size=size.normal)
+    table.cell(cond, 2, 1,  dot(cAdx),         text_color=dc(cAdx),   bgcolor=color.white, text_size=size.normal)
+    table.cell(cond, 0, 2,  "DI direction",    text_color=color.gray, bgcolor=color.white, text_size=size.tiny)
+    table.cell(cond, 1, 2,  dot(cLongTrend),   text_color=dc(cLongTrend),  bgcolor=color.white, text_size=size.normal)
+    table.cell(cond, 2, 2,  dot(cShortTrend),  text_color=dc(cShortTrend), bgcolor=color.white, text_size=size.normal)
+    table.cell(cond, 0, 3,  "Prix vs MA50",    text_color=color.gray, bgcolor=color.white, text_size=size.tiny)
+    table.cell(cond, 1, 3,  dot(cLongMa50),    text_color=dc(cLongMa50),   bgcolor=color.white, text_size=size.normal)
+    table.cell(cond, 2, 3,  dot(cShortMa50),   text_color=dc(cShortMa50),  bgcolor=color.white, text_size=size.normal)
+    table.cell(cond, 0, 4,  "Pullback MA20",   text_color=color.gray, bgcolor=color.white, text_size=size.tiny)
+    table.cell(cond, 1, 4,  dot(cLongPullbk),  text_color=dc(cLongPullbk),  bgcolor=color.white, text_size=size.normal)
+    table.cell(cond, 2, 4,  dot(cShortPullbk), text_color=dc(cShortPullbk), bgcolor=color.white, text_size=size.normal)
+    table.cell(cond, 0, 5,  "RSI zone",        text_color=color.gray, bgcolor=color.white, text_size=size.tiny)
+    table.cell(cond, 1, 5,  dot(cLongRsi),     text_color=dc(cLongRsi),  bgcolor=color.white, text_size=size.normal)
+    table.cell(cond, 2, 5,  dot(cShortRsi),    text_color=dc(cShortRsi), bgcolor=color.white, text_size=size.normal)
+    table.cell(cond, 0, 6,  "Volume",          text_color=color.gray, bgcolor=color.white, text_size=size.tiny)
+    table.cell(cond, 1, 6,  dot(cVol),         text_color=dc(cVol),   bgcolor=color.white, text_size=size.normal)
+    table.cell(cond, 2, 6,  dot(cVol),         text_color=dc(cVol),   bgcolor=color.white, text_size=size.normal)
+    table.cell(cond, 0, 7,  "Hors range",      text_color=color.gray, bgcolor=color.white, text_size=size.tiny)
+    table.cell(cond, 1, 7,  dot(cNotRange),    text_color=dc(cNotRange), bgcolor=color.white, text_size=size.normal)
+    table.cell(cond, 2, 7,  dot(cNotRange),    text_color=dc(cNotRange), bgcolor=color.white, text_size=size.normal)
+    table.cell(cond, 0, 8,  "ADX / RSI",       text_color=color.gray, bgcolor=color.white, text_size=size.tiny)
+    table.cell(cond, 1, 8,  str.tostring(math.round(adx, 1)), text_color=color.black, bgcolor=color.white, text_size=size.tiny)
+    table.cell(cond, 2, 8,  str.tostring(math.round(rsi, 1)), text_color=color.black, bgcolor=color.white, text_size=size.tiny)
+    table.cell(cond, 0, 9,  "Régime",          text_color=color.gray, bgcolor=color.white, text_size=size.tiny)
+    regCol = isTrending ? color.new(color.green, 0) : isRanging ? color.orange : color.fuchsia
+    table.cell(cond, 1, 9,  regStr, text_color=regCol, bgcolor=color.white, text_size=size.tiny)
+    table.cell(cond, 2, 9,  regStr, text_color=regCol, bgcolor=color.white, text_size=size.tiny)
+    sigLBg  = cLongAll  ? color.new(color.green, 75) : color.white
+    sigSBg  = cShortAll ? color.new(color.red,   85) : color.white
+    table.cell(cond, 0, 10, "► SIGNAL",        bgcolor=color.new(color.navy, 60), text_color=color.white, text_size=size.small)
+    table.cell(cond, 1, 10, cLongAll  ? "LONG ▲"  : "—", text_color=cLongAll  ? color.new(color.green, 0) : color.gray, bgcolor=sigLBg,  text_size=size.small)
+    table.cell(cond, 2, 10, cShortAll ? "SHORT ▼" : "—", text_color=cShortAll ? color.red                : color.gray, bgcolor=sigSBg, text_size=size.small)
+
+// ════════════════════════════════════════════════════════════
+//  ALERTES
+// ════════════════════════════════════════════════════════════
+alertcondition(inPhase2 and not inPhase2[1],
+               title="PHASE 2 ACTIVÉE — Retirer 35 000 USDC",
+               message="ETH v6.2 : Phase 2 activée. Retirer 35 000 USDC en réserve. Base active : 35 000 USDC, Risk/trade : 1.5%.")
+
+alertcondition(equityNow >= phaseTarget * 0.95 and not inPhase2,
+               title="Objectif 70k proche — Phase 2 imminente",
+               message="ETH v6.2 : equity approche 70 000 USDC. Bascule Phase 2 à la prochaine fermeture de position.")
+
+alertcondition(curDD > maxDD,
+               title="ALERTE DD MAX DÉPASSÉ",
+               message="ETH v6.2 : drawdown dépasse la limite configurée.")
