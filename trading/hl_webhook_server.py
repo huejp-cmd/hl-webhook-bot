@@ -60,7 +60,8 @@ WEBHOOK_TOKEN = os.environ.get("WEBHOOK_TOKEN", "jp_bot_secret_2026")
 # =============================================================================
 #  TRADE LOG
 # =============================================================================
-TRADE_LOG_FILE = os.environ.get("TRADE_LOG_FILE", "/tmp/trade_log.json")
+_PERSIST_DIR   = os.environ.get("PERSIST_DIR", "/data")
+TRADE_LOG_FILE = os.environ.get("TRADE_LOG_FILE", os.path.join(_PERSIST_DIR, "trade_log.json"))
 TRADE_LOG_MAX  = 500   # entrées max conservées en mémoire/fichier
 
 # Log en mémoire (Railway : /tmp peut être éphémère)

@@ -67,6 +67,8 @@ DCA_TP_RR_OTHER = 3.0    # TP RR after DCA otherwise
 # Daily stop
 DAILY_STOP_PCT = 0.15    # 15% daily drawdown → pause
 
+MAX_SIGNAL_AGE_BARS = 1  # Ne pas entrer si signal > 1 barre après clôture
+
 # inRng ADX threshold (common, used for volume-filtered range detection)
 IN_RNG_ADX_THRESH = 20
 
@@ -126,6 +128,42 @@ _positions: dict = {}   # coin → {side, entry, qty, sl, tp, regime, ts, capita
 
 # Per-coin extended state (range bars, DCA, daily stop)
 _coin_state: dict = {}
+
+# ── Persistent state ──
+PERSIST_DIR = os.environ.get("PERSIST_DIR", "/data")
+POSITIONS_FILE: str = None  # resolved at startup in run()
+
+def _resolve_persist_dir() -> str:
+    for d in [PERSIST_DIR, "/tmp"]:
+        try:
+            os.makedirs(d, exist_ok=True)
+            t = os.path.join(d, ".wtest")
+            open(t, "w").write("ok"); os.remove(t)
+            log.info(f"[persist] dir={d}")
+            return d
+        except Exception:
+            continue
+    return "/tmp"
+
+def _save_positions():
+    if not POSITIONS_FILE: return
+    try:
+        with open(POSITIONS_FILE, "w") as f: json.dump(_positions, f, indent=2, default=str)
+        log.info(f"[persist] saved {len(_positions)} position(s)")
+    except Exception as e:
+        log.warning(f"[persist] save failed: {e}")
+
+def _load_positions():
+    global _positions
+    if not POSITIONS_FILE or not os.path.exists(POSITIONS_FILE): return
+    try:
+        saved = json.load(open(POSITIONS_FILE))
+        if saved:
+            _positions.update(saved)
+            for c, p in saved.items():
+                log.info(f"[persist] ♻️  RESTORED {c} {p.get('side','?').upper()} @ {p.get('entry','?')}")
+    except Exception as e:
+        log.warning(f"[persist] load failed: {e}")
 
 
 def _get_coin_state(coin: str) -> dict:
@@ -1049,6 +1087,7 @@ def monitor_position(coin: str, current_price: float):
 
     labouch.on_close(coin, current_price, cap_after)
     del _positions[coin]
+    _save_positions()
 
     # Update equity for daily stop tracking
     state = _get_coin_state(coin)
@@ -1095,6 +1134,12 @@ def open_position(coin: str, side: str,
     ok, stop_reason = labouch.should_trade(coin, capital)
     if not ok:
         log.warning(f"[{coin}] 🛑 {stop_reason}")
+        return
+
+    # Guard post-reboot: skip si déjà dans le même sens (restauré depuis disque)
+    existing_pos = _positions.get(coin)
+    if existing_pos and existing_pos.get("side") == side:
+        log.info(f"[{coin}] Already in {side.upper()} (restored from persist) — skipping re-entry")
         return
 
     # Labouchere sizing
@@ -1159,6 +1204,7 @@ def open_position(coin: str, side: str,
             lab_mult=lab_mult,
         )
         _positions[coin]["journal_id"] = journal_id
+        _save_positions()
 
         labouch.on_entry(coin, entry_px, qty, side, capital)
         log.info(
@@ -1232,6 +1278,7 @@ def open_position(coin: str, side: str,
             "sl": sl_px, "tp": tp_px, "regime": meta.get("regime"),
             "capital": capital, "ts": datetime.now(timezone.utc).isoformat(),
         }
+        _save_positions()
 
     except Exception as e:
         log.error(f"[{coin}] open_position LIVE error: {e}", exc_info=True)
@@ -1301,7 +1348,19 @@ def process_coin(coin: str):
 
     # ── Act on signal ──
     if signal:
-        open_position(coin, signal, price, sl, tp, meta)
+        # Anti-stale: skip si on est trop loin de la clôture de bougie
+        tf_min  = COIN_TF.get(coin, 30)
+        max_lag = timedelta(minutes=tf_min * MAX_SIGNAL_AGE_BARS + 5)
+        bar_dt  = datetime.fromtimestamp(bars_tf[-1]["T"] / 1000, tz=timezone.utc)
+        now_utc = datetime.now(timezone.utc)
+        if (now_utc - bar_dt) > max_lag:
+            log.warning(
+                f"[{coin}] ⏰ Stale signal "
+                f"({int((now_utc - bar_dt).total_seconds() // 60)}min old, "
+                f"max={int(max_lag.total_seconds() // 60)}min) — skipping"
+            )
+        else:
+            open_position(coin, signal, price, sl, tp, meta)
     else:
         log.info(f"[{coin}] No action this bar")
 
@@ -1385,6 +1444,13 @@ def run():
             )
         # Init per-coin state
         _get_coin_state(coin)
+
+    # ── Restore positions from disk (persist across Railway redeploys) ──
+    global POSITIONS_FILE
+    POSITIONS_FILE = os.path.join(_resolve_persist_dir(), "positions.json")
+    _load_positions()
+    if _positions:
+        log.info(f"[persist] ⚠️  Positions restored after restart: {list(_positions.keys())} — will skip re-entry in same direction")
 
     # Immediate first run on startup
     log.info("\n📊 Running initial scan on startup...")

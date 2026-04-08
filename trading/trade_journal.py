@@ -27,7 +27,8 @@ log = logging.getLogger("trade_journal")
 # ==============================================================
 #  STORAGE
 # ==============================================================
-_PATHS = ["/app/trades.json", "/tmp/trades.json"]
+_PERSIST_DIR = os.environ.get("PERSIST_DIR", "/data")
+_PATHS = [os.path.join(_PERSIST_DIR, "trades.json"), "/app/trades.json", "/tmp/trades.json"]
 _lock  = threading.Lock()
 
 # In-memory list of all trades

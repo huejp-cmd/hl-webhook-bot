@@ -39,7 +39,18 @@ log = logging.getLogger(__name__)
 # Chemin par défaut du fichier d'état (même dossier que ce module)
 # ---------------------------------------------------------------------------
 _HERE      = os.path.dirname(os.path.abspath(__file__))
-STATE_FILE = os.path.join(_HERE, "labouch_state.json")
+_PERSIST_DIR = os.environ.get("PERSIST_DIR", "/data")
+def _resolve_state_file():
+    for d in [_PERSIST_DIR, _HERE, "/tmp"]:
+        try:
+            os.makedirs(d, exist_ok=True)
+            t = os.path.join(d, ".labtest")
+            open(t, "w").write("ok"); os.remove(t)
+            return os.path.join(d, "labouch_state.json")
+        except Exception:
+            continue
+    return os.path.join(_HERE, "labouch_state.json")
+STATE_FILE = _resolve_state_file()
 
 # ---------------------------------------------------------------------------
 # Paramètres par défaut
