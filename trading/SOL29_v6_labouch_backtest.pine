@@ -22,6 +22,14 @@ baseDivisor    = input.int(4,      "Diviseur WIN de base (↑ quand mises plafon
  tooltip="Valeur 4 = comportement par défaut.\nAugmenter manuellement quand tu observes que les positions stagnent 5-6 trades consécutifs.\nEx: 4→8→10→20 selon le plafond marché atteint.")
 
 // ═══════════════════════════════════════════════════════════════
+//  PARAMETRES WEBHOOK LIVE
+// ═══════════════════════════════════════════════════════════════
+g_webhook  = "🔗 Webhook Live"
+testMode   = input.bool(false,  "[TEST] Désactiver alertes webhook", group=g_webhook)
+coinSelect = input.string("SOL", "Symbole", options=["SOL", "ETH"], group=g_webhook)
+whSymbol   = coinSelect == "SOL" ? "SOLUSDT.P" : "ETHUSDT.P"
+
+// ═══════════════════════════════════════════════════════════════
 //  PARAMETRES SIGNAL (identiques SOL29 v6 adaptive)
 // ═══════════════════════════════════════════════════════════════
 useFixedRange  = input.bool(false,  "Plage Fixe (sinon 1xATR)", group="📊 Signal")
@@ -248,6 +256,7 @@ explosive      = volatilityHigh and (rsi > 75 or rsi < 25) and (not volFilter or
 isExplosive    = explosive and not (trending or ranging)
 isTrending     = trending  and not explosive
 isRanging      = ranging   and not (trending or explosive)
+regStr         = isTrending ? "trend" : isExplosive ? "explosive" : "range"
 
 // ═══════════════════════════════════════════════════════════════
 //  DRAWDOWN + PROTECTION ADAPTATIVE
@@ -330,6 +339,8 @@ if (entryLongTrend or entryLongExplosive) and validLong and not inRange
     qty         = capQty(rawQty, c, slPrice)
     trailPoints = c - slPrice
     strategy.entry("Long", strategy.long, qty=qty)
+    if not testMode
+        alert('{"action":"open","side":"buy","symbol":"' + whSymbol + '","coin":"' + coinSelect + '","price":' + str.tostring(math.round(c, 4)) + ',"sl":' + str.tostring(math.round(slPrice, 4)) + ',"tp":' + str.tostring(math.round(tpPrice, 4)) + ',"capital":' + str.tostring(startCapital) + ',"regime":"' + regStr + '","tf":"' + timeframe.period + '","adx":' + str.tostring(math.round(adx, 1)) + ',"rsi":' + str.tostring(math.round(rsi, 1)) + '}', alert.freq_once_per_bar_close)
     if trailPoints > 0
         strategy.exit("Exit Long", from_entry="Long", stop=slPrice, limit=tpPrice, trail_points=trailPoints, trail_offset=atr * adaptAtrMult)
     else
@@ -350,6 +361,8 @@ if (entryShortTrend or entryShortExplosive) and validShort and not inRange
     qty         = capQty(rawQty, c, slPrice)
     trailPoints = slPrice - c
     strategy.entry("Short", strategy.short, qty=qty)
+    if not testMode
+        alert('{"action":"open","side":"sell","symbol":"' + whSymbol + '","coin":"' + coinSelect + '","price":' + str.tostring(math.round(c, 4)) + ',"sl":' + str.tostring(math.round(slPrice, 4)) + ',"tp":' + str.tostring(math.round(tpPrice, 4)) + ',"capital":' + str.tostring(startCapital) + ',"regime":"' + regStr + '","tf":"' + timeframe.period + '","adx":' + str.tostring(math.round(adx, 1)) + ',"rsi":' + str.tostring(math.round(rsi, 1)) + '}', alert.freq_once_per_bar_close)
     if trailPoints > 0
         strategy.exit("Exit Short", from_entry="Short", stop=slPrice, limit=tpPrice, trail_points=trailPoints, trail_offset=atr * adaptAtrMult)
     else
