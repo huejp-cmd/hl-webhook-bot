@@ -60,6 +60,7 @@ var int    lastClosed   = 0    // nb trades fermés au dernier check
 var int    labWins      = 0
 var int    labLosses    = 0
 var float  labPeakMult  = 0.0
+var int    lastDivisor  = 1    // diviseur utilisé sur le dernier WIN (affichage)
 
 // Initialisation séquence
 if na(labSeq)
@@ -81,8 +82,24 @@ if strategy.closedtrades > lastClosed
     currentBet  = labBet   // valeur au moment de la clôture
 
     if tradeProfit > 0
-        // WIN → ajoute bet_units à la fin
-        array.push(labSeq, currentBet)
+        // WIN → calcul mise notionnelle du trade fermé
+        lastIdx   = strategy.closedtrades - 1
+        lastSz    = math.abs(strategy.closedtrades.size(lastIdx))
+        lastEntry = strategy.closedtrades.entry_price(lastIdx)
+        lastMise  = lastSz * lastEntry   // valeur $ de la position
+
+        if lastMise >= startCapital
+            // Diviseur dynamique : /4 quand mise ≈ capital, puis /5, /6, /7...
+            // +1 par tranche de startCapital supplémentaire franchie
+            // Exemples : mise 500-999$ → /4 | 1000-1499$ → /5 | 1500-1999$ → /6 etc.
+            divisorF    = math.max(4.0, math.floor(lastMise / startCapital) + 3.0)
+            addVal      = math.max(1, math.round(float(currentBet) / divisorF))
+            lastDivisor := int(divisorF)
+            array.push(labSeq, addVal)
+        else
+            // Mise en dessous du capital → comportement normal
+            lastDivisor := 1
+            array.push(labSeq, currentBet)
         labWins += 1
     else
         // LOSS → barre premier + dernier
@@ -354,7 +371,7 @@ plotshape(entryShortTrend or entryShortExplosive, title="Short",     location=lo
 //  TABLEAU DE BORD LABOUCHERE
 // ═══════════════════════════════════════════════════════════════
 if showStats
-    var table t = table.new(position.top_right, 2, 18,
+    var table t = table.new(position.top_right, 2, 19,
      border_color=color.new(color.white, 60), border_width=1)
 
     // ── En-tête ──
@@ -398,6 +415,10 @@ if showStats
     table.cell(t, 0, 10, "Wins / Losses",    text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
     table.cell(t, 1, 10, str.tostring(labWins) + "W / " + str.tostring(labLosses) + "L",
      text_color=labWins > labLosses ? color.lime : color.red, bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(t, 0, 11, "Diviseur WIN",     text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(t, 1, 11, lastDivisor <= 1 ? "—  (mise < capital)" : "÷" + str.tostring(lastDivisor) + "  (mise ≥ capital)",
+     text_color=lastDivisor >= 8 ? color.red : lastDivisor >= 5 ? color.orange : lastDivisor >= 4 ? color.yellow : color.gray,
+     bgcolor=color.new(color.black, 0), text_size=size.tiny)
 
     // ── Performance ──
     totalTrades   = strategy.closedtrades
@@ -407,27 +428,27 @@ if showStats
     netProfit     = strategy.netprofit
     netProfitPct  = activeCapital > 0 ? netProfit / activeCapital * 100 : 0.0
 
-    table.cell(t, 0, 11, "── Perf ──",       text_color=color.gray,  bgcolor=color.new(color.navy, 50), text_size=size.tiny)
-    table.cell(t, 1, 11, "",                  text_color=color.gray,  bgcolor=color.new(color.navy, 50), text_size=size.tiny)
-    table.cell(t, 0, 12, "Net Profit",        text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 1, 12, str.tostring(netProfit, "#.##") + " $ (" + str.tostring(netProfitPct, "#.#") + "%)",
+    table.cell(t, 0, 12, "── Perf ──",       text_color=color.gray,  bgcolor=color.new(color.navy, 50), text_size=size.tiny)
+    table.cell(t, 1, 12, "",                  text_color=color.gray,  bgcolor=color.new(color.navy, 50), text_size=size.tiny)
+    table.cell(t, 0, 13, "Net Profit",        text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(t, 1, 13, str.tostring(netProfit, "#.##") + " $ (" + str.tostring(netProfitPct, "#.#") + "%)",
      text_color=netProfit >= 0 ? color.lime : color.red, bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 0, 13, "Win Rate",          text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 1, 13, str.tostring(winRate, "#.#") + "% (" + str.tostring(totalTrades) + " trades)",
+    table.cell(t, 0, 14, "Win Rate",          text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(t, 1, 14, str.tostring(winRate, "#.#") + "% (" + str.tostring(totalTrades) + " trades)",
      text_color=winRate >= 50 ? color.lime : color.orange, bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 0, 14, "Max DD",            text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 1, 14, str.tostring(maxDrawdownVal * 100, "#.##") + "%",
+    table.cell(t, 0, 15, "Max DD",            text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(t, 1, 15, str.tostring(maxDrawdownVal * 100, "#.##") + "%",
      text_color=maxDrawdownVal > 0.15 ? color.red : maxDrawdownVal > 0.08 ? color.orange : color.lime, bgcolor=color.new(color.black, 0), text_size=size.tiny)
 
     // ── Régime / DD ──
-    table.cell(t, 0, 15, "── Marché ──",     text_color=color.gray,  bgcolor=color.new(color.navy, 50), text_size=size.tiny)
-    table.cell(t, 1, 15, "",                  text_color=color.gray,  bgcolor=color.new(color.navy, 50), text_size=size.tiny)
-    table.cell(t, 0, 16, "Régime",            text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 1, 16, isTrending ? "TREND" : isRanging ? "RANGE" : isExplosive ? "EXPLO" : "NEUTRE",
+    table.cell(t, 0, 16, "── Marché ──",     text_color=color.gray,  bgcolor=color.new(color.navy, 50), text_size=size.tiny)
+    table.cell(t, 1, 16, "",                  text_color=color.gray,  bgcolor=color.new(color.navy, 50), text_size=size.tiny)
+    table.cell(t, 0, 17, "Régime",            text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(t, 1, 17, isTrending ? "TREND" : isRanging ? "RANGE" : isExplosive ? "EXPLO" : "NEUTRE",
      text_color=isTrending ? color.lime : isRanging ? color.orange : isExplosive ? color.red : color.gray,
      bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 0, 17, "Trading",           text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 1, 17, tradingPaused ? "⛔ PAUSE DD" : "✅ ACTIF",
+    table.cell(t, 0, 18, "Trading",           text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(t, 1, 18, tradingPaused ? "⛔ PAUSE DD" : "✅ ACTIF",
      text_color=tradingPaused ? color.red : color.lime, bgcolor=color.new(color.black, 0), text_size=size.tiny)
 
 // ═══════════════════════════════════════════════════════════════
