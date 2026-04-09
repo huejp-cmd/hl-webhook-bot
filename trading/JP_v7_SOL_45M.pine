@@ -50,6 +50,11 @@ capMultLab       = input.float(4.0,   "Plafond (? pertes cumulees)", group=g_lab
                    tooltip="bet_units ? max(CAP_MULT ? cumul_pertes, 2). Securite anti-emballement.")
 startCapitalLab  = input.float(500.0, "Capital depart USDC", group=g_lab, step=100, minval=100,
                    tooltip="Capital de reference pour calculer les tailles de position Labouchere.")
+splitMode        = input.string("Progressive", "Mode split victoire", group=g_lab,
+                   options=["Aucun", "Seuil", "Progressive", "Systematique"],
+                   tooltip="Aucun=Lab classique. Seuil=split/2 si mise>=capital courant. Progressive=split/N croissant a chaque palier. Systematique=split/N a chaque victoire.")
+splitN           = input.int(2, "Parts split (mode Systematique)", group=g_lab, minval=2, maxval=6,
+                   tooltip="Nombre de parties pour le mode Systematique (2 ou 3 recommande).")
 stopLossDayPct   = input.float(15.0,  "Stop perte journaliere (%)", group=g_lab, step=1.0, minval=1.0,
                    tooltip="Si equity baisse de X% dans la journee ? pause jusqu'au lendemain.")
 
@@ -108,6 +113,7 @@ var float daily_start_eq = strategy.equity
 var int   last_day       = dayofmonth
 var int   last_month     = month
 var int   entry_bet_int  = 2        // bet_units au moment de l'entree
+var int   splitLevel     = 1        // niveau de split courant (Progressive: 1=no split, 2=split/2, 3=split/3...)
 
 // ?? Reset mensuel (1er du mois) ??????????????????????????????????
 if month != last_month
@@ -119,6 +125,7 @@ if month != last_month
         array.push(seq, 1)
         array.push(seq, 1)
         cum_loss_units := 0.0
+        splitLevel     := 1
 
 // ?? Tracker equite journaliere (reset a minuit UTC) ??????????????
 if dayofmonth != last_day
@@ -457,18 +464,51 @@ if strategy.closedtrades > prev_closed
     isWin = last_pnl > 0
     prev_closed := strategy.closedtrades
     if isWin
-        // Win inverse : on append le bet
-        // Securite anti-emballement : si la position depasse le capital actif,
-        // on divise l'unite en 2 pour ralentir la progression de la sequence
+        // Win inverse : on append le bet selon le mode de split choisi
         positionValue = qty_labouch * close
-        // Split quand la mise atteint ou depasse le capital de DEPART (500 USDC fixe)
-        if positionValue >= startCapitalLab
-            // Mise >= capital initial : inscrire en 2 fois (ex: 4 -> 2+2)
-            half = math.max(int(entry_bet_int / 2), 1)
-            array.push(seq, half)
-            array.push(seq, entry_bet_int - half)
-        else
+
+        if splitMode == "Aucun"
+            // Lab classique : inscription simple
             array.push(seq, entry_bet_int)
+
+        else if splitMode == "Seuil"
+            // Split/2 quand mise >= capital courant (capLab)
+            if positionValue >= capLab
+                half = math.max(int(entry_bet_int / 2), 1)
+                array.push(seq, half)
+                array.push(seq, entry_bet_int - half)
+            else
+                array.push(seq, entry_bet_int)
+
+        else if splitMode == "Progressive"
+            // Palier progressif : splitLevel monte de 1 chaque fois que mise >= capital courant
+            // Logique 1 JP : 1er palier -> /2, 2eme palier -> /3, etc.
+            if positionValue >= capLab
+                splitLevel := math.min(splitLevel + 1, 8)
+            nParts = splitLevel
+            if nParts <= 1
+                array.push(seq, entry_bet_int)
+            else
+                baseUnit = math.max(int(entry_bet_int / nParts), 1)
+                for i = 0 to nParts - 2
+                    array.push(seq, baseUnit)
+                remainder = math.max(entry_bet_int - baseUnit * (nParts - 1), 1)
+                array.push(seq, remainder)
+
+        else if splitMode == "Systematique"
+            // Logique 2 JP : split en splitN parts a chaque victoire (equilibre parfait victoires/pertes)
+            // 1 victoire = +N elements, 1 perte = -2 elements -> croissance maitrisee
+            // Sans plafond tant que la mise ne depasse pas le capital courant
+            if positionValue < capLab
+                // Mise sous capital : inscription normale (permet la croissance des mises)
+                array.push(seq, entry_bet_int)
+            else
+                // Mise >= capital : split systematique en splitN parties
+                baseUnit = math.max(int(entry_bet_int / splitN), 1)
+                for i = 0 to splitN - 2
+                    array.push(seq, baseUnit)
+                remainder = math.max(entry_bet_int - baseUnit * (splitN - 1), 1)
+                array.push(seq, remainder)
     else
         // Loss : on retire premier + dernier
         if array.size(seq) >= 2
