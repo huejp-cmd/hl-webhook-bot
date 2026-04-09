@@ -18,6 +18,8 @@ leverage       = input.float(2.0,  "Leverage", minval=1.0, step=0.5, group="⚙�
 startCapital   = input.float(500.0,"Capital propre $", minval=100, step=100, group="⚙️ Paramètres Labouchère")
 marginCapital  = input.float(500.0,"Margin $ (levier série 1)", minval=0, step=100, group="⚙️ Paramètres Labouchère")
 slCapPct       = input.float(5.0,  "SL max pct capital", minval=1.0, maxval=20.0, step=0.5, group="⚙️ Paramètres Labouchère") / 100
+baseDivisor    = input.int(4,      "Diviseur WIN de base (↑ quand mises plafonnent)", minval=2, maxval=100, step=1, group="⚙️ Paramètres Labouchère",
+ tooltip="Valeur 4 = comportement par défaut.\nAugmenter manuellement quand tu observes que les positions stagnent 5-6 trades consécutifs.\nEx: 4→8→10→20 selon le plafond marché atteint.")
 
 // ═══════════════════════════════════════════════════════════════
 //  PARAMETRES SIGNAL (identiques SOL29 v6 adaptive)
@@ -89,10 +91,9 @@ if strategy.closedtrades > lastClosed
         lastMise  = lastSz * lastEntry   // valeur $ de la position
 
         if lastMise >= startCapital
-            // Diviseur dynamique : /4 quand mise ≈ capital, puis /5, /6, /7...
-            // +1 par tranche de startCapital supplémentaire franchie
-            // Exemples : mise 500-999$ → /4 | 1000-1499$ → /5 | 1500-1999$ → /6 etc.
-            divisorF    = math.max(4.0, math.floor(lastMise / startCapital) + 3.0)
+            // Diviseur dynamique : baseDivisor quand mise ≈ capital, puis +1 par tranche
+            // Ex: baseDivisor=4 → /4, /5, /6... | baseDivisor=8 → /8, /9, /10...
+            divisorF    = math.max(float(baseDivisor), math.floor(lastMise / startCapital) + float(baseDivisor - 1))
             addVal      = math.max(1, math.round(float(currentBet) / divisorF))
             lastDivisor := int(divisorF)
             array.push(labSeq, addVal)
@@ -416,8 +417,8 @@ if showStats
     table.cell(t, 1, 10, str.tostring(labWins) + "W / " + str.tostring(labLosses) + "L",
      text_color=labWins > labLosses ? color.lime : color.red, bgcolor=color.new(color.black, 0), text_size=size.tiny)
     table.cell(t, 0, 11, "Diviseur WIN",     text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 1, 11, lastDivisor <= 1 ? "—  (mise < capital)" : "÷" + str.tostring(lastDivisor) + "  (mise ≥ capital)",
-     text_color=lastDivisor >= 8 ? color.red : lastDivisor >= 5 ? color.orange : lastDivisor >= 4 ? color.yellow : color.gray,
+    table.cell(t, 1, 11, lastDivisor <= 1 ? "—  (mise < capital)" : "÷" + str.tostring(lastDivisor) + "  [base ÷" + str.tostring(baseDivisor) + "]",
+     text_color=lastDivisor >= baseDivisor * 2 ? color.red : lastDivisor > baseDivisor ? color.orange : lastDivisor == baseDivisor ? color.yellow : color.gray,
      bgcolor=color.new(color.black, 0), text_size=size.tiny)
 
     // ── Performance ──
