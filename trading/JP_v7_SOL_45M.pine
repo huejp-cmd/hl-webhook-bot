@@ -55,6 +55,8 @@ splitMode        = input.string("Progressive", "Mode split victoire", group=g_la
                    tooltip="Aucun=Lab classique. Seuil=split/2 si mise>=capital courant. Progressive=split/N croissant a chaque palier. Systematique=split/N a chaque victoire.")
 splitN           = input.int(2, "Parts split (mode Systematique)", group=g_lab, minval=2, maxval=6,
                    tooltip="Nombre de parties pour le mode Systematique (2 ou 3 recommande).")
+seqInitVal       = input.int(1, "Valeur initiale sequence [N,N,N,N]", group=g_lab, minval=1, maxval=5,
+                   tooltip="1 = sequence [1,1,1,1] classique. 2 = debut plus agressif [2,2,2,2], mise initiale = 4 unites.")
 stopLossDayPct   = input.float(15.0,  "Stop perte journaliere (%)", group=g_lab, step=1.0, minval=1.0,
                    tooltip="Si equity baisse de X% dans la journee ? pause jusqu'au lendemain.")
 
@@ -115,15 +117,23 @@ var int   last_month     = month
 var int   entry_bet_int  = 2        // bet_units au moment de l'entree
 var int   splitLevel     = 1        // niveau de split courant (Progressive: 1=no split, 2=split/2, 3=split/3...)
 
+// Initialisation sequence avec valeur parametrable (bar 0 uniquement)
+if bar_index == 0 and seqInitVal != 1
+    array.clear(seq)
+    array.push(seq, seqInitVal)
+    array.push(seq, seqInitVal)
+    array.push(seq, seqInitVal)
+    array.push(seq, seqInitVal)
+
 // ?? Reset mensuel (1er du mois) ??????????????????????????????????
 if month != last_month
     last_month := month
     if dayofmonth == 1
         array.clear(seq)
-        array.push(seq, 1)
-        array.push(seq, 1)
-        array.push(seq, 1)
-        array.push(seq, 1)
+        array.push(seq, seqInitVal)
+        array.push(seq, seqInitVal)
+        array.push(seq, seqInitVal)
+        array.push(seq, seqInitVal)
         cum_loss_units := 0.0
         splitLevel     := 1
 
@@ -516,19 +526,19 @@ if strategy.closedtrades > prev_closed
             array.pop(seq)
             cum_loss_units := cum_loss_units + float(entry_bet_int)
         else
-            // Sequence epuisee ? reset
+            // Sequence epuisee ? reset avec valeur initiale parametrable
             array.clear(seq)
-            array.push(seq, 1)
-            array.push(seq, 1)
-            array.push(seq, 1)
-            array.push(seq, 1)
+            array.push(seq, seqInitVal)
+            array.push(seq, seqInitVal)
+            array.push(seq, seqInitVal)
+            array.push(seq, seqInitVal)
             cum_loss_units := 0.0
         // Verification securite : si vide apres retrait
         if array.size(seq) == 0
-            array.push(seq, 1)
-            array.push(seq, 1)
-            array.push(seq, 1)
-            array.push(seq, 1)
+            array.push(seq, seqInitVal)
+            array.push(seq, seqInitVal)
+            array.push(seq, seqInitVal)
+            array.push(seq, seqInitVal)
             cum_loss_units := 0.0
 
     // ?? Alerte close ?????????????????????????????????????????????
