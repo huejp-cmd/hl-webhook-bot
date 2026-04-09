@@ -104,7 +104,15 @@ if strategy.closedtrades > lastClosed
 //  Séries suivantes : sans margin (après ceiling)
 // ═══════════════════════════════════════════════════════════════
 activeCapital = startCapital + marginCapital   // 500 + 500 = 1000
-stepCapital   = activeCapital
+
+// ── Compound long terme (comme bot Python) ──────────────────────
+// Le bot Python scale les positions selon l'equity réelle du compte
+// real_capital = equity × (base / total_base)
+// Plancher à 50% de la base pour éviter les positions trop petites
+// en cas de drawdown temporaire
+equityNow   = strategy.equity
+compoundCap = math.max(equityNow, activeCapital * 0.5)   // plancher 50%
+stepCapital = compoundCap
 
 // ═══════════════════════════════════════════════════════════════
 //  RANGE BARS (identique v6 original)
@@ -339,7 +347,7 @@ plotshape(entryShortTrend or entryShortExplosive, title="Short",     location=lo
 //  TABLEAU DE BORD LABOUCHERE
 // ═══════════════════════════════════════════════════════════════
 if showStats
-    var table t = table.new(position.top_right, 2, 17,
+    var table t = table.new(position.top_right, 2, 18,
      border_color=color.new(color.white, 60), border_width=1)
 
     // ── En-tête ──
@@ -358,26 +366,30 @@ if showStats
     table.cell(t, 1, 2, str.tostring(marginCapital, "#") + " $",
      text_color=color.aqua,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
     table.cell(t, 0, 3, "Capital actif",    text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 1, 3, str.tostring(activeCapital, "#") + " $ ✅",
+    table.cell(t, 1, 3, str.tostring(activeCapital, "#") + " $ (base)",
      text_color=color.lime,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(t, 0, 4, "Capital compound", text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(t, 1, 4, str.tostring(compoundCap, "#.##") + " $ 📈",
+     text_color=compoundCap > activeCapital ? color.lime : compoundCap < activeCapital ? color.red : color.white,
+     bgcolor=color.new(color.black, 0), text_size=size.tiny)
 
     // ── Labouchère ──
-    table.cell(t, 0, 4,  "Séquence init",    text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 1, 4,  seqLabel,           text_color=color.white, bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 0, 5,  "Bet units",        text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 1, 5,  str.tostring(labBet) + " u",
+    table.cell(t, 0, 5,  "Séquence init",    text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(t, 1, 5,  seqLabel,           text_color=color.white, bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(t, 0, 6,  "Bet units",        text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(t, 1, 6,  str.tostring(labBet) + " u",
      text_color=labBet > 6 ? color.red : labBet > 4 ? color.orange : color.lime, bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 0, 6,  "Multiplicateur",   text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 1, 6,  str.tostring(labMult, "#.##") + "×",
+    table.cell(t, 0, 7,  "Multiplicateur",   text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(t, 1, 7,  str.tostring(labMult, "#.##") + "×",
      text_color=labMult >= 5.0 ? color.red : labMult >= 3.0 ? color.orange : color.lime, bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 0, 7,  "Mult max atteint", text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 1, 7,  str.tostring(labPeakMult, "#.##") + "×",
+    table.cell(t, 0, 8,  "Mult max atteint", text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(t, 1, 8,  str.tostring(labPeakMult, "#.##") + "×",
      text_color=color.aqua, bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 0, 8,  "Séq. longueur",    text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 1, 8,  str.tostring(array.size(labSeq)) + " éléments",
+    table.cell(t, 0, 9,  "Séq. longueur",    text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(t, 1, 9,  str.tostring(array.size(labSeq)) + " éléments",
      text_color=color.white, bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 0, 9,  "Wins / Losses",    text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 1, 9,  str.tostring(labWins) + "W / " + str.tostring(labLosses) + "L",
+    table.cell(t, 0, 10, "Wins / Losses",    text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(t, 1, 10, str.tostring(labWins) + "W / " + str.tostring(labLosses) + "L",
      text_color=labWins > labLosses ? color.lime : color.red, bgcolor=color.new(color.black, 0), text_size=size.tiny)
 
     // ── Performance ──
@@ -388,27 +400,27 @@ if showStats
     netProfit     = strategy.netprofit
     netProfitPct  = activeCapital > 0 ? netProfit / activeCapital * 100 : 0.0
 
-    table.cell(t, 0, 10, "── Perf ──",       text_color=color.gray,  bgcolor=color.new(color.navy, 50), text_size=size.tiny)
-    table.cell(t, 1, 10, "",                  text_color=color.gray,  bgcolor=color.new(color.navy, 50), text_size=size.tiny)
-    table.cell(t, 0, 11, "Net Profit",        text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 1, 11, str.tostring(netProfit, "#.##") + " $ (" + str.tostring(netProfitPct, "#.#") + "%)",
+    table.cell(t, 0, 11, "── Perf ──",       text_color=color.gray,  bgcolor=color.new(color.navy, 50), text_size=size.tiny)
+    table.cell(t, 1, 11, "",                  text_color=color.gray,  bgcolor=color.new(color.navy, 50), text_size=size.tiny)
+    table.cell(t, 0, 12, "Net Profit",        text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(t, 1, 12, str.tostring(netProfit, "#.##") + " $ (" + str.tostring(netProfitPct, "#.#") + "%)",
      text_color=netProfit >= 0 ? color.lime : color.red, bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 0, 12, "Win Rate",          text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 1, 12, str.tostring(winRate, "#.#") + "% (" + str.tostring(totalTrades) + " trades)",
+    table.cell(t, 0, 13, "Win Rate",          text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(t, 1, 13, str.tostring(winRate, "#.#") + "% (" + str.tostring(totalTrades) + " trades)",
      text_color=winRate >= 50 ? color.lime : color.orange, bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 0, 13, "Max DD",            text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 1, 13, str.tostring(maxDrawdownVal * 100, "#.##") + "%",
+    table.cell(t, 0, 14, "Max DD",            text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(t, 1, 14, str.tostring(maxDrawdownVal * 100, "#.##") + "%",
      text_color=maxDrawdownVal > 0.15 ? color.red : maxDrawdownVal > 0.08 ? color.orange : color.lime, bgcolor=color.new(color.black, 0), text_size=size.tiny)
 
     // ── Régime / DD ──
-    table.cell(t, 0, 14, "── Marché ──",     text_color=color.gray,  bgcolor=color.new(color.navy, 50), text_size=size.tiny)
-    table.cell(t, 1, 14, "",                  text_color=color.gray,  bgcolor=color.new(color.navy, 50), text_size=size.tiny)
-    table.cell(t, 0, 15, "Régime",            text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 1, 15, isTrending ? "TREND" : isRanging ? "RANGE" : isExplosive ? "EXPLO" : "NEUTRE",
+    table.cell(t, 0, 15, "── Marché ──",     text_color=color.gray,  bgcolor=color.new(color.navy, 50), text_size=size.tiny)
+    table.cell(t, 1, 15, "",                  text_color=color.gray,  bgcolor=color.new(color.navy, 50), text_size=size.tiny)
+    table.cell(t, 0, 16, "Régime",            text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(t, 1, 16, isTrending ? "TREND" : isRanging ? "RANGE" : isExplosive ? "EXPLO" : "NEUTRE",
      text_color=isTrending ? color.lime : isRanging ? color.orange : isExplosive ? color.red : color.gray,
      bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 0, 16, "Trading",           text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
-    table.cell(t, 1, 16, tradingPaused ? "⛔ PAUSE DD" : "✅ ACTIF",
+    table.cell(t, 0, 17, "Trading",           text_color=color.gray,  bgcolor=color.new(color.black, 0), text_size=size.tiny)
+    table.cell(t, 1, 17, tradingPaused ? "⛔ PAUSE DD" : "✅ ACTIF",
      text_color=tradingPaused ? color.red : color.lime, bgcolor=color.new(color.black, 0), text_size=size.tiny)
 
 // ═══════════════════════════════════════════════════════════════
