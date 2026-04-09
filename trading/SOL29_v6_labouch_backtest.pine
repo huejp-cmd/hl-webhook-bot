@@ -5,7 +5,9 @@ strategy("SOL29 v6 — Labouchère Backtest | SOL 29M",
  commission_type=strategy.commission.percent,
  commission_value=0.1,
  pyramiding=1,
- initial_capital=1000)
+ initial_capital=1000,
+ margin_long=10,
+ margin_short=10)
 
 // ═══════════════════════════════════════════════════════════════
 //  PARAMETRES PRINCIPAUX
@@ -286,9 +288,14 @@ calcQty(entryPrice, slPrice) =>
 capQty(qty_raw, entryPrice, slPrice) =>
     dist      = math.abs(entryPrice - slPrice)
     dist      := dist == 0 ? 1e-12 : dist
+    // Plafond notionnel : ne jamais dépasser stepCapital × leverage
+    // (correspond au capital actif disponible sur Hyperliquid)
     qtyCapExp = (stepCapital * leverage) / entryPrice
+    // Plafond SL : perte max = slCapPct du capital
     qtyCapSL  = (stepCapital * slCapPct) / dist
-    math.min(qty_raw, math.min(qtyCapExp, qtyCapSL)) * sizeFactor
+    // Plafond absolu : notionnel ≤ equity (sécurité TradingView)
+    qtyCapAbs = strategy.equity / entryPrice
+    math.min(qty_raw, math.min(qtyCapAbs, math.min(qtyCapExp, qtyCapSL))) * sizeFactor
 
 // ═══════════════════════════════════════════════════════════════
 //  ENTRÉES LONG
