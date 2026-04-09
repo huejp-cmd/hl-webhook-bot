@@ -456,7 +456,16 @@ if strategy.closedtrades > prev_closed
     prev_closed := strategy.closedtrades
     if isWin
         // Win inverse : on append le bet
-        array.push(seq, entry_bet_int)
+        // Securite anti-emballement : si la position depasse le capital actif,
+        // on divise l'unite en 2 pour ralentir la progression de la sequence
+        positionValue = qty_labouch * close
+        if positionValue > capLab
+            // Position > capital : inscrire en 2 fois (ex: 4 -> 2+2)
+            half = math.max(int(entry_bet_int / 2), 1)
+            array.push(seq, half)
+            array.push(seq, entry_bet_int - half)
+        else
+            array.push(seq, entry_bet_int)
     else
         // Loss : on retire premier + dernier
         if array.size(seq) >= 2
