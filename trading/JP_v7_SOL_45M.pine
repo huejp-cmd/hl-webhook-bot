@@ -461,8 +461,9 @@ if strategy.closedtrades > prev_closed
         // Securite anti-emballement : si la position depasse le capital actif,
         // on divise l'unite en 2 pour ralentir la progression de la sequence
         positionValue = qty_labouch * close
-        if positionValue > capLab
-            // Position > capital : inscrire en 2 fois (ex: 4 -> 2+2)
+        // Split quand la mise atteint ou depasse le capital de DEPART (500 USDC fixe)
+        if positionValue >= startCapitalLab
+            // Mise >= capital initial : inscrire en 2 fois (ex: 4 -> 2+2)
             half = math.max(int(entry_bet_int / 2), 1)
             array.push(seq, half)
             array.push(seq, entry_bet_int - half)
