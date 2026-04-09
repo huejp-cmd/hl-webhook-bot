@@ -52,9 +52,11 @@ startCapitalLab  = input.float(500.0, "Capital depart USDC", group=g_lab, step=1
                    tooltip="Capital de reference pour calculer les tailles de position Labouchere.")
 splitMode        = input.string("Progressive", "Mode split victoire", group=g_lab,
                    options=["Aucun", "Seuil", "Progressive", "Systematique"],
-                   tooltip="Aucun=Lab classique. Seuil=split/2 si mise>=capital courant. Progressive=split/N croissant a chaque palier. Systematique=split/N a chaque victoire.")
+                   tooltip="Aucun=Lab classique. Seuil=split/2 si bet_units>=seuil. Progressive=split/N croissant a chaque palier. Systematique=split/N a chaque victoire.")
 splitN           = input.int(2, "Parts split (mode Systematique)", group=g_lab, minval=2, maxval=6,
                    tooltip="Nombre de parties pour le mode Systematique (2 ou 3 recommande).")
+splitThreshold   = input.int(6, "Seuil split (bet_units)", group=g_lab, minval=2, maxval=50,
+                   tooltip="Split declenche quand bet_units >= ce seuil. 6 = 3x la mise initiale (se declenche apres ~4-5 victoires nettes). Independant du capital USDC.")
 seqInitVal       = input.int(1, "Valeur initiale sequence [N,N,N,N]", group=g_lab, minval=1, maxval=5,
                    tooltip="1 = sequence [1,1,1,1] classique. 2 = debut plus agressif [2,2,2,2], mise initiale = 4 unites.")
 stopLossDayPct   = input.float(15.0,  "Stop perte journaliere (%)", group=g_lab, step=1.0, minval=1.0,
@@ -478,12 +480,12 @@ if strategy.closedtrades > prev_closed
         positionValue = qty_labouch * close
 
         if splitMode == "Aucun"
-            // Lab classique : inscription simple
+            // Lab classique : inscription simple, croissance libre
             array.push(seq, entry_bet_int)
 
         else if splitMode == "Seuil"
-            // Split/2 quand mise >= capital courant (capLab)
-            if positionValue >= capLab
+            // Split/2 quand bet_units >= splitThreshold (seuil en unites, pas en USDC)
+            if entry_bet_int >= splitThreshold
                 half = math.max(int(entry_bet_int / 2), 1)
                 array.push(seq, half)
                 array.push(seq, entry_bet_int - half)
@@ -491,9 +493,9 @@ if strategy.closedtrades > prev_closed
                 array.push(seq, entry_bet_int)
 
         else if splitMode == "Progressive"
-            // Palier progressif : splitLevel monte de 1 chaque fois que mise >= capital courant
-            // Logique 1 JP : 1er palier -> /2, 2eme palier -> /3, etc.
-            if positionValue >= capLab
+            // Palier progressif : splitLevel monte de 1 chaque fois que bet_units >= seuil
+            // 1er palier -> /2, 2eme -> /3, etc. (Logique 1 JP)
+            if entry_bet_int >= splitThreshold
                 splitLevel := math.min(splitLevel + 1, 8)
             nParts = splitLevel
             if nParts <= 1
@@ -506,14 +508,11 @@ if strategy.closedtrades > prev_closed
                 array.push(seq, remainder)
 
         else if splitMode == "Systematique"
-            // Logique 2 JP : split en splitN parts a chaque victoire (equilibre parfait victoires/pertes)
-            // 1 victoire = +N elements, 1 perte = -2 elements -> croissance maitrisee
-            // Sans plafond tant que la mise ne depasse pas le capital courant
-            if positionValue < capLab
-                // Mise sous capital : inscription normale (permet la croissance des mises)
+            // Logique 2 JP : inscription normale sous le seuil, split en splitN parties au-dessus
+            // Equilibre : au-dessus du seuil, croissance freinee sans plafond fixe en USDC
+            if entry_bet_int < splitThreshold
                 array.push(seq, entry_bet_int)
             else
-                // Mise >= capital : split systematique en splitN parties
                 baseUnit = math.max(int(entry_bet_int / splitN), 1)
                 for i = 0 to splitN - 2
                     array.push(seq, baseUnit)
