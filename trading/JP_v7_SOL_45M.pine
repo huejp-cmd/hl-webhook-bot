@@ -140,7 +140,9 @@ mult_lab = math.max(bet_units * unitFactor * leverageLabMult, 0.5)
 // Capital effectif Labouchere (compound optionnel, plafonne)
 rawCapLab   = useCompound ? math.max(strategy.initial_capital + strategy.netprofit, startCapitalLab * 0.5) : startCapitalLab
 capLab      = math.min(rawCapLab, maxCapital)
-qty_labouch = math.max((capLab * mult_lab / 100.0) / close, capLab * 0.0005 / close)
+qty_raw     = math.max((capLab * mult_lab / 100.0) / close, capLab * 0.0005 / close)
+// PLAFOND ABSOLU : position ne depasse jamais maxCapital USDC en valeur reelle
+qty_labouch = math.min(qty_raw, maxCapital / close)
 
 // ???????????????????????????????????????????????????????????????
 //  FONCTIONS
