@@ -50,15 +50,21 @@ capMultLab       = input.float(4.0,   "Plafond (? pertes cumulees)", group=g_lab
                    tooltip="bet_units ? max(CAP_MULT ? cumul_pertes, 2). Securite anti-emballement.")
 startCapitalLab  = input.float(500.0, "Capital depart USDC", group=g_lab, step=100, minval=100,
                    tooltip="Capital de reference pour calculer les tailles de position Labouchere.")
-splitMode        = input.string("Progressive", "Mode split victoire", group=g_lab,
-                   options=["Aucun", "Seuil", "Progressive", "Systematique"],
-                   tooltip="Aucun=Lab classique. Seuil=split/2 si bet_units>=seuil. Progressive=split/N croissant a chaque palier. Systematique=split/N a chaque victoire.")
+splitMode        = input.string("Periodique", "Mode split victoire", group=g_lab,
+                   options=["Aucun", "Seuil", "Progressive", "Systematique", "Periodique"],
+                   tooltip="Periodique (recommande JP) : divise la mise par D tous les N gains. Seul le compounding via equity fait croitre les positions.")
 splitN           = input.int(2, "Parts split (mode Systematique)", group=g_lab, minval=2, maxval=6,
                    tooltip="Nombre de parties pour le mode Systematique (2 ou 3 recommande).")
 splitThreshold   = input.int(6, "Seuil split (bet_units)", group=g_lab, minval=2, maxval=50,
-                   tooltip="Split declenche quand bet_units >= ce seuil. 6 = 3x la mise initiale (se declenche apres ~4-5 victoires nettes). Independant du capital USDC.")
-seqInitVal       = input.int(1, "Valeur initiale sequence [N,N,N,N]", group=g_lab, minval=1, maxval=5,
-                   tooltip="1 = sequence [1,1,1,1] classique. 2 = debut plus agressif [2,2,2,2], mise initiale = 4 unites.")
+                   tooltip="Split declenche quand bet_units >= ce seuil. 6 = 3x la mise initiale. Independant du capital USDC.")
+splitEveryN      = input.int(2, "Split tous les N gains (Periodique)", group=g_lab, minval=1, maxval=10,
+                   tooltip="Periodique : divise la mise tous les N gains consecutifs. Recommande : 2.")
+splitDivBy       = input.int(3, "Diviseur (Periodique)", group=g_lab, minval=2, maxval=6,
+                   tooltip="Periodique : bet enregistre = bet / D. Recommande : 3. Garde les bet_units stables, compound via equity.")
+seqInitVal       = input.int(2, "Valeur initiale sequence [N,N,N,N]", group=g_lab, minval=1, maxval=5,
+                   tooltip="2 = sequence [2,2,2,2] recommandee JP. Mise initiale = 4 unites.")
+monthlyReset     = input.bool(false, "Reset mensuel sequence", group=g_lab,
+                   tooltip="OFF recommande avec mode Periodique : le split stabilise naturellement la sequence sans reset.")
 stopLossDayPct   = input.float(15.0,  "Stop perte journaliere (%)", group=g_lab, step=1.0, minval=1.0,
                    tooltip="Si equity baisse de X% dans la journee ? pause jusqu'au lendemain.")
 
@@ -110,14 +116,15 @@ maxNotional = volSma20 * close * (liqPct / 100)
 //  ?TAT LABOUCH?RE
 // ???????????????????????????????????????????????????????????????
 
-var array<int> seq       = array.from(1, 1, 1, 1)
-var float cum_loss_units = 0.0
-var int   prev_closed    = 0
-var float daily_start_eq = strategy.equity
-var int   last_day       = dayofmonth
-var int   last_month     = month
-var int   entry_bet_int  = 2        // bet_units au moment de l'entree
-var int   splitLevel     = 1        // niveau de split courant (Progressive: 1=no split, 2=split/2, 3=split/3...)
+var array<int> seq           = array.from(1, 1, 1, 1)
+var float cum_loss_units     = 0.0
+var int   prev_closed        = 0
+var float daily_start_eq     = strategy.equity
+var int   last_day           = dayofmonth
+var int   last_month         = month
+var int   entry_bet_int      = 2    // bet_units au moment de l'entree
+var int   splitLevel         = 1    // niveau de split courant (mode Progressive)
+var int   winsSinceSplit     = 0    // compteur gains depuis dernier split (mode Periodique)
 
 // Initialisation sequence avec valeur parametrable (bar 0 uniquement)
 if bar_index == 0 and seqInitVal != 1
@@ -130,14 +137,15 @@ if bar_index == 0 and seqInitVal != 1
 // ?? Reset mensuel (1er du mois) ??????????????????????????????????
 if month != last_month
     last_month := month
-    if dayofmonth == 1
+    if dayofmonth == 1 and monthlyReset
         array.clear(seq)
         array.push(seq, seqInitVal)
         array.push(seq, seqInitVal)
         array.push(seq, seqInitVal)
         array.push(seq, seqInitVal)
-        cum_loss_units := 0.0
-        splitLevel     := 1
+        cum_loss_units   := 0.0
+        splitLevel       := 1
+        winsSinceSplit   := 0
 
 // ?? Tracker equite journaliere (reset a minuit UTC) ??????????????
 if dayofmonth != last_day
@@ -518,6 +526,20 @@ if strategy.closedtrades > prev_closed
                     array.push(seq, baseUnit)
                 remainder = math.max(entry_bet_int - baseUnit * (splitN - 1), 1)
                 array.push(seq, remainder)
+
+        else if splitMode == "Periodique"
+            // Logique JP finale : divise la mise par splitDivBy tous les splitEveryN gains
+            // bet_units reste stable (~4-6 avec [2,2,2,2] et D=3, N=2)
+            // Le compounding est assure par l'equity croissante (capLab = equity), pas par les bet_units
+            // Pas de reset mensuel necessaire : la sequence se stabilise naturellement
+            winsSinceSplit := winsSinceSplit + 1
+            if winsSinceSplit >= splitEveryN
+                // N-ieme gain : on divise par D (ex: bet=6 -> enregistre 2)
+                winsSinceSplit := 0
+                array.push(seq, math.max(int(entry_bet_int / splitDivBy), 1))
+            else
+                // Gains intermediaires : inscription normale
+                array.push(seq, entry_bet_int)
     else
         // Loss : on retire premier + dernier
         if array.size(seq) >= 2
