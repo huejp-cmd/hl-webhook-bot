@@ -11,8 +11,14 @@ strategy(
      calc_on_every_tick      = true,
      commission_type         = strategy.commission.percent,
      commission_value        = 0.05,
-     slippage                = 1)
+     slippage                = 2)  // ApeX Pro: spread ETH légèrement plus large
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  CONFIG CIBLE : ApeX Pro — ETH/USDC 10M
+//  Frais        : 0.05% taker (conforme ApeX standard)
+//  Slippage     : 2 ticks (spread ETH ApeX légèrement plus large que CEX)
+//  Capital      : 50 000 USD  (compound activé)
+//  Risk/trade   : 1% de base × multiplicateur Labouchère
 // ─────────────────────────────────────────────────────────────────────────────
 //  PARAMÈTRES HMA
 // ─────────────────────────────────────────────────────────────────────────────
@@ -197,14 +203,26 @@ slHitLong  = strategy.position_size > 0 and not na(longSL)  and low  <= longSL
 //  CALCUL QUANTITÉ
 // ─────────────────────────────────────────────────────────────────────────────
 calcQty(entryPx, slPx) =>
+    // ── Taille de base : risque fixe × Labouchère ──────────────────────────
     dist     = math.max(math.abs(entryPx - slPx), 1e-12)
     baseQty  = (compoundCap * riskPerc) / dist
     rawQty   = baseQty * leverageLab * labMult
     rawQty   := rawQty <= 0 ? compoundCap * 0.001 : rawQty
-    qtyCapSL  = (compoundCap * slCapPct) / dist
-    qtyCapAbs = strategy.equity / entryPx
-    qtyCapLev = (compoundCap * leverageLab) / entryPx
-    math.min(rawQty, math.min(qtyCapAbs, math.min(qtyCapLev, qtyCapSL))) * sizeFactor
+
+    // ── Plafonds de sécurité ───────────────────────────────────────────────
+    qtyCapSL   = (compoundCap * slCapPct) / dist         // risque max SL
+    qtyCapAbs  = strategy.equity / entryPx               // pas > equity
+    qtyCapLev  = (compoundCap * leverageLab) / entryPx   // plafond levier
+
+    // ── Optimisation : croissance progressive du compound ─────────────────
+    // Plus le capital grossit, plus la fraction allouée est large
+    // Facteur de croissance : sqrt(compound / capital initial) — lissé
+    growthFactor = math.sqrt(math.max(1.0, compoundCap / startCapital))
+    growthFactor := math.min(growthFactor, 3.0)  // plafond ×3 max
+    optQty = rawQty * growthFactor
+
+    // Appliquer les plafonds + size factor (circuit breakers)
+    math.min(optQty, math.min(qtyCapAbs, math.min(qtyCapLev, qtyCapSL))) * sizeFactor
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  EXÉCUTION
