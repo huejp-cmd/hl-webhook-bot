@@ -527,15 +527,15 @@ class LabouchManager:
             profit_units = max(1, round(pnl / base_risk)) if base_risk > 0 else bet_units
             profit_units = int(profit_units)
 
-            if len(sym["sequence"]) >= 6:
-                # Séquence longue (≥6) → diviser le gain en 3 parties
+            if profit_units >= 6:
+                # Gain ≥ 6 unités → diviser en 3 parties (freine la croissance des mises)
                 base      = max(1, profit_units // 3)
                 remainder = profit_units % 3
                 parts     = [base, base, base + remainder]
                 sym["sequence"].extend(parts)
                 log.info(
                     f"[Labouchère] {symbol} WIN  pnl={pnl:+.2f} USDC | "
-                    f"profit_units={profit_units} seq_len≥6 → split ÷3 [{parts[0]},{parts[1]},{parts[2]}] | "
+                    f"profit_units={profit_units}≥6 → split ÷3 [{parts[0]},{parts[1]},{parts[2]}] | "
                     f"séquence → {sym['sequence']}"
                 )
             else:
