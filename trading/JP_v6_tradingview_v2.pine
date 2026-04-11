@@ -53,8 +53,8 @@ tpSlippage   = input.float(0.10, "Buffer slippage TP (%)", group=g_exec, step=0.
 
 g_cap        = "Capital"
 useCompound  = input.bool(true,   "Mode Compound (réinvestir les gains)",  group=g_cap)
-maxCapital   = input.float(5000.0,"Plafond capital trading (USDC)",        group=g_cap, step=500,
-               tooltip="Limite la taille des positions quand le capital dépasse ce montant.\nEx: 5000 = jamais plus de 5000 USDC comme base de calcul.\nProtège contre le problème d'absorption de liquidité du marché.")
+maxCapital   = input.float(1000000.0,"Plafond capital trading (USDC)",      group=g_cap, step=500,
+               tooltip="Laisser très élevé (ex: 1000000) pour que le capital compound croisse librement.\nDiminuer uniquement si vous voulez limiter la taille max des positions.")
 useLiqFilter = input.bool(true,   "Filtre liquidité (volume marché)",      group=g_cap)
 liqPct       = input.float(2.0,   "Max % du volume 20 bar par trade",      group=g_cap, step=0.5,
                tooltip="Si la taille calculée dépasse X% du volume moyen × prix, on la réduit.\nEvite de déplacer le marché sur les petits volumes.")
