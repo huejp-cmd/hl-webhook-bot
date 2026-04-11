@@ -621,24 +621,25 @@ def place_order(signal: dict) -> dict:
             capital = BASE_CAPITAL_PER_SYMBOL.get(coin, 500.0)
             log.info(f"  Capital (DRY_RUN fallback) : {capital:.2f} USDC")
 
-    # ── Calcul qty : formule SL-distance (cohérente TradingView ↔ Bot) ──
-    # qty = risque_USDC / distance_SL  (même logique que Pine Script)
-    # TradingView envoie sl et entry_px → on recalcule proprement
-    sl_dist = abs(entry_px - sl_price)
-    risk_amt = capital * risk_pct
-
-    if sl_dist > 0:
-        qty_raw = (risk_amt / sl_dist) * lev
+    # ── Qty : priorité à la valeur envoyée par TradingView (compound) ──
+    # TradingView calcule le compound capital et envoie la qty exacte
+    # Le bot utilise cette qty directement pour respecter la logique compound TV
+    tv_qty = signal.get("qty")
+    if tv_qty is not None:
+        qty = round_qty(float(tv_qty), coin)
+        log.info(f"  Qty TV (compound): {qty} {coin}  [depuis signal TV]")
     else:
-        # SL non défini : fallback exposition max
-        qty_raw = (capital * lev) / entry_px
-
-    # Plafond : ne pas dépasser le capital alloué × levier
-    qty_cap = (capital * lev) / entry_px
-    qty     = round_qty(min(qty_raw, qty_cap), coin)
-
-    log.info(f"  Qty SL-dist      : capital={capital:.0f} USDC  risk={risk_amt:.2f} USDC  "
-             f"dist_SL={sl_dist:.4f}  qty_raw={qty_raw:.4f}  qty={qty} {coin}")
+        # Fallback : recalcul local si TV n'envoie pas de qty
+        sl_dist  = abs(entry_px - sl_price)
+        risk_amt = capital * risk_pct
+        if sl_dist > 0:
+            qty_raw = (risk_amt / sl_dist) * lev
+        else:
+            qty_raw = (capital * lev) / entry_px
+        qty_cap = (capital * lev) / entry_px
+        qty     = round_qty(min(qty_raw, qty_cap), coin)
+        log.info(f"  Qty SL-dist      : capital={capital:.0f} USDC  risk={risk_amt:.2f} USDC  "
+                 f"dist_SL={sl_dist:.4f}  qty_raw={qty_raw:.4f}  qty={qty} {coin}")
 
     if qty <= 0:
         # Fallback : taille minimale du marché (1 pour SOL, 0.001 pour ETH)
