@@ -521,19 +521,21 @@ class LabouchManager:
         if is_win:
             # WIN : l'élément ajouté est proportionnel au gain réel (en unités de risque)
             # profit_units = gain / (capital × risk%) → reflète la vraie amplitude du gain
-            # Si profit_units >= 6 → split en 3 (ajustement sur le 3ème)
+            # Règle JP : si len(séquence) >= 6 → chaque gain est divisé en 3 parties
+            #            (freine la croissance des mises quand la série est longue)
             base_risk    = (entry_capital or 1.0) * 0.02  # 2% risque de base
             profit_units = max(1, round(pnl / base_risk)) if base_risk > 0 else bet_units
             profit_units = int(profit_units)
 
-            if profit_units >= 6:
-                base      = profit_units // 3
+            if len(sym["sequence"]) >= 6:
+                # Séquence longue (≥6) → diviser le gain en 3 parties
+                base      = max(1, profit_units // 3)
                 remainder = profit_units % 3
                 parts     = [base, base, base + remainder]
                 sym["sequence"].extend(parts)
                 log.info(
                     f"[Labouchère] {symbol} WIN  pnl={pnl:+.2f} USDC | "
-                    f"profit_units={profit_units}≥6 → split [{parts[0]},{parts[1]},{parts[2]}] | "
+                    f"profit_units={profit_units} seq_len≥6 → split ÷3 [{parts[0]},{parts[1]},{parts[2]}] | "
                     f"séquence → {sym['sequence']}"
                 )
             else:
