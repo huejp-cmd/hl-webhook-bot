@@ -823,16 +823,21 @@ def webhook():
     # ── Log systématique de tous les signaux TradingView entrants ──
     _log_tw_signal(data)
 
-    # Vérification synchronisation TV ↔ Bot
+    # ── Analyse et blocage automatique si désynchronisation ──
     if action == "open" and "symbol" in data:
-        from trading import hl_webhook_server as _self
-        coin_check = normalize_coin(data.get("symbol", ""), float(data.get("price", 0)))
-        check_sync(coin_check, data)
+        coin_check = normalize_coin(data.get("symbol", ""), float(data.get("price", 0) or 0))
+        if not check_sync(coin_check, data):
+            log.warning(f"🚫 Signal bloqué par check_sync : {_pause_reason}")
+            return jsonify({"status": "blocked", "reason": _pause_reason}), 200
 
     # ----------------------------------------------------------------
     #  ACTION "open" -- nouvelle position
     # ----------------------------------------------------------------
     if action == "open":
+        # ── Blocage si trading en pause ──
+        if _trading_paused:
+            log.warning(f"🚫 Signal {data.get('symbol')} IGNORÉ — trading en pause : {_pause_reason}")
+            return jsonify({"status": "blocked", "reason": _pause_reason}), 200
         required = ["side", "symbol", "price", "sl", "tp"]
         for field in required:
             if field not in data:
@@ -1437,6 +1442,37 @@ _init_labouch_if_needed()
 
 
 
+
+# ════════════════════════════════════════════════════════════════════════════
+#  TRADING PAUSE — blocage automatique sur désynchronisation
+# ════════════════════════════════════════════════════════════════════════════
+_trading_paused  = False   # bloque les nouvelles entrées si True
+_pause_reason    = ""      # raison du blocage
+
+def pause_trading(reason: str):
+    global _trading_paused, _pause_reason
+    _trading_paused = True
+    _pause_reason   = reason
+    log.warning(f"🚫 TRADING PAUSE : {reason}")
+
+def resume_trading():
+    global _trading_paused, _pause_reason
+    _trading_paused = False
+    _pause_reason   = ""
+    log.info("✅ TRADING RESUME")
+
+@app.route("/pause", methods=["POST"])
+def route_pause():
+    reason = request.json.get("reason", "pause manuelle") if request.is_json else "pause manuelle"
+    pause_trading(reason)
+    return jsonify({"status": "paused", "reason": _pause_reason})
+
+@app.route("/resume", methods=["POST"])
+def route_resume():
+    resume_trading()
+    return jsonify({"status": "resumed"})
+
+
 # ════════════════════════════════════════════════════════════════════════════
 #  SYNC CHECK — surveillance cohérence TradingView ↔ Bot
 # ════════════════════════════════════════════════════════════════════════════
@@ -1456,39 +1492,63 @@ def _log_sync_event(coin: str, issue: str, details: dict):
         _sync_alerts.pop(0)
     log.warning(f"⚠️ DESYNC {coin}: {issue} | {details}")
 
-def check_sync(coin: str, signal: dict):
-    """Vérifie la cohérence entre le signal TV et l'état interne du bot."""
-    side    = signal.get("side", "").lower()
-    action  = signal.get("action", "").lower()
-    dry_pos = _dry_positions.get(coin)
+def check_sync(coin: str, signal: dict) -> bool:
+    """Analyse la cohérence TV↔Bot et bloque si anomalie critique.
+    Retourne False + pause trading si problème bloquant."""
+    side   = signal.get("side", "").lower()
+    action = signal.get("action", "").lower()
 
     if action != "open":
-        return  # uniquement sur les entrées
+        return True
 
+    px = float(signal.get("price", 0) or 0)
+    sl = float(signal.get("sl",    0) or 0)
+    tp = float(signal.get("tp",    0) or 0)
+
+    # ── Check 1 : SL et TP obligatoires ──
+    if not sl or not tp:
+        _log_sync_event(coin, "SL_TP_MANQUANT", {"signal": signal})
+        pause_trading(f"{coin}: signal reçu sans SL ou TP")
+        return False
+
+    # ── Check 2 : cohérence SL par rapport à la direction ──
+    if side == "buy" and sl >= px:
+        _log_sync_event(coin, "SL_INCOHERENT_LONG", {"price": px, "sl": sl, "tp": tp})
+        pause_trading(f"{coin} LONG: SL {sl} >= entrée {px} — signal incohérent")
+        return False
+    if side == "sell" and sl <= px:
+        _log_sync_event(coin, "SL_INCOHERENT_SHORT", {"price": px, "sl": sl, "tp": tp})
+        pause_trading(f"{coin} SHORT: SL {sl} <= entrée {px} — signal incohérent")
+        return False
+
+    # ── Check 3 : TP dans le bon sens ──
+    if side == "buy" and tp <= px:
+        _log_sync_event(coin, "TP_INCOHERENT_LONG", {"price": px, "tp": tp})
+        pause_trading(f"{coin} LONG: TP {tp} <= entrée {px}")
+        return False
+    if side == "sell" and tp >= px:
+        _log_sync_event(coin, "TP_INCOHERENT_SHORT", {"price": px, "tp": tp})
+        pause_trading(f"{coin} SHORT: TP {tp} >= entrée {px}")
+        return False
+
+    # ── Check 4 : signal dupliqué (non bloquant, juste logger) ──
+    dry_pos = _dry_positions.get(coin)
     if dry_pos:
         existing_side = dry_pos.get("side", "")
         if existing_side == side:
             _log_sync_event(coin, "SIGNAL_DUPLIQUE", {
-                "signal_side": side,
-                "bot_position": existing_side,
+                "signal_side": side, "bot_side": existing_side,
                 "entry_bot": dry_pos.get("entry"),
             })
         elif existing_side and existing_side != side:
-            # Retournement — normal, juste logger
             log.info(f"  [SYNC] Retournement {coin}: {existing_side} → {side}")
 
-    # Vérifier que SL et TP sont dans le signal
-    if not signal.get("sl") or not signal.get("tp"):
-        _log_sync_event(coin, "SL_TP_MANQUANT", {"signal": signal})
-
-    # Enregistrer le dernier signal
+    # ── Enregistrer le dernier signal TV reçu ──
     _last_tv_signal[coin] = {
-        "ts":   datetime.utcnow().isoformat() + "Z",
-        "side": side,
-        "price": signal.get("price"),
-        "sl":   signal.get("sl"),
-        "tp":   signal.get("tp"),
+        "ts": datetime.utcnow().isoformat() + "Z",
+        "side": side, "price": px, "sl": sl, "tp": tp,
     }
+    return True
 
 @app.route("/sync_status")
 def sync_status():
@@ -1518,9 +1578,11 @@ def sync_status():
         }
 
     return jsonify({
-        "status":       status,
-        "sync_alerts":  _sync_alerts[-10:],
-        "checked_at":   datetime.utcnow().isoformat() + "Z",
+        "status":        status,
+        "sync_alerts":   _sync_alerts[-10:],
+        "trading_paused": _trading_paused,
+        "pause_reason":  _pause_reason,
+        "checked_at":    datetime.utcnow().isoformat() + "Z",
     })
 
 def main():
