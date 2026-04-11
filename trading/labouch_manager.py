@@ -519,24 +519,28 @@ class LabouchManager:
 
         # ---------- Mise à jour séquence ----------
         if is_win:
-            # WIN : ajoute bet_units à la fin
-            # Si bet_units >= 6 → on sépare en 3 pour limiter la croissance
-            # L'ajustement (reste) va sur le 3ème élément
-            if bet_units >= 6:
-                base      = bet_units // 3
-                remainder = bet_units % 3
+            # WIN : l'élément ajouté est proportionnel au gain réel (en unités de risque)
+            # profit_units = gain / (capital × risk%) → reflète la vraie amplitude du gain
+            # Si profit_units >= 6 → split en 3 (ajustement sur le 3ème)
+            base_risk    = (entry_capital or 1.0) * 0.02  # 2% risque de base
+            profit_units = max(1, round(pnl / base_risk)) if base_risk > 0 else bet_units
+            profit_units = int(profit_units)
+
+            if profit_units >= 6:
+                base      = profit_units // 3
+                remainder = profit_units % 3
                 parts     = [base, base, base + remainder]
                 sym["sequence"].extend(parts)
                 log.info(
                     f"[Labouchère] {symbol} WIN  pnl={pnl:+.2f} USDC | "
-                    f"bet={bet_units}≥6 → split [{ parts[0]},{parts[1]},{parts[2]}] | "
+                    f"profit_units={profit_units}≥6 → split [{parts[0]},{parts[1]},{parts[2]}] | "
                     f"séquence → {sym['sequence']}"
                 )
             else:
-                sym["sequence"].append(bet_units)
+                sym["sequence"].append(profit_units)
                 log.info(
                     f"[Labouchère] {symbol} WIN  pnl={pnl:+.2f} USDC | "
-                    f"séquence → {sym['sequence']}"
+                    f"profit_units={profit_units} | séquence → {sym['sequence']}"
                 )
         else:
             # LOSS : retire premier + dernier
