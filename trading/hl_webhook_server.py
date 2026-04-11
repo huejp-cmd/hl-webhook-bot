@@ -1493,8 +1493,10 @@ def _log_sync_event(coin: str, issue: str, details: dict):
     log.warning(f"⚠️ DESYNC {coin}: {issue} | {details}")
 
 def check_sync(coin: str, signal: dict) -> bool:
-    """Analyse la cohérence TV↔Bot et bloque si anomalie critique.
-    Retourne False + pause trading si problème bloquant."""
+    """TV est la référence absolue.
+    Le bot analyse les écarts et se corrige pour rester aligné sur TV.
+    Retourne False UNIQUEMENT si le signal TV est structurellement invalide
+    (données manquantes qui empêchent toute exécution)."""
     side   = signal.get("side", "").lower()
     action = signal.get("action", "").lower()
 
@@ -1505,50 +1507,60 @@ def check_sync(coin: str, signal: dict) -> bool:
     sl = float(signal.get("sl",    0) or 0)
     tp = float(signal.get("tp",    0) or 0)
 
-    # ── Check 1 : SL et TP obligatoires ──
-    if not sl or not tp:
-        _log_sync_event(coin, "SL_TP_MANQUANT", {"signal": signal})
-        pause_trading(f"{coin}: signal reçu sans SL ou TP")
+    # ── Blocage uniquement si signal structurellement inexécutable ──
+    if not sl or not tp or not px:
+        _log_sync_event(coin, "SIGNAL_INVALIDE_SL_TP", {
+            "price": px, "sl": sl, "tp": tp,
+            "msg": "Signal TV reçu sans SL/TP/prix — impossible à exécuter"
+        })
+        pause_trading(f"⚠️ {coin}: signal TV sans SL ou TP — vérification TV requise")
         return False
 
-    # ── Check 2 : cohérence SL par rapport à la direction ──
-    if side == "buy" and sl >= px:
-        _log_sync_event(coin, "SL_INCOHERENT_LONG", {"price": px, "sl": sl, "tp": tp})
-        pause_trading(f"{coin} LONG: SL {sl} >= entrée {px} — signal incohérent")
-        return False
-    if side == "sell" and sl <= px:
-        _log_sync_event(coin, "SL_INCOHERENT_SHORT", {"price": px, "sl": sl, "tp": tp})
-        pause_trading(f"{coin} SHORT: SL {sl} <= entrée {px} — signal incohérent")
-        return False
-
-    # ── Check 3 : TP dans le bon sens ──
-    if side == "buy" and tp <= px:
-        _log_sync_event(coin, "TP_INCOHERENT_LONG", {"price": px, "tp": tp})
-        pause_trading(f"{coin} LONG: TP {tp} <= entrée {px}")
-        return False
-    if side == "sell" and tp >= px:
-        _log_sync_event(coin, "TP_INCOHERENT_SHORT", {"price": px, "tp": tp})
-        pause_trading(f"{coin} SHORT: TP {tp} >= entrée {px}")
-        return False
-
-    # ── Check 4 : signal dupliqué (non bloquant, juste logger) ──
+    # ── Détection d'écarts BOT ↔ TV (TV a toujours raison) ──
     dry_pos = _dry_positions.get(coin)
+
     if dry_pos:
         existing_side = dry_pos.get("side", "")
-        if existing_side == side:
-            _log_sync_event(coin, "SIGNAL_DUPLIQUE", {
-                "signal_side": side, "bot_side": existing_side,
-                "entry_bot": dry_pos.get("entry"),
-            })
-        elif existing_side and existing_side != side:
-            log.info(f"  [SYNC] Retournement {coin}: {existing_side} → {side}")
 
-    # ── Enregistrer le dernier signal TV reçu ──
+        if existing_side == side:
+            # Bot déjà dans la même direction que TV → doublon, signal ignoré
+            _log_sync_event(coin, "SIGNAL_DUPLIQUE_TV_OK", {
+                "tv_side": side, "bot_side": existing_side,
+                "note": "TV maintient la direction — normal"
+            })
+
+        elif existing_side and existing_side != side:
+            # Bot en sens inverse de TV → TV ordonne un retournement
+            _log_sync_event(coin, "RETOURNEMENT_TV", {
+                "tv_side": side, "bot_side": existing_side,
+                "note": "TV change de direction — bot suit"
+            })
+            log.info(f"  [SYNC-TV] Retournement TV {coin}: {existing_side} → {side}")
+    else:
+        # Bot sans position, TV envoie signal → normal, nouvelle entrée
+        log.info(f"  [SYNC-TV] {coin}: nouvelle entrée TV {side.upper()} @ {px}")
+
+    # ── Vérification cohérence SL/TP (alerte uniquement, TV reste référence) ──
+    if side == "buy" and sl >= px:
+        _log_sync_event(coin, "ALERTE_SL_LONG", {
+            "price": px, "sl": sl,
+            "note": "SL >= entrée sur LONG — TV est la référence, exécution maintenue"
+        })
+        log.warning(f"  ⚠️ [SYNC] {coin} LONG: SL {sl} >= entrée {px} — alerte sans blocage")
+
+    if side == "sell" and sl <= px:
+        _log_sync_event(coin, "ALERTE_SL_SHORT", {
+            "price": px, "sl": sl,
+            "note": "SL <= entrée sur SHORT — TV est la référence, exécution maintenue"
+        })
+        log.warning(f"  ⚠️ [SYNC] {coin} SHORT: SL {sl} <= entrée {px} — alerte sans blocage")
+
+    # ── Enregistrer le dernier signal TV ──
     _last_tv_signal[coin] = {
         "ts": datetime.utcnow().isoformat() + "Z",
         "side": side, "price": px, "sl": sl, "tp": tp,
     }
-    return True
+    return True  # TV est la référence → on exécute toujours
 
 @app.route("/sync_status")
 def sync_status():
