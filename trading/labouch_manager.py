@@ -520,11 +520,24 @@ class LabouchManager:
         # ---------- Mise à jour séquence ----------
         if is_win:
             # WIN : ajoute bet_units à la fin
-            sym["sequence"].append(bet_units)
-            log.info(
-                f"[Labouchère] {symbol} WIN  pnl={pnl:+.2f} USDC | "
-                f"séquence → {sym['sequence']}"
-            )
+            # Si bet_units >= 6 → on sépare en 3 pour limiter la croissance
+            # L'ajustement (reste) va sur le 3ème élément
+            if bet_units >= 6:
+                base      = bet_units // 3
+                remainder = bet_units % 3
+                parts     = [base, base, base + remainder]
+                sym["sequence"].extend(parts)
+                log.info(
+                    f"[Labouchère] {symbol} WIN  pnl={pnl:+.2f} USDC | "
+                    f"bet={bet_units}≥6 → split [{ parts[0]},{parts[1]},{parts[2]}] | "
+                    f"séquence → {sym['sequence']}"
+                )
+            else:
+                sym["sequence"].append(bet_units)
+                log.info(
+                    f"[Labouchère] {symbol} WIN  pnl={pnl:+.2f} USDC | "
+                    f"séquence → {sym['sequence']}"
+                )
         else:
             # LOSS : retire premier + dernier
             sym["cum_loss_units"] = sym.get("cum_loss_units", 0.0) + bet_units
