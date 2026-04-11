@@ -264,60 +264,60 @@ if exitShort and na(shortTP)
     strategy.close("Short", comment="TP-HA ✓")
     shortSL := na
     shortBE := false
-    alert('{"action":"close","side":"sell","symbol":"ETH","reason":"TP-HA","strategy":"apex_v3"}', alert.freq_once_per_bar_close)
+    alert('{"action":"close","side":"sell","symbol":"' + syminfo.basecurrency + '","reason":"TP-HA","strategy":"apex_v3"}', alert.freq_once_per_bar_close)
 
 if exitShort and not na(shortTP)
     strategy.close("Short", comment="TP-HA ✓")
     shortSL := na
     shortTP := na
     shortBE := false
-    alert('{"action":"close","side":"sell","symbol":"ETH","reason":"TP-HA","strategy":"apex_v3"}', alert.freq_once_per_bar_close)
+    alert('{"action":"close","side":"sell","symbol":"' + syminfo.basecurrency + '","reason":"TP-HA","strategy":"apex_v3"}', alert.freq_once_per_bar_close)
 
 if exitLong and na(longTP)
     strategy.close("Long", comment="TP-HA ✓")
     longSL  := na
     longBE  := false
-    alert('{"action":"close","side":"buy","symbol":"ETH","reason":"TP-HA","strategy":"apex_v3"}', alert.freq_once_per_bar_close)
+    alert('{"action":"close","side":"buy","symbol":"' + syminfo.basecurrency + '","reason":"TP-HA","strategy":"apex_v3"}', alert.freq_once_per_bar_close)
 
 if exitLong and not na(longTP)
     strategy.close("Long", comment="TP-HA ✓")
     longSL  := na
     longTP  := na
     longBE  := false
-    alert('{"action":"close","side":"buy","symbol":"ETH","reason":"TP-HA","strategy":"apex_v3"}', alert.freq_once_per_bar_close)
+    alert('{"action":"close","side":"buy","symbol":"' + syminfo.basecurrency + '","reason":"TP-HA","strategy":"apex_v3"}', alert.freq_once_per_bar_close)
 
 if tpHitShort
     strategy.close("Short", comment="TP-ATR ✓")
     shortSL := na
     shortTP := na
     shortBE := false
-    alert('{"action":"close","side":"sell","symbol":"ETH","reason":"TP-ATR","strategy":"apex_v3"}', alert.freq_once_per_bar)
+    alert('{"action":"close","side":"sell","symbol":"' + syminfo.basecurrency + '","reason":"TP-ATR","strategy":"apex_v3"}', alert.freq_once_per_bar)
 
 if tpHitLong
     strategy.close("Long", comment="TP-ATR ✓")
     longSL := na
     longTP := na
     longBE := false
-    alert('{"action":"close","side":"buy","symbol":"ETH","reason":"TP-ATR","strategy":"apex_v3"}', alert.freq_once_per_bar)
+    alert('{"action":"close","side":"buy","symbol":"' + syminfo.basecurrency + '","reason":"TP-ATR","strategy":"apex_v3"}', alert.freq_once_per_bar)
 
 if slHitShort
     strategy.close("Short", comment=shortBE ? "BE ✗" : "SL ✗")
     shortSL := na
     shortBE := false
-    alert('{"action":"close","side":"sell","symbol":"ETH","reason":' + (shortBE ? '"BE"' : '"SL"') + ',"strategy":"apex_v3"}', alert.freq_once_per_bar)
+    alert('{"action":"close","side":"sell","symbol":"' + syminfo.basecurrency + '","reason":' + (shortBE ? '"BE"' : '"SL"') + ',"strategy":"apex_v3"}', alert.freq_once_per_bar)
 
 if slHitLong
     strategy.close("Long", comment=longBE ? "BE ✗" : "SL ✗")
     longSL := na
     longBE := false
-    alert('{"action":"close","side":"buy","symbol":"ETH","reason":' + (longBE ? '"BE"' : '"SL"') + ',"strategy":"apex_v3"}', alert.freq_once_per_bar)
+    alert('{"action":"close","side":"buy","symbol":"' + syminfo.basecurrency + '","reason":' + (longBE ? '"BE"' : '"SL"') + ',"strategy":"apex_v3"}', alert.freq_once_per_bar)
 
 if shortEntry
     if isLong
         strategy.close("Long", comment="↕ →Short")
         longSL := na
         longBE := false
-        alert('{"action":"close","side":"buy","symbol":"ETH","reason":"flip_short","strategy":"apex_v3"}', alert.freq_once_per_bar)
+        alert('{"action":"close","side":"buy","symbol":"' + syminfo.basecurrency + '","reason":"flip_short","strategy":"apex_v3"}', alert.freq_once_per_bar)
     slPx = close + atrValue * slAtrMult
     tpPx = close - atrValue * tpAtrMult
     qty  = calcQty(close, slPx)
@@ -328,7 +328,7 @@ if shortEntry
         shortEntry_px := close
         shortSL_init  := slPx - close
         shortBE       := false
-        alert('{"action":"open","side":"sell","symbol":"ETH","strategy":"apex_v3"'
+        alert('{"action":"open","side":"sell","symbol":"' + syminfo.basecurrency + '","strategy":"apex_v3"'
              + ',"price":'  + str.tostring(math.round(close, 4))
              + ',"sl":'     + str.tostring(math.round(slPx,  4))
              + ',"tp":'     + str.tostring(tpAtrMult > 0 ? math.round(tpPx, 4) : 0.0)
@@ -340,7 +340,7 @@ if longEntry
         strategy.close("Short", comment="↕ →Long")
         shortSL := na
         shortBE := false
-        alert('{"action":"close","side":"sell","symbol":"ETH","reason":"flip_long","strategy":"apex_v3"}', alert.freq_once_per_bar)
+        alert('{"action":"close","side":"sell","symbol":"' + syminfo.basecurrency + '","reason":"flip_long","strategy":"apex_v3"}', alert.freq_once_per_bar)
     slPx = close - atrValue * slAtrMult
     tpPx = close + atrValue * tpAtrMult
     qty  = calcQty(close, slPx)
@@ -351,7 +351,7 @@ if longEntry
         longEntry_px  := close
         longSL_init   := close - slPx
         longBE        := false
-        alert('{"action":"open","side":"buy","symbol":"ETH","strategy":"apex_v3"'
+        alert('{"action":"open","side":"buy","symbol":"' + syminfo.basecurrency + '","strategy":"apex_v3"'
              + ',"price":'  + str.tostring(math.round(close, 4))
              + ',"sl":'     + str.tostring(math.round(slPx,  4))
              + ',"tp":'     + str.tostring(tpAtrMult > 0 ? math.round(tpPx, 4) : 0.0)
