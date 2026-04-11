@@ -190,20 +190,20 @@ capQty_(qty_raw, ep, sp) =>
     math.min(capNormal, capLiq)
 
 // Long
-slBaseL = isRanging ? val * 0.995 : ta.lowest(rLow, 15) * 0.995
+slBaseL = isRanging ? val * 0.995 : nz(ta.lowest(rLow, 15), rClose * 0.985) * 0.995
 slL     = math.max(slBaseL, rClose * 0.985)
 tpMultL = isTrending ? 4.0 : (isRanging ? 2.5 : 3.3)
 tpL     = (rClose + (rClose - slL) * tpMultL) * (1 + tpSlippage / 100)
 rawQtyL = math.max(calcQty(rClose, slL) * leverage, stepCapital * 0.001)
-qtyL    = capQty_(rawQtyL, rClose, slL)
+qtyL    = na(rClose) or na(slL) ? na : capQty_(rawQtyL, rClose, slL)
 
 // Short
-slBaseS = isRanging ? vah * 1.005 : ta.highest(rHigh, 15) * 1.005
+slBaseS = isRanging ? vah * 1.005 : nz(ta.highest(rHigh, 15), rClose * 1.015) * 1.005
 slS     = math.min(slBaseS, rClose * 1.015)
 tpMultS = isTrending ? 4.0 : (isRanging ? 2.5 : 3.3)
 tpS     = (rClose - (slS - rClose) * tpMultS) * (1 - tpSlippage / 100)
 rawQtyS = math.max(calcQty(rClose, slS) * leverage, stepCapital * 0.001)
-qtyS    = capQty_(rawQtyS, rClose, slS)
+qtyS    = na(rClose) or na(slS) ? na : capQty_(rawQtyS, rClose, slS)
 
 regStr = isTrending ? "trend" : (isRanging ? "range" : "explosive")
 
@@ -240,7 +240,7 @@ dcaShortOk = dcaEnabled and inShort and dcaCountS < maxDCA and
 //  STRATEGY ENTRIES
 //
 // ── ENTRÉES TENDANCE (clôture bougie) ────────────────────────────
-if entryLT and validL and not inRng and not inLong
+if entryLT and validL and not inRng and not inLong and not na(qtyL)
     strategy.cancel_all()
     trailPtsL  = rClose - slL
     entrySlL  := slL
@@ -266,7 +266,7 @@ if entryLT and validL and not inRng and not inLong
      alert.freq_once_per_bar_close)
 
 // ── ENTRÉES EXPLOSIF LONG (intrabar — breakout immédiat) ─────────
-if entryLE and validL and not inRng and not inLong
+if entryLE and validL and not inRng and not inLong and not na(qtyL)
     strategy.cancel_all()
     trailPtsL  = rClose - slL
     entrySlL  := slL
@@ -292,7 +292,7 @@ if entryLE and validL and not inRng and not inLong
      alert.freq_once_per_bar)
 
 // ── ENTRÉES TENDANCE SHORT (clôture bougie) ──────────────────────
-if entryST and validS and not inRng and not inShort
+if entryST and validS and not inRng and not inShort and not na(qtyS)
     strategy.cancel_all()
     trailPtsS  = slS - rClose
     entrySlS  := slS
@@ -318,7 +318,7 @@ if entryST and validS and not inRng and not inShort
      alert.freq_once_per_bar_close)
 
 // ── ENTRÉES EXPLOSIF SHORT (intrabar — breakout immédiat) ────────
-if entrySE and validS and not inRng and not inShort
+if entrySE and validS and not inRng and not inShort and not na(qtyS)
     strategy.cancel_all()
     trailPtsS  = slS - rClose
     entrySlS  := slS
