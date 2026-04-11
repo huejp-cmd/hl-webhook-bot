@@ -68,17 +68,17 @@ STOP_SESSION_PCT  = 0.15   # 15 % de perte journalière → pause
 # ---------------------------------------------------------------------------
 # Mode "réaliste" : exécution propre sans slippage
 MARKET_CEILING_REALISTIC = {
-    "ETH": 50_000,
-    "SOL": 70_000,
-    "BTC": 100_000,
+    "ETH": 5_000_000,
+    "SOL": 5_000_000,
+    "BTC": 10_000_000,
 }
 
 # Mode "haut" : ceiling élevé pour maximiser la performance
 # (correspond à la liquidité profonde du carnet d'ordres)
 MARKET_CEILING_HIGH = {
-    "ETH": 500_000,
-    "SOL": 500_000,
-    "BTC": 1_000_000,
+    "ETH": 25_000_000,
+    "SOL": 25_000_000,
+    "BTC": 50_000_000,
 }
 
 DEFAULT_CEILING_NOTIONAL = 50_000
