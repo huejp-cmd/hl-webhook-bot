@@ -650,9 +650,17 @@ def place_order(signal: dict) -> dict:
         log.info(f"  Quantite (calc)  : {qty} {coin}")
 
     if qty <= 0:
-        msg = f"Quantite nulle pour {coin} -- ordre annule"
-        log.error(f"  {msg}")
-        return {"status": "error", "reason": msg}
+        # Fallback : taille minimale du marché (1 pour SOL, 0.001 pour ETH)
+        min_lot = {"SOL": 1.0, "ETH": 0.001, "BTC": 0.0001}.get(coin, 0.001)
+        # Vérifier si le capital permet au moins ce lot minimum
+        notional_min = min_lot * entry_px / lev
+        if notional_min <= capital:
+            qty = min_lot
+            log.warning(f"  Quantite nulle -> lot minimum {min_lot} {coin} (notional={notional_min:.2f} USDC)")
+        else:
+            msg = f"Quantite nulle pour {coin} et lot minimum trop grand ({notional_min:.2f} USDC > capital {capital:.2f}) -- ordre annule"
+            log.error(f"  {msg}")
+            return {"status": "error", "reason": msg}
 
     # --- Labouchère ---
     ok, reason = labouch.should_trade(coin, capital)
@@ -705,8 +713,18 @@ def place_order(signal: dict) -> dict:
     except Exception as e:
         log.warning(f"  Levier warning ({coin}): {e}")
 
-    # -- Vérifie position existante --
-    existing = get_open_position(coin)
+    # -- Vérifie position existante (DRY_RUN: positions virtuelles / LIVE: Hyperliquid) --
+    if DRY_RUN:
+        dry_pos = _dry_positions.get(coin)
+        if dry_pos:
+            same_dir = (dry_pos["side"] == "buy" and is_buy) or (dry_pos["side"] == "sell" and not is_buy)
+            if same_dir:
+                msg = f"[DRY] Position {coin} déjà ouverte ({dry_pos['side']}) — signal ignoré"
+                log.warning(f"  {msg}")
+                return {"status": "skipped", "reason": msg}
+        existing = 0
+    else:
+        existing = get_open_position(coin)
     same_direction = (existing > 0 and is_buy) or (existing < 0 and not is_buy)
     if same_direction:
         msg = f"Position {coin} déjà ouverte dans le même sens ({existing}) — signal ignoré"
