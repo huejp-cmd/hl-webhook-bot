@@ -1,0 +1,376 @@
+//@version=5
+strategy(
+     title                   = "HA+HMA × Labouchère — Apex v3",
+     overlay                 = true,
+     initial_capital         = 50000,
+     currency                = currency.USD,
+     default_qty_type        = strategy.fixed,
+     default_qty_value       = 1,
+     pyramiding              = 0,
+     process_orders_on_close = false,
+     calc_on_every_tick      = true,
+     commission_type         = strategy.commission.percent,
+     commission_value        = 0.05,
+     slippage                = 1)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PARAMÈTRES HMA
+// ─────────────────────────────────────────────────────────────────────────────
+hmaSlowLen = input.int  (50,  "HMA Lente (filtre entrée)",  minval=2,   group="HMA")
+hmaFastLen = input.int  (20,  "HMA Rapide (sortie)",        minval=2,   group="HMA")
+atrLen     = input.int  (14,  "ATR — période SL/TP",        minval=1,   group="HMA")
+slAtrMult  = input.float(1.5, "ATR — multiplicateur SL",    step=0.25, minval=0.25, group="HMA")
+tpAtrMult  = input.float(2.0, "ATR — multiplicateur TP fixe (0=désactivé)", step=0.25, minval=0.0, group="HMA")
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PARAMÈTRES LABOUCHÈRE (SOL29 v6)
+// ─────────────────────────────────────────────────────────────────────────────
+riskPerc     = input.float(1.0, "Risque base %",          step=0.5, minval=0.5, maxval=5.0, group="Labouchère Inversé") / 100.0
+seqInitVal   = input.int  (1,   "Valeur initiale séquence (1=std | 2=agressif)", minval=1, maxval=4, group="Labouchère Inversé")
+leverageLab  = input.float(1.0, "Levier Labouchère",      step=0.5, minval=1.0,             group="Labouchère Inversé")
+baseDivisor  = input.int  (4,   "Diviseur WIN de base",   step=1,   minval=2, maxval=100,   group="Labouchère Inversé",
+     tooltip="4 = comportement par défaut. Augmenter quand les mises stagnent (5–6 trades consécutifs). Ex: 4→8→10→20.")
+slCapPct     = input.float(5.0, "SL max % capital",       step=0.5, minval=1.0, maxval=20.0, group="Labouchère Inversé") / 100.0
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PARAMÈTRES CAPITAL / PROTECTION DD
+// ─────────────────────────────────────────────────────────────────────────────
+startCapital  = input.float(50000.0, "Capital propre ($)",        step=1000, group="Capital & DD")
+ddPausePct    = input.float(4.0,     "Pause si DD ≥ % capital",   step=0.5,  group="Capital & DD") / 100.0
+ddReduce1Pct  = input.float(2.0,     "Réduction 50% si DD ≥ %",   step=0.5,  group="Capital & DD") / 100.0
+ddReduce2Pct  = input.float(3.0,     "Réduction 25% si DD ≥ %",   step=0.5,  group="Capital & DD") / 100.0
+
+apexDailyLim  = input.float(900.0,   "Arrêt si perte jour ≥ ($)", step=50,   group="Apex Circuit Breakers")
+apexDDLim     = input.float(1800.0,  "Arrêt si DD total  ≥ ($)",  step=100,  group="Apex Circuit Breakers")
+
+liveMode      = input.bool(false, "Mode live — ordre 5s avant clôture", group="Exécution")
+debugMode     = input.bool(false, "Mode debug (labels)", group="Debug")
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  CONSTANTES LABOUCHÈRE (identiques SOL29 v6)
+// ─────────────────────────────────────────────────────────────────────────────
+float UNIT_FACTOR = 0.5
+float LEV_MULT    = 2.0
+float MAX_MULT    = 6.0
+float MIN_MULT    = 0.5
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  HEIKIN ASHI (calcul manuel)
+// ─────────────────────────────────────────────────────────────────────────────
+haClose  = (open + high + low + close) / 4.0
+var float haOpenV = na
+haOpenV := na(haOpenV[1]) ? (open + close) / 2.0 : (haOpenV[1] + haClose[1]) / 2.0
+haHigh   = math.max(high, math.max(haOpenV, haClose))
+
+haIsGreen = haClose >= haOpenV
+haIsRed   = haClose  < haOpenV
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  HMA sur HA Close + ATR pour SL
+// ─────────────────────────────────────────────────────────────────────────────
+hmaOnHA_slow = ta.hma(haClose, hmaSlowLen)
+hmaOnHA_fast = ta.hma(haClose, hmaFastLen)
+atrValue     = ta.atr(atrLen)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  LABOUCHÈRE INVERSÉ — moteur SOL29 v6
+// ─────────────────────────────────────────────────────────────────────────────
+var int[] labSeq      = na
+var int   lastClosed  = 0
+var int   labWins     = 0
+var int   labLosses   = 0
+var float labPeakMult = 0.0
+var int   lastDivisor = 1
+
+if na(labSeq)
+    labSeq := array.new_int(4, seqInitVal)
+
+labSz  = array.size(labSeq)
+labBet = labSz <= 0 ? seqInitVal * 2 : labSz == 1 ? array.get(labSeq, 0) * 2 : array.get(labSeq, 0) + array.get(labSeq, labSz - 1)
+labMult = math.max(MIN_MULT, math.min(MAX_MULT, float(labBet) * UNIT_FACTOR * LEV_MULT))
+if labMult > labPeakMult
+    labPeakMult := labMult
+
+// Mise à jour sur trade fermé
+if strategy.closedtrades > lastClosed
+    tradeProfit = strategy.closedtrades.profit(strategy.closedtrades - 1)
+    currentBet  = labBet
+    if tradeProfit > 0
+        lastIdx   = strategy.closedtrades - 1
+        lastSz    = math.abs(strategy.closedtrades.size(lastIdx))
+        lastEntry = strategy.closedtrades.entry_price(lastIdx)
+        lastMise  = lastSz * lastEntry
+        if lastMise >= startCapital
+            divisorF    = math.max(float(baseDivisor), math.floor(lastMise / startCapital) + float(baseDivisor - 1))
+            addVal      = math.max(1, math.round(float(currentBet) / divisorF))
+            lastDivisor := int(divisorF)
+            array.push(labSeq, addVal)
+        else
+            lastDivisor := 1
+            array.push(labSeq, currentBet)
+        labWins += 1
+    else
+        sz = array.size(labSeq)
+        if sz >= 2
+            array.remove(labSeq, sz - 1)
+            array.remove(labSeq, 0)
+        else if sz == 1
+            array.clear(labSeq)
+        if array.size(labSeq) == 0
+            for _i = 0 to 3
+                array.push(labSeq, seqInitVal)
+        labLosses += 1
+    lastClosed := strategy.closedtrades
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  CAPITAL COMPOUND + PROTECTION DD
+// ─────────────────────────────────────────────────────────────────────────────
+compoundCap = math.max(strategy.equity, startCapital * 0.5)
+
+currentDD  = strategy.equity < strategy.initial_capital ? (strategy.initial_capital - strategy.equity) / strategy.initial_capital : 0.0
+sizeFactor = currentDD >= ddPausePct ? 0.0 : currentDD >= ddReduce2Pct ? 0.25 : currentDD >= ddReduce1Pct ? 0.5 : 1.0
+
+// Apex circuit breakers (dollar)
+var float dayStartEquity = strategy.initial_capital
+if ta.change(dayofmonth) != 0
+    dayStartEquity := strategy.equity
+dailyPnL = strategy.equity - dayStartEquity
+totalDD  = strategy.initial_capital - strategy.equity
+tradingAllowed = dailyPnL > -apexDailyLim and totalDD < apexDDLim and sizeFactor > 0.0
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  TIMING D'EXÉCUTION
+// ─────────────────────────────────────────────────────────────────────────────
+barDurMs   = time - nz(time[1], time)
+closeTimeMs = time + math.max(barDurMs, 1) - 1
+msLeft     = closeTimeMs - timenow
+execNow    = liveMode ? (msLeft <= 5000 and msLeft >= 0) : barstate.isconfirmed
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  ÉTAT DES POSITIONS
+// ─────────────────────────────────────────────────────────────────────────────
+isShort = strategy.position_size < 0
+isLong  = strategy.position_size > 0
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  SIGNAUX
+// ─────────────────────────────────────────────────────────────────────────────
+shortSignal = haIsRed   and haClose < hmaOnHA_slow and not isShort and tradingAllowed
+longSignal  = haIsGreen and haClose > hmaOnHA_slow and not isLong  and tradingAllowed
+
+exitShortSignal = haIsGreen and haIsRed[1]   and haClose > hmaOnHA_fast and strategy.position_size < 0
+exitLongSignal  = haIsRed   and haIsGreen[1] and haClose < hmaOnHA_fast and strategy.position_size > 0
+
+shortEntry = shortSignal       and execNow
+longEntry  = longSignal        and execNow
+exitShort  = exitShortSignal   and execNow
+exitLong   = exitLongSignal    and execNow
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  STOP LOSS + BREAKEVEN (prix classiques)
+// ─────────────────────────────────────────────────────────────────────────────
+var float shortSL       = na
+var float longSL        = na
+var float shortTP       = na
+var float longTP        = na
+var float shortEntry_px = na
+var float longEntry_px  = na
+var float shortSL_init  = na
+var float longSL_init   = na
+var bool  shortBE       = false
+var bool  longBE        = false
+
+if strategy.position_size < 0 and not shortBE and not na(shortSL) and not na(shortEntry_px)
+    if close <= shortEntry_px - shortSL_init
+        shortSL := shortEntry_px
+        shortBE := true
+
+if strategy.position_size > 0 and not longBE and not na(longSL) and not na(longEntry_px)
+    if close >= longEntry_px + longSL_init
+        longSL := longEntry_px
+        longBE := true
+
+slHitShort = strategy.position_size < 0 and not na(shortSL) and high >= shortSL
+slHitLong  = strategy.position_size > 0 and not na(longSL)  and low  <= longSL
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  CALCUL QUANTITÉ
+// ─────────────────────────────────────────────────────────────────────────────
+calcQty(entryPx, slPx) =>
+    dist     = math.max(math.abs(entryPx - slPx), 1e-12)
+    baseQty  = (compoundCap * riskPerc) / dist
+    rawQty   = baseQty * leverageLab * labMult
+    rawQty   := rawQty <= 0 ? compoundCap * 0.001 : rawQty
+    qtyCapSL  = (compoundCap * slCapPct) / dist
+    qtyCapAbs = strategy.equity / entryPx
+    qtyCapLev = (compoundCap * leverageLab) / entryPx
+    math.min(rawQty, math.min(qtyCapAbs, math.min(qtyCapLev, qtyCapSL))) * sizeFactor
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  EXÉCUTION
+// ─────────────────────────────────────────────────────────────────────────────
+tpHitShort = strategy.position_size < 0 and not na(shortTP) and tpAtrMult > 0 and low <= shortTP
+tpHitLong  = strategy.position_size > 0 and not na(longTP)  and tpAtrMult > 0 and high >= longTP
+
+if tpHitShort
+    strategy.close("Short", comment="TP-ATR ✓")
+    shortSL := na
+    shortTP := na
+    shortBE := false
+
+if tpHitLong
+    strategy.close("Long", comment="TP-ATR ✓")
+    longSL := na
+    longTP := na
+    longBE := false
+
+if exitShort and na(shortTP)
+    strategy.close("Short", comment="TP-HA ✓")
+    shortSL := na
+    shortBE := false
+
+if exitShort and not na(shortTP)
+    strategy.close("Short", comment="TP-HA ✓")
+    shortSL := na
+    shortTP := na
+    shortBE := false
+
+if exitLong and na(longTP)
+    strategy.close("Long", comment="TP-HA ✓")
+    longSL  := na
+    longBE  := false
+
+if exitLong and not na(longTP)
+    strategy.close("Long", comment="TP-HA ✓")
+    longSL  := na
+    longTP  := na
+    longBE  := false
+
+if slHitShort
+    strategy.close("Short", comment=shortBE ? "BE ✗" : "SL ✗")
+    shortSL := na
+    shortBE := false
+
+if slHitLong
+    strategy.close("Long", comment=longBE ? "BE ✗" : "SL ✗")
+    longSL := na
+    longBE := false
+
+if shortEntry
+    if isLong
+        strategy.close("Long", comment="↕ →Short")
+        longSL := na
+        longBE := false
+    slPx = close + atrValue * slAtrMult
+    tpPx = close - atrValue * tpAtrMult
+    qty  = calcQty(close, slPx)
+    if qty > 0.0
+        strategy.entry("Short", strategy.short, qty=qty)
+        shortSL       := slPx
+        shortTP       := tpAtrMult > 0 ? tpPx : na
+        shortEntry_px := close
+        shortSL_init  := slPx - close
+        shortBE       := false
+
+if longEntry
+    if isShort
+        strategy.close("Short", comment="↕ →Long")
+        shortSL := na
+        shortBE := false
+    slPx = close - atrValue * slAtrMult
+    tpPx = close + atrValue * tpAtrMult
+    qty  = calcQty(close, slPx)
+    if qty > 0.0
+        strategy.entry("Long", strategy.long, qty=qty)
+        longSL        := slPx
+        longTP        := tpAtrMult > 0 ? tpPx : na
+        longEntry_px  := close
+        longSL_init   := close - slPx
+        longBE        := false
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  DEBUG
+// ─────────────────────────────────────────────────────────────────────────────
+if debugMode
+    if haIsGreen and (isLong or isShort)
+        label.new(bar_index, low,  "⏸ POS", style=label.style_label_up,   color=color.gray,   textcolor=color.white, size=size.tiny)
+    if haIsGreen and not (isLong or isShort) and not (haClose > hmaOnHA_slow)
+        label.new(bar_index, low,  "HA<50",  style=label.style_label_up,   color=color.yellow, textcolor=color.black, size=size.tiny)
+    if haIsRed and (isLong or isShort)
+        label.new(bar_index, high, "⏸ POS", style=label.style_label_down, color=color.gray,   textcolor=color.white, size=size.tiny)
+    if haIsRed and not (isLong or isShort) and not (haClose < hmaOnHA_slow)
+        label.new(bar_index, high, "HA>50",  style=label.style_label_down, color=color.yellow, textcolor=color.black, size=size.tiny)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  AFFICHAGE
+// ─────────────────────────────────────────────────────────────────────────────
+plot(hmaOnHA_slow, "HMA 50 (HA)", color=color.new(color.blue,   0), linewidth=2)
+plot(hmaOnHA_fast, "HMA 20 (HA)", color=color.new(color.orange, 0), linewidth=1)
+
+plotshape(shortSignal,      "▼ SHORT",  shape.triangledown, location.abovebar, color.new(color.red,    0), size=size.normal, text="S", textcolor=color.white)
+plotshape(longSignal,       "▲ LONG",   shape.triangleup,   location.belowbar, color.new(color.green,  0), size=size.normal, text="L", textcolor=color.white)
+plotshape(exitShortSignal,  "✕ Exit S", shape.xcross, location.abovebar, color.new(color.orange, 0), size=size.small)
+plotshape(exitLongSignal,   "✕ Exit L", shape.xcross, location.belowbar, color.new(color.orange, 0), size=size.small)
+plotshape(tpHitShort or tpHitLong, "TP", shape.circle, location.abovebar, color.new(color.lime, 0), size=size.tiny)
+plotshape(slHitShort or slHitLong, "SL", shape.circle, location.abovebar, color.new(color.red,  0), size=size.tiny)
+
+bgcolor(not tradingAllowed ? color.new(color.red, 88) : na, title="⛔ Apex : trading suspendu")
+
+var line slLine = na
+if shortEntry
+    slLine := line.new(bar_index, high, bar_index + 4, high, color=color.new(color.red,   50), style=line.style_dashed, width=1)
+if longEntry
+    slLine := line.new(bar_index, low,  bar_index + 4, low,  color=color.new(color.green, 50), style=line.style_dashed, width=1)
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  TABLEAU DE BORD
+// ─────────────────────────────────────────────────────────────────────────────
+var table dash = table.new(position.top_right, 2, 14, border_width=1, border_color=color.new(color.white, 60))
+
+if barstate.islast
+    seqLabel = seqInitVal == 1 ? "[1,1,1,1]" : seqInitVal == 2 ? "[2,2,2,2]" : "[" + str.tostring(seqInitVal) + "x4]"
+
+    table.cell(dash, 0, 0, "HA+HMA x Labouchere", bgcolor=color.new(color.navy, 10), text_color=color.white,  text_size=size.small)
+    table.cell(dash, 1, 0, seqLabel + " | r=" + str.tostring(riskPerc*100,"#.#") + "%", bgcolor=color.new(color.navy, 10), text_color=color.yellow, text_size=size.small)
+
+    table.cell(dash, 0, 1, "Capital compound",   bgcolor=color.new(color.black, 0), text_color=color.gray,  text_size=size.tiny)
+    table.cell(dash, 1, 1, str.tostring(compoundCap, "#.0") + "$", bgcolor=color.new(color.black, 0), text_color=compoundCap > startCapital ? color.lime : color.red, text_size=size.tiny)
+
+    table.cell(dash, 0, 2, "Bet units",          bgcolor=color.new(color.black, 0), text_color=color.gray,  text_size=size.tiny)
+    table.cell(dash, 1, 2, str.tostring(labBet) + " u", bgcolor=color.new(color.black, 0), text_color=labBet > 6 ? color.red : labBet > 4 ? color.orange : color.lime, text_size=size.tiny)
+
+    table.cell(dash, 0, 3, "Multiplicateur",     bgcolor=color.new(color.black, 0), text_color=color.gray,  text_size=size.tiny)
+    table.cell(dash, 1, 3, str.tostring(labMult, "#.##") + "x", bgcolor=color.new(color.black, 0), text_color=labMult >= 5.0 ? color.red : labMult >= 3.0 ? color.orange : color.lime, text_size=size.tiny)
+
+    table.cell(dash, 0, 4, "Seq. longueur",      bgcolor=color.new(color.black, 0), text_color=color.gray,  text_size=size.tiny)
+    table.cell(dash, 1, 4, str.tostring(array.size(labSeq)) + " elements", bgcolor=color.new(color.black, 0), text_color=color.white, text_size=size.tiny)
+
+    table.cell(dash, 0, 5, "Wins / Losses",      bgcolor=color.new(color.black, 0), text_color=color.gray,  text_size=size.tiny)
+    table.cell(dash, 1, 5, str.tostring(labWins) + "W / " + str.tostring(labLosses) + "L", bgcolor=color.new(color.black, 0), text_color=labWins > labLosses ? color.lime : color.red, text_size=size.tiny)
+
+    table.cell(dash, 0, 6, "Size factor",        bgcolor=color.new(color.black, 0), text_color=color.gray,  text_size=size.tiny)
+    table.cell(dash, 1, 6, str.tostring(sizeFactor * 100, "#") + "%", bgcolor=color.new(color.black, 0), text_color=sizeFactor == 1.0 ? color.lime : sizeFactor == 0.0 ? color.red : color.orange, text_size=size.tiny)
+
+    table.cell(dash, 0, 7, "Net Profit",         bgcolor=color.new(color.navy, 50), text_color=color.gray,  text_size=size.tiny)
+    table.cell(dash, 1, 7, str.tostring(strategy.netprofit, "#.0") + "$", bgcolor=color.new(color.navy, 50), text_color=strategy.netprofit >= 0 ? color.lime : color.red, text_size=size.tiny)
+
+    table.cell(dash, 0, 8, "Win Rate",           bgcolor=color.new(color.navy, 50), text_color=color.gray,  text_size=size.tiny)
+    winRateVal = strategy.closedtrades > 0 ? float(strategy.wintrades) / float(strategy.closedtrades) * 100.0 : 0.0
+    table.cell(dash, 1, 8, str.tostring(winRateVal, "#.#") + "% (" + str.tostring(strategy.closedtrades) + " trades)", bgcolor=color.new(color.navy, 50), text_color=winRateVal >= 50 ? color.lime : color.orange, text_size=size.tiny)
+
+    table.cell(dash, 0, 9, "DD courant",         bgcolor=color.new(color.black, 0), text_color=color.gray,  text_size=size.tiny)
+    table.cell(dash, 1, 9, str.tostring(currentDD * 100, "#.##") + "%", bgcolor=color.new(color.black, 0), text_color=currentDD > 0.08 ? color.red : currentDD > 0.03 ? color.orange : color.lime, text_size=size.tiny)
+
+    table.cell(dash, 0, 10, "P&L Jour",          bgcolor=color.new(color.black, 0), text_color=color.gray,  text_size=size.tiny)
+    table.cell(dash, 1, 10, str.tostring(dailyPnL, "#.0") + "$ / -" + str.tostring(apexDailyLim, "#") + "$", bgcolor=color.new(color.black, 0), text_color=dailyPnL < -apexDailyLim * 0.7 ? color.red : color.lime, text_size=size.tiny)
+
+    table.cell(dash, 0, 11, "DD Total $",        bgcolor=color.new(color.black, 0), text_color=color.gray,  text_size=size.tiny)
+    table.cell(dash, 1, 11, str.tostring(totalDD, "#.0") + "$ / " + str.tostring(apexDDLim, "#") + "$", bgcolor=color.new(color.black, 0), text_color=totalDD > apexDDLim * 0.7 ? color.red : color.lime, text_size=size.tiny)
+
+    statusBg = tradingAllowed ? color.new(color.green, 10) : color.new(color.red, 10)
+    table.cell(dash, 0, 12, "Trading",           bgcolor=statusBg, text_color=color.white, text_size=size.small)
+    table.cell(dash, 1, 12, tradingAllowed ? "ACTIF" : "SUSPENDU", bgcolor=statusBg, text_color=color.white, text_size=size.small)
+
+    divisorStr = lastDivisor <= 1 ? "normal" : "div " + str.tostring(lastDivisor)
+    table.cell(dash, 0, 13, "Diviseur WIN",      bgcolor=color.new(color.black, 0), text_color=color.gray,  text_size=size.tiny)
+    table.cell(dash, 1, 13, divisorStr,          bgcolor=color.new(color.black, 0), text_color=lastDivisor > baseDivisor ? color.orange : color.white, text_size=size.tiny)
