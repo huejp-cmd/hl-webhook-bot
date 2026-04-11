@@ -621,33 +621,24 @@ def place_order(signal: dict) -> dict:
             capital = BASE_CAPITAL_PER_SYMBOL.get(coin, 500.0)
             log.info(f"  Capital (DRY_RUN fallback) : {capital:.2f} USDC")
 
-    # -- Quantite (v5.5 : Pine qty + compound reel sur equity du compte) --
-    pine_qty = float(signal.get("qty", 0))
-    if pine_qty > 0 and coin in BASE_CAPITAL_PER_SYMBOL:
-        # Compound reel : scale la qty Pine selon l'equity actuelle du compte
-        base_capital  = BASE_CAPITAL_PER_SYMBOL[coin]          # ex: 600 SOL
-        real_equity   = get_account_value()                     # equity reelle HL
-        coin_alloc    = base_capital / TOTAL_BASE_CAPITAL       # 0.60 pour SOL
-        real_capital  = real_equity * coin_alloc                # capital reel alloue
-        real_capital  = max(real_capital, base_capital * 0.5)  # plancher 50%
-        scale_factor  = real_capital / base_capital
-        qty           = round_qty(pine_qty * scale_factor, coin)
-        risk_amt      = real_capital * risk_pct
-        log.info(f"  Compound reel    : equity={real_equity:.2f} USDC → "
-                 f"capital {coin}={real_capital:.2f} USDC (x{scale_factor:.2f}) "
-                 f"→ qty {pine_qty} × {scale_factor:.2f} = {qty} {coin}")
-    elif pine_qty > 0:
-        qty      = round_qty(pine_qty, coin)
-        risk_amt = capital * risk_pct
-        log.info(f"  Quantite (Pine)  : {qty} {coin}")
+    # ── Calcul qty : formule SL-distance (cohérente TradingView ↔ Bot) ──
+    # qty = risque_USDC / distance_SL  (même logique que Pine Script)
+    # TradingView envoie sl et entry_px → on recalcule proprement
+    sl_dist = abs(entry_px - sl_price)
+    risk_amt = capital * risk_pct
+
+    if sl_dist > 0:
+        qty_raw = (risk_amt / sl_dist) * lev
     else:
-        # Fallback : calcul risk-based
-        risk_amt      = capital * risk_pct
-        qty_from_risk = (risk_amt * lev) / entry_px
-        qty_cap_expo  = (capital * lev) / entry_px
-        qty_raw       = min(qty_from_risk, qty_cap_expo)
-        qty           = round_qty(qty_raw, coin)
-        log.info(f"  Quantite (calc)  : {qty} {coin}")
+        # SL non défini : fallback exposition max
+        qty_raw = (capital * lev) / entry_px
+
+    # Plafond : ne pas dépasser le capital alloué × levier
+    qty_cap = (capital * lev) / entry_px
+    qty     = round_qty(min(qty_raw, qty_cap), coin)
+
+    log.info(f"  Qty SL-dist      : capital={capital:.0f} USDC  risk={risk_amt:.2f} USDC  "
+             f"dist_SL={sl_dist:.4f}  qty_raw={qty_raw:.4f}  qty={qty} {coin}")
 
     if qty <= 0:
         # Fallback : taille minimale du marché (1 pour SOL, 0.001 pour ETH)
@@ -831,6 +822,12 @@ def webhook():
 
     # ── Log systématique de tous les signaux TradingView entrants ──
     _log_tw_signal(data)
+
+    # Vérification synchronisation TV ↔ Bot
+    if action == "open" and "symbol" in data:
+        from trading import hl_webhook_server as _self
+        coin_check = normalize_coin(data.get("symbol", ""), float(data.get("price", 0)))
+        check_sync(coin_check, data)
 
     # ----------------------------------------------------------------
     #  ACTION "open" -- nouvelle position
@@ -1437,6 +1434,94 @@ def _init_labouch_if_needed():
                      f"capital actif={status['active_capital']:.0f}, réserve={status['reserve']:.0f}")
 
 _init_labouch_if_needed()
+
+
+
+# ════════════════════════════════════════════════════════════════════════════
+#  SYNC CHECK — surveillance cohérence TradingView ↔ Bot
+# ════════════════════════════════════════════════════════════════════════════
+_last_tv_signal: dict = {}   # dernier signal reçu de TradingView
+_sync_alerts: list   = []    # liste des désynchronisations détectées
+
+def _log_sync_event(coin: str, issue: str, details: dict):
+    """Enregistre une désynchronisation TradingView ↔ Bot."""
+    event = {
+        "ts":      datetime.utcnow().isoformat() + "Z",
+        "coin":    coin,
+        "issue":   issue,
+        "details": details,
+    }
+    _sync_alerts.append(event)
+    if len(_sync_alerts) > 100:
+        _sync_alerts.pop(0)
+    log.warning(f"⚠️ DESYNC {coin}: {issue} | {details}")
+
+def check_sync(coin: str, signal: dict):
+    """Vérifie la cohérence entre le signal TV et l'état interne du bot."""
+    side    = signal.get("side", "").lower()
+    action  = signal.get("action", "").lower()
+    dry_pos = _dry_positions.get(coin)
+
+    if action != "open":
+        return  # uniquement sur les entrées
+
+    if dry_pos:
+        existing_side = dry_pos.get("side", "")
+        if existing_side == side:
+            _log_sync_event(coin, "SIGNAL_DUPLIQUE", {
+                "signal_side": side,
+                "bot_position": existing_side,
+                "entry_bot": dry_pos.get("entry"),
+            })
+        elif existing_side and existing_side != side:
+            # Retournement — normal, juste logger
+            log.info(f"  [SYNC] Retournement {coin}: {existing_side} → {side}")
+
+    # Vérifier que SL et TP sont dans le signal
+    if not signal.get("sl") or not signal.get("tp"):
+        _log_sync_event(coin, "SL_TP_MANQUANT", {"signal": signal})
+
+    # Enregistrer le dernier signal
+    _last_tv_signal[coin] = {
+        "ts":   datetime.utcnow().isoformat() + "Z",
+        "side": side,
+        "price": signal.get("price"),
+        "sl":   signal.get("sl"),
+        "tp":   signal.get("tp"),
+    }
+
+@app.route("/sync_status")
+def sync_status():
+    """Statut de synchronisation TradingView ↔ Bot."""
+    status = {}
+    for coin in ["SOL", "ETH"]:
+        tv_sig  = _last_tv_signal.get(coin, {})
+        bot_pos = _dry_positions.get(coin, {})
+        in_sync = True
+        issue   = None
+
+        if tv_sig and bot_pos:
+            tv_side  = tv_sig.get("side", "")
+            bot_side = bot_pos.get("side", "")
+            if tv_side != bot_side:
+                in_sync = False
+                issue   = f"TV={tv_side} BOT={bot_side}"
+        elif tv_sig and not bot_pos:
+            in_sync = False
+            issue   = "TV a signal mais bot sans position"
+
+        status[coin] = {
+            "in_sync":       in_sync,
+            "issue":         issue,
+            "last_tv_signal": tv_sig,
+            "bot_position":   bot_pos,
+        }
+
+    return jsonify({
+        "status":       status,
+        "sync_alerts":  _sync_alerts[-10:],
+        "checked_at":   datetime.utcnow().isoformat() + "Z",
+    })
 
 def main():
     log.info("Webhook Hyperliquid demarre -> http://0.0.0.0:5000")
